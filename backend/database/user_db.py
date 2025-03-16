@@ -39,23 +39,6 @@ AsyncSessionLocal = async_sessionmaker(
 )
 
 
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    fio = Column(String(255), nullable=False)
-    email = Column(String(255), unique=True, nullable=False)
-    password_hash = Column(Text, nullable=False)
-    avatar_url = Column(String(255), nullable=True)
-    telegram = Column(String(255), unique=True, nullable=False)
-    whatsapp = Column(String(255), unique=True, nullable=False)
-    created_at = Column(TIMESTAMP, default=datetime.utcnow)
-    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Связь с параметрами пользователя
-    params = relationship("UserParams", uselist=False, back_populates="user")
-
-
 class UserParams(Base):
     __tablename__ = "users_params"
 
@@ -67,7 +50,8 @@ class UserParams(Base):
     
     # Обратная ссылка на пользователя
     user = relationship("User", back_populates="params")
-    
+
+
 class Event(Base):
     __tablename__ = "events"
 
@@ -83,6 +67,16 @@ class Event(Base):
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Связь с типами билетов
+    tickets = relationship("TicketType", back_populates="event")
+    
+    # Связь с регистрациями на мероприятие
+    registrations = relationship("Registration", back_populates="event")
+    
+    # Связь с медиа, относящимся к мероприятию
+    medias = relationship("Media", back_populates="event")
+
+
 class TicketType(Base):
     __tablename__ = "ticket_types"
 
@@ -94,6 +88,13 @@ class TicketType(Base):
     sold_quantity = Column(Integer, default=0)  # Количество проданных билетов данного типа
     free_registration = Column(Boolean, default=False)  # Возможность бесплатной регистрации
     
+    # Обратная связь с событием
+    event = relationship("Event", back_populates="tickets")
+    
+    # Связь с регистрациями, использующими данный тип билета
+    registrations = relationship("Registration", back_populates="ticket_type")
+
+
 class Registration(Base):
     __tablename__ = "registrations"
 
@@ -107,6 +108,16 @@ class Registration(Base):
     status = Column(String(30), default='pending')  # Статусы: pending, approved, rejected
     submission_time = Column(TIMESTAMP, default=datetime.utcnow)
     
+    # Обратная связь с пользователем
+    user = relationship("User", back_populates="registrations")
+    
+    # Обратная связь с мероприятием
+    event = relationship("Event", back_populates="registrations")
+    
+    # Обратная связь с типом билета
+    ticket_type = relationship("TicketType", back_populates="registrations")
+
+
 class Media(Base):
     __tablename__ = "medias"
 
@@ -120,6 +131,37 @@ class Media(Base):
     approved = Column(Boolean, default=False)  # Прошёл ли модерацию
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Обратная связь с мероприятием
+    event = relationship("Event", back_populates="medias")
+    
+    # Обратная связь с пользователем, загрузившим медиа
+    user_uploaded_by = relationship("User", foreign_keys=[user_uploaded_by_id], back_populates="user_medias")
+    
+    # Обратная связь с администратором, загрузившим медиа
+    admin_uploaded_by = relationship("Admin", foreign_keys=[admin_uploaded_by_id], back_populates="admin_medias")
+    
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fio = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(Text, nullable=False)
+    avatar_url = Column(String(255), nullable=True)
+    telegram = Column(String(255), unique=True, nullable=False)
+    whatsapp = Column(String(255), unique=True, nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Связь с параметрами пользователя
+    params = relationship("UserParams", uselist=False, back_populates="user")
+    
+    # Связь с регистрациями пользователя
+    registrations = relationship("Registration", back_populates="user")
+    
+    # Связь с медиа, загруженным пользователем
+    user_medias = relationship("Media", foreign_keys=[Media.user_uploaded_by_id], back_populates="user_uploaded_by")
 
 
 async def init_db():

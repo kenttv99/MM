@@ -3,6 +3,7 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from constants import DATABASE_URL
 from datetime import datetime
+from .user_db import Media  # Импортируем модель Media из user_db.py
 from sqlalchemy.orm import (
     declarative_base,
     relationship,
@@ -49,3 +50,47 @@ class Admin(Base):
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    # Связь с медиа, загруженным администратором
+    admin_medias = relationship("Media", foreign_keys=[Media.admin_uploaded_by_id], back_populates="admin_uploaded_by")
+    
+    
+async def init_db():
+    """
+    Инициализация базы данных.
+    """
+    try:
+        async with engine.begin() as conn:
+            # Создание всех таблиц
+            await conn.run_sync(Base.metadata.create_all)
+            print("Таблицы успешно созданы.")
+    except Exception as e:
+        print(f"Произошла ошибка при инициализации базы данных: {e}")
+    finally:
+        await engine.dispose()
+
+
+@asynccontextmanager
+async def get_session() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        async with session.begin():
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                await session.close()
+
+
+# Dependency для FastAPI
+async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        except Exception:
+            await session.rollback()
+            raise
+
+
+if __name__ == "__main__":
+    asyncio.run(init_db())

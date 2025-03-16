@@ -1,6 +1,7 @@
 import asyncio
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from backend.schemas_enums.enums import MediaType, Status
 from constants import DATABASE_URL
 from datetime import datetime
 from sqlalchemy.orm import (
@@ -105,7 +106,7 @@ class Registration(Base):
     ticket_number = Column(String(255))  # Номер билета
     payment_status = Column(Boolean, default=False)  # Статус оплаты
     amount_paid = Column(DECIMAL(20, 8))  # Сумма платежа
-    status = Column(String(30), default='pending')  # Статусы: pending, approved, rejected
+    status = Column(Enum(Status), default=Status.pending.name)  # Статусы: pending, approved, rejected
     submission_time = Column(TIMESTAMP, default=datetime.utcnow)
     
     # Обратная связь с пользователем
@@ -125,7 +126,7 @@ class Media(Base):
     event_id = Column(Integer, ForeignKey("events.id"))  # К какому мероприятию относится
     user_uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Кто загрузил (обычный пользователь)
     admin_uploaded_by_id = Column(Integer, ForeignKey("admins.id"), nullable=True)  # Кто загрузил (администратор)
-    type = Column(Enum('photo', 'video'), nullable=False)  # Тип медиафайла
+    type = Column(Enum(MediaType), nullable=False)  # Тип медиафайла
     url = Column(String(255), nullable=False)  # Ссылка на файл
     caption = Column(String(500))  # Описание файла
     approved = Column(Boolean, default=False)  # Прошёл ли модерацию
@@ -164,10 +165,22 @@ class User(Base):
     user_medias = relationship("Media", foreign_keys=[Media.user_uploaded_by_id], back_populates="user_uploaded_by")
 
 
+class Admin(Base):
+    __tablename__ = "admins"
+
+    id = Column(Integer, primary_key=True, index=True)
+    fio = Column(String(255), nullable=False)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(Text, nullable=False)
+    avatar_url = Column(String(255), nullable=True)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    # Связь с медиа, загруженным администратором
+    admin_medias = relationship("Media", foreign_keys=[Media.admin_uploaded_by_id], back_populates="admin_uploaded_by")
+
+# Функция для инициализации базы данных
 async def init_db():
-    """
-    Инициализация базы данных.
-    """
     try:
         async with engine.begin() as conn:
             # Создание всех таблиц
@@ -178,7 +191,7 @@ async def init_db():
     finally:
         await engine.dispose()
 
-
+# Контекст-менеджер для получения сессии
 @asynccontextmanager
 async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
@@ -191,7 +204,6 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             finally:
                 await session.close()
 
-
 # Dependency для FastAPI
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
@@ -200,7 +212,6 @@ async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
         except Exception:
             await session.rollback()
             raise
-
 
 if __name__ == "__main__":
     asyncio.run(init_db())

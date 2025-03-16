@@ -106,6 +106,20 @@ class Registration(Base):
     amount_paid = Column(DECIMAL(20, 8))  # Сумма платежа
     status = Column(String(30), default='pending')  # Статусы: pending, approved, rejected
     submission_time = Column(TIMESTAMP, default=datetime.utcnow)
+    
+class Media(Base):
+    __tablename__ = "medias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    event_id = Column(Integer, ForeignKey("events.id"))  # К какому мероприятию относится
+    user_uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # Кто загрузил (обычный пользователь)
+    admin_uploaded_by_id = Column(Integer, ForeignKey("admins.id"), nullable=True)  # Кто загрузил (администратор)
+    type = Column(Enum('photo', 'video'), nullable=False)  # Тип медиафайла
+    url = Column(String(255), nullable=False)  # Ссылка на файл
+    caption = Column(String(500))  # Описание файла
+    approved = Column(Boolean, default=False)  # Прошёл ли модерацию
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 async def init_db():

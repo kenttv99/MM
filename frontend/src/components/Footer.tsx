@@ -2,8 +2,12 @@ import React from 'react';
 
 const Footer = () => {
   return (
-    <footer className="fixed bottom-0 w-full py-4 bg-gray-100 shadow-md text-center">
-      <p>© Moscow Mellows, 2025</p>
+    <footer className="bg-white pt-6 pb-6 shadow-inner">
+      <div className="container mx-auto px-4 md:px-6">
+        <div className="text-center">
+          <p className="text-black text-sm">© Moscow Mellows {new Date().getFullYear()}. Все права защищены.</p>
+        </div>
+      </div>
     </footer>
   );
 };

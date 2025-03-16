@@ -1,22 +1,20 @@
 import React from 'react';
 import Header from '@/components/Header';
-import Container1 from '@/components/Registration';
-import Container2 from '@/components/Events';
-import Container3 from '@/components/Media';
+import Registration from '@/components/Registration';
+import Events from '@/components/Events';
+import Media from '@/components/Media';
 import Footer from '@/components/Footer';
 
-const HomePage = () => {
+export default function PublicHomePage() {
   return (
     <>
       <Header />
       <main className="min-h-screen flex flex-col justify-start items-center pb-20">
-        <Container1 />
-        <Container2 />
-        <Container3 />
+        <Registration />
+        <Events />
+        <Media />
       </main>
       <Footer />
     </>
   );
-};
-
-export default HomePage;
+}

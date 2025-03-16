@@ -7,7 +7,7 @@ const Header = () => {
   return (
     <header className="flex items-center justify-between px-4 py-4 bg-white shadow-md sticky top-0 z-50">
       <Link href="/">
-        <a><Logo /></a>
+        <Logo />
       </Link>
       <PartnerButton />
     </header>

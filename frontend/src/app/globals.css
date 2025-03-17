@@ -1,12 +1,26 @@
+/* frontend/src/app/globals.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Root variables for theming */
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  
+  /* Orange theme colors */
+  --primary: #f97316;
+  --primary-hover: #ea580c;
+  --primary-light: #ffedd5;
+  
+  /* UI colors */
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --info: #3b82f6;
 }
 
+/* Dark mode variables */
 @media (prefers-color-scheme: dark) {
   :root {
     --background: #0a0a0a;
@@ -28,6 +42,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Input styles - расширенные правила для более плавных переходов */
+input, button, a, select, textarea {
+  outline: none;
+  transition-property: all;
+  transition-duration: 500ms;
+  transition-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1); /* Более плавная кривая */
+  backface-visibility: hidden; /* Предотвращает некоторые рывки в трансформациях */
+  transform-style: preserve-3d; /* Улучшает рендеринг трансформаций */
+  will-change: transform, opacity; /* Подсказка браузеру для оптимизации */
+}
+
+/* Smooth placeholders */
+::placeholder {
+  transition: opacity 500ms ease, color 500ms ease;
+}
+
+input:focus::placeholder {
+  opacity: 0.7;
+}
+
+/* Remove browser default focus styles that can cause jumpiness */
 * {
   box-sizing: border-box;
   padding: 0;
@@ -45,6 +80,7 @@ a {
   }
 }
 
+/* Animation keyframes */
 @keyframes slideDown {
   from {
     transform: translateY(-100%);
@@ -56,7 +92,7 @@ a {
   }
 }
 
-@keyframes spinSlow {
+@keyframes spin {
   from {
     transform: rotate(0deg);
   }
@@ -83,18 +119,91 @@ a {
   }
 }
 
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
+}
+
+/* Animation utility classes */
 .animate-slide-down {
   animation: slideDown 0.3s ease-out;
 }
 
 .animate-fade-in {
-  animation: fadeIn 0.25s ease-in-out; /* Уменьшено до 0.25s */
+  animation: fadeIn 0.25s ease-in-out;
 }
 
 .animate-fade-out {
-  animation: fadeOut 0.25s ease-in-out; /* Уменьшено до 0.25s */
+  animation: fadeOut 0.25s ease-in-out;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
 }
 
 .animate-spin-slow {
-  animation: spinSlow 2s linear infinite;
+  animation: spin 2s linear infinite;
+}
+
+.animate-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* Common layout utilities */
+.full-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.backdrop {
+  background-color: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(8px);
+}
+
+/* Fix for iOS safari scrolling/hiding */
+body.no-scroll {
+  position: fixed;
+  width: 100%;
+  overflow-y: hidden;
+}
+
+/* Custom component styles */
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-lg transition-all duration-300 font-medium;
+  }
+  
+  .btn-primary {
+    @apply bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700;
+  }
+  
+  .btn-secondary {
+    @apply bg-white border border-orange-500 text-orange-500 hover:bg-orange-50;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300;
+  }
+  
+  .form-input {
+    @apply w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent;
+  }
 }

@@ -44,3 +44,57 @@ a {
     color-scheme: dark;
   }
 }
+
+@keyframes slideDown {
+  from {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes spinSlow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.animate-slide-down {
+  animation: slideDown 0.3s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.25s ease-in-out; /* Уменьшено до 0.25s */
+}
+
+.animate-fade-out {
+  animation: fadeOut 0.25s ease-in-out; /* Уменьшено до 0.25s */
+}
+
+.animate-spin-slow {
+  animation: spinSlow 2s linear infinite;
+}

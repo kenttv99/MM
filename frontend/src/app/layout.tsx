@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css"; // или "./globals.postcss" если вы переименовали файл
+import "./globals.css";
+import Header from "@/components/Header"; // Импортируем хедер
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -12,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: 'Moscow Mellows',
-  description: 'Moscow Mellows - ваша платформа для мероприятий',
+  title: "Moscow Mellows",
+  description: "Moscow Mellows - ваша платформа для мероприятий",
 };
 
 export default function RootLayout({
@@ -24,7 +25,8 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {children}
+        <Header /> {/* Добавляем хедер */}
+        <main>{children}</main>
       </body>
     </html>
   );

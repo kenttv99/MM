@@ -3,14 +3,11 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/fa";
+import { FaEnvelope, FaLock } from "react-icons/fa";
 
-const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
-  const [fio, setFio] = useState("");
+const Login = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [telegram, setTelegram] = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
   const [error, setError] = useState("");
   const router = useRouter();
 
@@ -18,20 +15,24 @@ const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
     e.preventDefault();
     setError("");
 
-    const response = await fetch("/auth/register", {
+    const response = await fetch("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fio, email, password, telegram, whatsapp }),
+      body: JSON.stringify({ email, password }),
     });
 
     if (response.ok) {
+      const data = await response.json();
+      localStorage.setItem("token", data.access_token);
       onClose();
-      router.push("/auth/login");
+      router.push("/auth/profile");
     } else {
       const data = await response.json();
-      setError(data.detail || "Ошибка регистрации");
+      setError(data.detail || "Ошибка авторизации");
     }
   };
+
+  if (!isOpen) return null;
 
   return (
     <AnimatePresence>
@@ -52,7 +53,7 @@ const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
             className="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-gray-100"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-3xl font-bold mb-8 text-gray-900 tracking-tight">Регистрация</h2>
+            <h2 className="text-3xl font-bold mb-8 text-gray-900 tracking-tight">Вход</h2>
             {error && (
               <motion.p
                 initial={{ opacity: 0, x: -20 }}
@@ -64,21 +65,6 @@ const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
               </motion.p>
             )}
             <form onSubmit={handleSubmit} className="space-y-6">
-              <motion.div
-                className="relative overflow-hidden"
-                whileFocus={{ scale: 1.02 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              >
-                <input
-                  type="text"
-                  value={fio}
-                  onChange={(e) => setFio(e.target.value)}
-                  placeholder="Введите ваше ФИО"
-                  className="w-full p-5 pr-12 border-b-2 border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-0 focus:border-orange-500 transition-all duration-300 rounded-lg appearance-none select-none"
-                  required
-                />
-                <FaUser className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              </motion.div>
               <motion.div
                 className="relative overflow-hidden"
                 whileFocus={{ scale: 1.02 }}
@@ -109,36 +95,6 @@ const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                 />
                 <FaLock className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               </motion.div>
-              <motion.div
-                className="relative overflow-hidden"
-                whileFocus={{ scale: 1.02 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              >
-                <input
-                  type="text"
-                  value={telegram}
-                  onChange={(e) => setTelegram(e.target.value)}
-                  placeholder="Введите Telegram"
-                  className="w-full p-5 pr-12 border-b-2 border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-0 focus:border-orange-500 transition-all duration-300 rounded-lg appearance-none select-none"
-                  required
-                />
-                <FaTelegram className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              </motion.div>
-              <motion.div
-                className="relative overflow-hidden"
-                whileFocus={{ scale: 1.02 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              >
-                <input
-                  type="text"
-                  value={whatsapp}
-                  onChange={(e) => setWhatsapp(e.target.value)}
-                  placeholder="Введите WhatsApp"
-                  className="w-full p-5 pr-12 border-b-2 border-gray-200 bg-gray-50 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-0 focus:border-orange-500 transition-all duration-300 rounded-lg appearance-none select-none"
-                  required
-                />
-                <FaWhatsapp className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-              </motion.div>
               <div className="flex justify-end space-x-4">
                 <motion.button
                   whileHover={{ scale: 1.1, backgroundColor: "#e5e7eb" }}
@@ -155,7 +111,7 @@ const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
                   type="submit"
                   className="px-6 py-3 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300"
                 >
-                  Зарегистрироваться
+                  Войти
                 </motion.button>
               </div>
             </form>
@@ -166,4 +122,4 @@ const Registration = ({ isOpen, onClose }: { isOpen: boolean; onClose: () => voi
   );
 };
 
-export default Registration;
+export default Login;

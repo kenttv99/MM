@@ -1,19 +1,17 @@
+import hashlib
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.database.user_db import User  # Оставляем только User
+from backend.database.user_db import User, UserActivity, get_async_db  # Оставляем только User
 from sqlalchemy.future import select
 from passlib.context import CryptContext
 from typing import Optional
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
+from backend.config.logging_config import logger
+from constants import SECRET_KEY, ALGORITHM
 
 # Контекст для хэширования паролей
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Секретный ключ и алгоритм для JWT
-SECRET_KEY = "your-secret-key"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 async def create_user(session: AsyncSession, fio: str, email: str, password: str, telegram: str, whatsapp: str) -> User:
     """Создание нового пользователя с хэшированием пароля."""
@@ -59,3 +57,66 @@ async def get_current_user(token: str, session: AsyncSession) -> User:
     if user is None:
         raise credentials_exception
     return user
+
+async def log_user_activity(
+    db: AsyncSession,
+    user_id: int,
+    request: Request,
+    action: str
+):
+    """Логирование активности пользователя с фингерпринтом устройства, предотвращение дубликатов."""
+    # Получаем IP-адрес из заголовка X-Forwarded-For (для прокси) или напрямую
+    ip_address = request.headers.get("X-Forwarded-For", request.client.host)
+    # Получаем куки (если они есть)
+    cookies = "; ".join([f"{key}={value}" for key, value in request.cookies.items()]) if request.cookies else None
+    # Получаем User-Agent
+    user_agent = request.headers.get("User-Agent", "Unknown")
+    # Дополнительные заголовки для фингерпринта
+    accept_language = request.headers.get("Accept-Language", "")
+    accept_encoding = request.headers.get("Accept-Encoding", "")
+
+    # Генерируем фингерпринт устройства
+    fingerprint_data = f"{ip_address}{user_agent}{cookies or ''}{accept_language}{accept_encoding}"
+    device_fingerprint = hashlib.sha256(fingerprint_data.encode("utf-8")).hexdigest()
+
+    # Проверяем существование записи с теми же данными
+    stmt = select(UserActivity).where(
+        UserActivity.user_id == user_id,
+        UserActivity.ip_address == ip_address,
+        UserActivity.device_fingerprint == device_fingerprint,
+        UserActivity.action == action,
+        UserActivity.created_at >= (datetime.utcnow() - timedelta(minutes=5))  # Проверяем за последние 5 минут
+    )
+    result = await db.execute(stmt)
+    existing_activity = result.scalars().first()
+
+    if not existing_activity:
+        # Если записи нет, создаем новую
+        activity = UserActivity(
+            user_id=user_id,
+            ip_address=ip_address,
+            cookies=cookies,
+            user_agent=user_agent,
+            action=action,
+            device_fingerprint=device_fingerprint
+        )
+        db.add(activity)
+        await db.commit()
+    else:
+        # Если запись существует, обновляем created_at (опционально)
+        existing_activity.created_at = datetime.utcnow()
+        await db.commit()
+        logger.info(f"Duplicate activity ignored for user_id={user_id}, action={action}")
+        
+async def get_user_or_ip_key(request: Request) -> str:
+    """Возвращает user_id (если аутентифицирован) или IP-адрес как ключ для ограничения."""
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        async with get_async_db() as session:
+            try:
+                user = await get_current_user(token, session)
+                return f"user_{user.id}"  # Ключ на основе user_id
+            except Exception:
+                pass
+    return f"ip_{request.client.host}"  # Ключ на основе IP для неаутентифицированных пользователей

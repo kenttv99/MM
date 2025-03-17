@@ -157,12 +157,30 @@ class User(Base):
     
     # Связь с параметрами пользователя
     params = relationship("UserParams", uselist=False, back_populates="user")
-    
     # Связь с регистрациями пользователя
     registrations = relationship("Registration", back_populates="user")
-    
     # Связь с медиа, загруженным пользователем
     user_medias = relationship("Media", foreign_keys=[Media.user_uploaded_by_id], back_populates="user_uploaded_by")
+    activities = relationship("UserActivity", back_populates="user")  # Новая связь
+    
+class UserActivity(Base):
+    __tablename__ = "user_activities"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    ip_address = Column(String(45), nullable=False)  # Поддержка IPv4 и IPv6
+    cookies = Column(Text, nullable=True)  # Храним куки как текст
+    user_agent = Column(Text, nullable=True)  # Информация о браузере/устройстве
+    action = Column(String(50), nullable=False)  # Тип действия: register, login, access_me
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    device_fingerprint = Column(Text, nullable=True)
+
+    user = relationship("User", back_populates="activities")
+    
+    # Уникальный индекс для предотвращения дубликатов
+    __table_args__ = (
+        UniqueConstraint('user_id', 'ip_address', 'device_fingerprint', 'action', 'created_at', name='uq_user_activity'),
+    )
 
 
 class Admin(Base):

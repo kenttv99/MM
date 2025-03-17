@@ -1,11 +1,19 @@
-from sqlalchemy import create_engine, MetaData
+# backend/database/drop_db.py
+import asyncio
+from sqlalchemy.ext.asyncio import create_async_engine
+from backend.database.user_db import Base  # Импортируем Base
 from constants import DATABASE_URL
 
-engine = create_engine(DATABASE_URL)
-meta = MetaData()
+# Создаем асинхронный движок
+engine = create_async_engine(DATABASE_URL, echo=True, future=True)
 
-# Отражение всех таблиц
-meta.reflect(bind=engine)
-meta.drop_all(bind=engine)
+async def drop_tables():
+    async with engine.begin() as conn:
+        # Отражаем текущую структуру базы через run_sync
+        await conn.run_sync(Base.metadata.reflect)
+        # Удаляем все таблицы через run_sync
+        await conn.run_sync(Base.metadata.drop_all)
 
-print("Все таблицы успешно удалены.")
+if __name__ == "__main__":
+    asyncio.run(drop_tables())
+    print("Все таблицы успешно удалены.")

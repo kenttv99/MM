@@ -1,4 +1,3 @@
-// frontend/src/components/Header.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -17,7 +16,7 @@ interface NavItem {
 }
 
 const Header: React.FC = () => {
-  const { isAuth, userData, logout } = useAuth();
+  const { isAuth, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
@@ -35,7 +34,6 @@ const Header: React.FC = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  // Handle clicks outside the notification modal
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -50,19 +48,12 @@ const Header: React.FC = () => {
     };
 
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotificationsOpen]);
 
-  // Auto-close notification after mouse leaves
   const startNotificationCloseTimer = () => {
-    if (notificationTimeoutRef.current) {
-      clearTimeout(notificationTimeoutRef.current);
-    }
-    notificationTimeoutRef.current = setTimeout(() => {
-      setIsNotificationsOpen(false);
-    }, 1000);
+    if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current);
+    notificationTimeoutRef.current = setTimeout(() => setIsNotificationsOpen(false), 1000);
   };
 
   const stopNotificationCloseTimer = () => {
@@ -73,15 +64,12 @@ const Header: React.FC = () => {
   };
 
   const handleLogout = () => {
-    logout(); // Use the centralized logout function
+    logout();
     router.push("/");
   };
 
   const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
-  
-  const toggleNotifications = () => {
-    setIsNotificationsOpen((prev) => !prev);
-  };
+  const toggleNotifications = () => setIsNotificationsOpen((prev) => !prev);
 
   const guestNavItems: NavItem[] = [
     { label: "Регистрация", onClick: () => setIsRegistrationOpen(true) },
@@ -105,34 +93,19 @@ const Header: React.FC = () => {
     visible: { opacity: 1, y: 0 },
   };
 
-  // Правильно извлекаем имя пользователя
-  let displayName = "";
-  if (userData) {
-    if (userData.fio && typeof userData.fio === 'string') {
-      const nameParts = userData.fio.trim().split(' ');
-      displayName = nameParts[0] || '';
-    } else if (userData.email && typeof userData.email === 'string') {
-      displayName = userData.email.split('@')[0];
-    }
-  }
-
-  // Отслеживаем изменения в статусе аутентификации
   useEffect(() => {
     const handleAuthChange = () => {
-      // Форсируем ререндер, когда происходит изменение аутентификации
       setIsLoginOpen(false);
       setIsRegistrationOpen(false);
     };
     
     window.addEventListener("auth-change", handleAuthChange);
-    return () => {
-      window.removeEventListener("auth-change", handleAuthChange);
-    };
+    return () => window.removeEventListener("auth-change", handleAuthChange);
   }, []);
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${
         isScrolled ? "bg-white/95 backdrop-blur-sm shadow-lg py-3" : "bg-white/90 py-4"
       }`}
     >
@@ -190,7 +163,7 @@ const Header: React.FC = () => {
                         <Link 
                           href={item.href || "#"} 
                           className="text-gray-800 hover:text-orange-500"
-                          onClick={() => setIsMobileMenuOpen(false)} // Close menu when navigating
+                          onClick={() => setIsMobileMenuOpen(false)}
                         >
                           {item.label}
                         </Link>
@@ -240,15 +213,12 @@ const Header: React.FC = () => {
                 </AnimatePresence>
               </div>
               
-              <Link href="/profile" className="flex items-center space-x-2 text-orange-500 hover:text-orange-600">
+              <Link href="/profile" className="text-orange-500 hover:text-orange-600">
                 <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
                   <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                   </svg>
                 </div>
-                {displayName && (
-                  <span className="hidden lg:inline">{displayName}</span>
-                )}
               </Link>
               
               <button 

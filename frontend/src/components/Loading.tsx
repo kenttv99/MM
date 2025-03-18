@@ -3,7 +3,7 @@ import React from "react";
 
 const Loading = () => {
   return (
-    <div className="fixed inset-0 bg-white bg-opacity-80 flex items-center justify-center z-50" style={{ overflow: 'hidden' }}>
+    <div className="fixed inset-0 bg-white bg-opacity-80 flex items-center justify-center z-20" style={{ overflow: 'hidden' }}>
       <div className="flex flex-col items-center">
         <div className="relative w-16 h-16">
           {/* Multiple circles with staggered animations */}

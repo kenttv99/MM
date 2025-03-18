@@ -67,40 +67,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Загрузка полных данных пользователя (используется реже)
   const loadUserData = useCallback(async (): Promise<UserData | null> => {
+    const token = localStorage.getItem("token");
+    if (!token) return null;
+  
+    const now = Date.now();
+    if (now - lastUserDataFetchRef.current < 30000) {
+      return userData || getUserCache();
+    }
+    
+    lastUserDataFetchRef.current = now;
+    
     try {
-      const token = localStorage.getItem("token");
-      if (!token) return null;
-
-      // Ограничиваем частые запросы данных пользователя
-      const now = Date.now();
-      if (now - lastUserDataFetchRef.current < 30000) { // Не чаще раза в 30 секунд
-        return userData || getUserCache();
-      }
-      
-      lastUserDataFetchRef.current = now;
+      // Используем AbortController для установки таймаута
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд таймаут
       
       const response = await fetch("/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          "Cache-Control": "no-cache"
+        },
+        signal: controller.signal
       });
       
-      if (response.ok) {
-        const data = await response.json();
-        return data;
-      } else if (response.status === 429) {
-        // При превышении лимита используем кэшированные данные
-        console.warn("User data fetch rate limited, using cached data");
-        return userData || getUserCache();
-      } else if (response.status === 401) {
-        // Токен недействителен
-        return null;
-      }
+      clearTimeout(timeoutId);
       
+      if (response.ok) return await response.json();
+      if (response.status === 429) return userData || getUserCache();
+      if (response.status === 401) return null;
+      
+      // Логируем больше информации для отладки
+      const errorText = await response.text();
+      console.error(`API Error (${response.status}):`, errorText);
       return null;
-    } catch (error) {
-      console.error("Ошибка загрузки данных пользователя:", error);
+    } catch (error: unknown) {
+      // Проверяем, не вызвана ли ошибка таймаутом
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') {
+        console.error("Запрос к API превысил время ожидания");
+      } else {
+        console.error("Ошибка загрузки данных:", error);
+      }
       return null;
     }
   }, [userData]);
+  
 
   // Проверка только валидности токена (используется чаще)
   const verifyToken = useCallback(async (): Promise<boolean> => {
@@ -154,75 +164,55 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Проверка аутентификации с двухуровневым подходом
   const checkAuth = useCallback(async (): Promise<boolean> => {
+    if (checkInProgressRef.current) return checkInProgressRef.current;
+    
     const now = Date.now();
-    const timeSinceLastCheck = now - lastCheckRef.current;
+    if (now - lastCheckRef.current < 5000 && lastCheckRef.current !== 0) return isAuth;
     
-    // Если проверка уже выполняется, возвращаем существующий промис
-    if (checkInProgressRef.current) {
-      return checkInProgressRef.current;
-    }
-    
-    // Ограничиваем частоту проверок
-    if (timeSinceLastCheck < 5000 && lastCheckRef.current !== 0) {
-      return isAuth; // Возвращаем текущее состояние без проверки
-    }
-    
-    // Устанавливаем загрузку только при первой загрузке
-    if (lastCheckRef.current === 0) {
-      setIsLoading(true);
-    }
-    
+    if (lastCheckRef.current === 0) setIsLoading(true);
     lastCheckRef.current = now;
     
     const checkPromise = new Promise<boolean>(async (resolve) => {
       try {
-        // Проверяем наличие токена
         const token = localStorage.getItem("token");
         if (!token) {
           setIsAuth(false);
           setUserData(null);
           setUserCache(null);
           setIsLoading(false);
-          resolve(false);
-          return;
+          return resolve(false);
         }
         
-        // Шаг 1: Проверка валидности токена (через verify_token или me)
         const isValidToken = await verifyToken();
         
         if (!isValidToken) {
-          // Токен невалиден - очищаем всё
           localStorage.removeItem("token");
           setUserCache(null);
           setIsAuth(false);
           setUserData(null);
-          resolve(false);
-        } else {
-          // Токен валиден - устанавливаем аутентификацию
-          setIsAuth(true);
-          
-          // Шаг 2: Если у нас нет данных пользователя, загружаем их
-          if (!userData) {
-            const cachedUserData = getUserCache(); 
-            
-            if (cachedUserData) {
-              setUserData(cachedUserData);
-            }
-            
-            // Асинхронно загружаем актуальные данные
-            loadUserData().then(data => {
-              if (data) {
-                setUserData(data);
-                setUserCache(data);
-              }
-            }).catch(console.error);
-          }
-          
-          resolve(true);
+          return resolve(false);
         }
+        
+        setIsAuth(true);
+        
+        if (!userData) {
+          const cachedData = getUserCache();
+          if (cachedData) setUserData(cachedData);
+          
+          try {
+            const freshData = await loadUserData();
+            if (freshData) {
+              setUserData(freshData);
+              setUserCache(freshData);
+            }
+          } catch (e) {
+            console.error("Ошибка загрузки:", e);
+          }
+        }
+        
+        resolve(true);
       } catch (error) {
-        console.error("Ошибка проверки аутентификации:", error);
-        // При серьезной ошибке возвращаем текущее состояние
+        console.error("Ошибка проверки:", error);
         resolve(isAuth);
       } finally {
         setIsLoading(false);

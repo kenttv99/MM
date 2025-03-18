@@ -15,7 +15,7 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
   const router = useRouter();
-  const { checkAuth } = useAuth();
+  const { setIsAuth, checkAuth } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -42,21 +42,23 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
         if (data.access_token) {
           localStorage.setItem("token", data.access_token);
           
-          // Показываем успешное сообщение и закрываем через таймаут
+          // Устанавливаем состояние успешного входа
           setIsLoginSuccess(true);
           
+          // Обновляем состояние аутентификации
+          setIsAuth(true);
+          
+          // Немедленно запускаем проверку аутентификации для получения данных пользователя
+          await checkAuth();
+          
+          // Уведомляем другие компоненты об изменении аутентификации
+          window.dispatchEvent(new Event("auth-change"));
+          
+          // Задержка перед закрытием модального окна, чтобы пользователь увидел успешное сообщение
           setTimeout(() => {
             onClose();
-            
-            // Обновляем авторизационный статус
-            checkAuth();
-            
-            // Уведомляем другие компоненты
-            window.dispatchEvent(new Event("auth-change"));
-            
-            // Перенаправляем пользователя
             router.push("/");
-          }, 1000); // Небольшая задержка для показа успешного сообщения
+          }, 1000);
         } else {
           setError("Сервер не вернул токен доступа");
         }

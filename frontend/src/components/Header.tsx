@@ -105,10 +105,30 @@ const Header: React.FC = () => {
     visible: { opacity: 1, y: 0 },
   };
 
-  // User display name - use first name from FIO or email if not available
-  const userDisplayName = userData ? 
-    (userData.fio ? userData.fio.split(' ')[0] : userData.email.split('@')[0]) 
-    : "";
+  // Правильно извлекаем имя пользователя
+  let displayName = "";
+  if (userData) {
+    if (userData.fio && typeof userData.fio === 'string') {
+      const nameParts = userData.fio.trim().split(' ');
+      displayName = nameParts[0] || '';
+    } else if (userData.email && typeof userData.email === 'string') {
+      displayName = userData.email.split('@')[0];
+    }
+  }
+
+  // Отслеживаем изменения в статусе аутентификации
+  useEffect(() => {
+    const handleAuthChange = () => {
+      // Форсируем ререндер, когда происходит изменение аутентификации
+      setIsLoginOpen(false);
+      setIsRegistrationOpen(false);
+    };
+    
+    window.addEventListener("auth-change", handleAuthChange);
+    return () => {
+      window.removeEventListener("auth-change", handleAuthChange);
+    };
+  }, []);
 
   return (
     <header
@@ -226,8 +246,8 @@ const Header: React.FC = () => {
                     <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                   </svg>
                 </div>
-                {userDisplayName && (
-                  <span className="hidden lg:inline">{userDisplayName}</span>
+                {displayName && (
+                  <span className="hidden lg:inline">{displayName}</span>
                 )}
               </Link>
               

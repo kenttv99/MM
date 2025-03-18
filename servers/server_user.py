@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from backend.api.user_auth_routers import router as user_auth_router
 from backend.config.auth import get_user_or_ip_key
 from backend.config.logging_config import logger
@@ -13,6 +14,14 @@ app = FastAPI(
     title="User Authentication API",
     docs_url="/docs",
     redoc_url="/redoc"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"], # Адрес фронтенда
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Привязываем Limiter к приложению с кастомной функцией ключа

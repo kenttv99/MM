@@ -1,4 +1,3 @@
-// frontend/src/contexts/AuthContext.tsx
 "use client";
 
 import React, { createContext, useState, useEffect, useContext } from "react";
@@ -13,34 +12,36 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuth, setIsAuth] = useState<boolean>(false);
 
-  // Функция проверки авторизации через сервер
   const checkAuth = async () => {
     const token = localStorage.getItem("token");
     if (token) {
       try {
-        const response = await fetch("/me", {
+        const response = await fetch("http://localhost:8000/auth/me", { // Полный URL
           headers: { Authorization: `Bearer ${token}` },
         });
         if (response.ok) {
-          setIsAuth(true); // Токен валиден, пользователь авторизован
+          setIsAuth(true);
         } else {
-          localStorage.removeItem("token"); // Токен недействителен
+          localStorage.removeItem("token"); // Удаляем токен при явной ошибке авторизации
           setIsAuth(false);
         }
       } catch (error) {
         console.error("Ошибка проверки авторизации:", error);
-        setIsAuth(false);
+        setIsAuth(false); // Сеть недоступна
       }
     } else {
-      setIsAuth(false); // Токена нет
+      setIsAuth(false);
     }
   };
 
-  // Проверка авторизации при монтировании и изменении localStorage
   useEffect(() => {
-    checkAuth(); // Первоначальная проверка
+    checkAuth(); // Проверка при монтировании
 
-    const handleStorageChange = () => checkAuth();
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "token") { // Реагируем только на изменения token
+        checkAuth();
+      }
+    };
     window.addEventListener("storage", handleStorageChange);
     return () => window.removeEventListener("storage", handleStorageChange);
   }, []);

@@ -1,16 +1,17 @@
 // frontend/src/components/Registration.tsx
 "use client";
 
-import React, { useState, FormEvent, ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, FormEvent, ChangeEvent, Dispatch, SetStateAction } from "react";
 import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import { IconType } from "react-icons";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface RegistrationProps {
   isOpen: boolean;
   onClose: () => void;
+  setLoginOpen: Dispatch<SetStateAction<boolean>>;
 }
 
 interface FormDataType {
@@ -19,7 +20,7 @@ interface FormDataType {
   password: string;
   telegram: string;
   whatsapp: string;
-  [key: string]: string; // Index signature to allow access with dynamic keys
+  [key: string]: string;
 }
 
 interface FieldConfig {
@@ -29,21 +30,20 @@ interface FieldConfig {
   icon: IconType;
 }
 
-const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose }) => {
+const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOpen }) => {
+  const { setIsAuth } = useAuth();
   const [formData, setFormData] = useState<FormDataType>({
     fio: "",
     email: "",
     password: "",
     telegram: "",
-    whatsapp: ""
+    whatsapp: "",
   });
   const [error, setError] = useState("");
-  const router = useRouter();
 
-  // Handle all input changes with a single function
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -58,11 +58,23 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose }) => {
       });
 
       if (response.ok) {
-        onClose();
-        router.push("/auth/login");
-      } else {
         const data = await response.json();
-        setError(data.detail || "Ошибка регистрации");
+        if (data.access_token) {
+          localStorage.setItem("token", data.access_token);
+          setIsAuth(true); // Авторизуем, если токен есть
+        }
+        onClose();
+        setLoginOpen(true);
+      } else {
+        const errorText = await response.text();
+        let errorMessage = "Ошибка регистрации";
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch {
+          console.error("Не удалось разобрать JSON ошибки:", errorText);
+        }
+        setError(errorMessage);
       }
     } catch (error) {
       setError("Произошла ошибка при попытке регистрации");
@@ -70,13 +82,12 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose }) => {
     }
   };
 
-  // Form fields configuration to reduce duplication
   const fields: FieldConfig[] = [
     { name: "fio", type: "text", placeholder: "Введите ваше ФИО", icon: FaUser },
     { name: "email", type: "email", placeholder: "Введите email", icon: FaEnvelope },
     { name: "password", type: "password", placeholder: "Введите пароль", icon: FaLock },
     { name: "telegram", type: "text", placeholder: "Введите Telegram", icon: FaTelegram },
-    { name: "whatsapp", type: "text", placeholder: "Введите WhatsApp", icon: FaWhatsapp }
+    { name: "whatsapp", type: "text", placeholder: "Введите WhatsApp", icon: FaWhatsapp },
   ];
 
   return (
@@ -93,18 +104,11 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose }) => {
             name={field.name}
           />
         ))}
-
         <div className="flex justify-end space-x-4">
-          <ModalButton 
-            variant="secondary" 
-            onClick={onClose}
-          >
+          <ModalButton variant="secondary" onClick={onClose}>
             Закрыть
           </ModalButton>
-          <ModalButton 
-            type="submit" 
-            variant="primary"
-          >
+          <ModalButton type="submit" variant="primary">
             Зарегистрироваться
           </ModalButton>
         </div>

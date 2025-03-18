@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Loading from "@/components/Loading";
-import { UserResponse } from "@/types/user"; // Импортируем тип из types/user.ts
+import { UserResponse } from "@/types/user";
 
 const Profile = () => {
   const [user, setUser] = useState<UserResponse | null>(null);
@@ -14,20 +14,31 @@ const Profile = () => {
     const fetchUserData = async () => {
       const token = localStorage.getItem("token");
       if (!token) {
-        router.push("/auth/login");
+        router.push("/login");
         return;
       }
-      const response = await fetch("/auth/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data);
-      } else {
-        router.push("/auth/login");
+      
+      try {
+        const response = await fetch("/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data);
+        } else {
+          console.error("Error response:", response.status);
+          localStorage.removeItem("token");
+          router.push("/login");
+        }
+      } catch (error) {
+        console.error("Failed to fetch user data:", error);
+        router.push("/login");
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
+    
     fetchUserData();
   }, [router]);
 

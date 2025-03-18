@@ -47,7 +47,7 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
         logger.warning(f"Failed login attempt for email: {user.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password"
+            detail="Неверный логин или пароль"
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)

@@ -9,6 +9,7 @@ import Loading from "@/components/Loading";
 import { motion } from "framer-motion";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
 import { IconType } from "react-icons";
+import { AuthProvider } from "@/contexts/AuthContext"; // Импортируем контекст
 
 interface FeatureCardProps {
   href: string;
@@ -18,7 +19,6 @@ interface FeatureCardProps {
   ctaText: string;
 }
 
-// Feature card component to reduce duplication
 const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, description, ctaText }) => (
   <Link href={href} className="group">
     <div className="bg-white rounded-xl p-6 shadow-md hover:shadow-xl transition-all duration-300 transform group-hover:-translate-y-1 h-full flex flex-col">
@@ -38,76 +38,55 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, desc
 const PublicHomePage: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
-  // Fixed body when loading
   useEffect(() => {
-    if (loading) {
-      // Prevent scrolling on body when loading
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
-    }
-    
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-    
-    return () => {
-      clearTimeout(timer);
-      document.body.style.overflow = 'auto';
-    };
-  }, [loading]);
+    // Убираем искусственную задержку и сразу проверяем состояние
+    setLoading(false);
+    document.body.style.overflow = "auto"; // Сбрасываем стиль overflow
+  }, []);
 
-  // Feature card data
   const features: FeatureCardProps[] = [
     {
       href: "/registration",
       icon: FaUser,
       title: "Регистрация",
       description: "Создайте личный кабинет на нашей платформе, чтобы открыть возможность регистрации на мероприятия.",
-      ctaText: "Зарегистрироваться"
+      ctaText: "Зарегистрироваться",
     },
     {
       href: "/events",
       icon: FaCalendarAlt,
       title: "Мероприятия",
       description: "Прошедшие и запланированные мероприятия.",
-      ctaText: "Смотреть мероприятия"
+      ctaText: "Смотреть мероприятия",
     },
     {
       href: "/media",
       icon: FaVideo,
       title: "Медиа",
       description: "Фото, видео и аудио с наших мероприятий.",
-      ctaText: "Смотреть медиа"
-    }
+      ctaText: "Смотреть медиа",
+    },
   ];
 
   return (
-    <>
+    <AuthProvider>
       {loading ? (
         <Loading />
       ) : (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-        >
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
           <Header />
-          
           <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 min-h-[calc(100vh-120px)]">
             <h1 className="text-4xl font-bold text-center mb-12">MOSCOW MELLOWS</h1>
-
             <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl w-full">
               {features.map((feature, index) => (
                 <FeatureCard key={index} {...feature} />
               ))}
             </div>
           </main>
-
           <Footer />
         </motion.div>
       )}
-    </>
+    </AuthProvider>
   );
 };
 

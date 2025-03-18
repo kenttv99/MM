@@ -1,6 +1,8 @@
+// frontend/src/app/layout.tsx
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Header from "@/components/Header"; // Импортируем хедер
+import Header from "@/components/Header";
+import { AuthProvider } from "@/contexts/AuthContext"; // Импортируем AuthProvider
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,8 +27,10 @@ export default function RootLayout({
   return (
     <html lang="ru">
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <Header /> {/* Добавляем хедер */}
-        <main>{children}</main>
+        <AuthProvider>
+          <Header />
+          <main>{children}</main>
+        </AuthProvider>
       </body>
     </html>
   );

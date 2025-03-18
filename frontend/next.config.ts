@@ -1,10 +1,13 @@
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  reactStrictMode: true,
-  images: {
-    domains: ['images.unsplash.com'],
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  async rewrites() {
+    return [
+      {
+        source: '/auth/:path*',
+        destination: 'http://localhost:8000/auth/:path*', // URL вашего FastAPI-сервера
+      },
+    ];
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;

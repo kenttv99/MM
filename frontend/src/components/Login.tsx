@@ -2,10 +2,10 @@
 "use client";
 
 import React, { useState, FormEvent, ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
+import { useAuth } from "@/contexts/AuthContext"; // Импортируем хук контекста
 
 interface LoginProps {
   isOpen: boolean;
@@ -13,10 +13,10 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
+  const { setIsAuth } = useAuth(); // Используем контекст для обновления состояния авторизации
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const router = useRouter();
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -32,11 +32,18 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
       if (response.ok) {
         const data = await response.json();
         localStorage.setItem("token", data.access_token);
+        setIsAuth(true); // Обновляем состояние авторизации
         onClose();
-        router.push("/auth/profile");
       } else {
-        const data = await response.json();
-        setError(data.detail || "Ошибка авторизации");
+        const errorText = await response.text();
+        let errorMessage = "Ошибка авторизации";
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch {
+          console.error("Не удалось разобрать JSON ошибки:", errorText);
+        }
+        setError(errorMessage);
       }
     } catch (error) {
       setError("Произошла ошибка при попытке входа");

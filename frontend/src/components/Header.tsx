@@ -1,14 +1,14 @@
 // frontend/src/components/Header.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Logo from "./Logo";
 import Registration from "./Registration";
 import Login from "./Login";
-import { useAuth } from "@/contexts/AuthContext"; // Импортируем хук контекста
+import { useAuth } from "@/contexts/AuthContext";
 
 interface NavItem {
   href?: string;
@@ -17,13 +17,16 @@ interface NavItem {
 }
 
 const Header: React.FC = () => {
-  const { isAuth, setIsAuth } = useAuth(); // Получаем состояние и функцию из контекста
+  const { isAuth, userData, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
   const [isLoginOpen, setIsLoginOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-
+  const notificationRef = useRef<HTMLDivElement>(null);
+  const notificationButtonRef = useRef<HTMLButtonElement>(null);
+  const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
   const router = useRouter();
 
   useEffect(() => {
@@ -32,14 +35,53 @@ const Header: React.FC = () => {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Handle clicks outside the notification modal
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        isNotificationsOpen &&
+        notificationRef.current &&
+        notificationButtonRef.current &&
+        !notificationRef.current.contains(event.target as Node) &&
+        !notificationButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsNotificationsOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isNotificationsOpen]);
+
+  // Auto-close notification after mouse leaves
+  const startNotificationCloseTimer = () => {
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+    notificationTimeoutRef.current = setTimeout(() => {
+      setIsNotificationsOpen(false);
+    }, 1000);
+  };
+
+  const stopNotificationCloseTimer = () => {
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+      notificationTimeoutRef.current = null;
+    }
+  };
+
   const handleLogout = () => {
-    localStorage.removeItem("token"); // Удаляем токен
-    setIsAuth(false); // Обновляем состояние
-    router.push("/"); // Перенаправляем на главную
+    logout(); // Use the centralized logout function
+    router.push("/");
   };
 
   const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
-  const toggleNotifications = () => setIsNotificationsOpen((prev) => !prev);
+  
+  const toggleNotifications = () => {
+    setIsNotificationsOpen((prev) => !prev);
+  };
 
   const guestNavItems: NavItem[] = [
     { label: "Регистрация", onClick: () => setIsRegistrationOpen(true) },
@@ -63,9 +105,14 @@ const Header: React.FC = () => {
     visible: { opacity: 1, y: 0 },
   };
 
+  // User display name - use first name from FIO or email if not available
+  const userDisplayName = userData ? 
+    userData.fio?.split(' ')[0] || userData.email.split('@')[0] : 
+    "Пользователь";
+
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-40 transition-all duration-300 ${
         isScrolled ? "bg-white/95 backdrop-blur-sm shadow-lg py-3" : "bg-white/90 py-4"
       }`}
     >
@@ -93,11 +140,19 @@ const Header: React.FC = () => {
           <AnimatePresence>
             {isMobileMenuOpen && (
               <motion.div
-                className="fixed inset-0 bg-white z-40 flex flex-col items-center justify-center"
+                className="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
               >
+                <button 
+                  onClick={toggleMobileMenu}
+                  className="absolute top-4 right-4 text-gray-500 hover:text-orange-500"
+                >
+                  <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
                 <motion.ul
                   className="flex flex-col items-center space-y-6 text-xl"
                   variants={menuVariants}
@@ -112,7 +167,11 @@ const Header: React.FC = () => {
                           {item.label}
                         </button>
                       ) : (
-                        <Link href={item.href || "#"} className="text-gray-800 hover:text-orange-500">
+                        <Link 
+                          href={item.href || "#"} 
+                          className="text-gray-800 hover:text-orange-500"
+                          onClick={() => setIsMobileMenuOpen(false)} // Close menu when navigating
+                        >
                           {item.label}
                         </Link>
                       )}
@@ -131,38 +190,54 @@ const Header: React.FC = () => {
               <Link href="/partner" className="text-orange-500 hover:text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50">
                 Стать партнером
               </Link>
-              <button onClick={toggleNotifications} className="text-orange-500 hover:text-orange-600">
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
+              <div className="relative">
+                <button 
+                  ref={notificationButtonRef}
+                  onClick={toggleNotifications} 
+                  className="text-orange-500 hover:text-orange-600"
+                >
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
+                    <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+                    </svg>
+                  </div>
+                </button>
+                <AnimatePresence>
+                  {isNotificationsOpen && (
+                    <motion.div
+                      ref={notificationRef}
+                      className="absolute right-0 top-full mt-2 w-64 bg-white rounded-md shadow-lg py-4 border border-gray-200 z-20"
+                      initial="hidden"
+                      animate="visible"
+                      exit="hidden"
+                      variants={notificationVariants}
+                      onMouseEnter={stopNotificationCloseTimer}
+                      onMouseLeave={startNotificationCloseTimer}
+                    >
+                      <div className="text-center text-gray-500 text-sm">Нет уведомлений</div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Link href="/profile" className="flex items-center space-x-2 text-orange-500 hover:text-orange-600">
+                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
+                    <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                  <span className="hidden lg:inline">{userDisplayName}</span>
+                </Link>
+                <button 
+                  onClick={handleLogout} 
+                  className="text-orange-500 hover:text-orange-600 ml-2"
+                  title="Выход"
+                >
                   <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+                    <path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
-                </div>
-              </button>
-              <AnimatePresence>
-                {isNotificationsOpen && (
-                  <motion.div
-                    className="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-lg py-4 border border-gray-200"
-                    initial="hidden"
-                    animate="visible"
-                    exit="hidden"
-                    variants={notificationVariants}
-                  >
-                    <div className="text-center text-gray-500 text-sm">Нет уведомлений</div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <Link href="/profile" className="text-orange-500 hover:text-orange-600">
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
-                  <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              </Link>
-              <button onClick={handleLogout} className="text-orange-500 hover:text-orange-600">
-                <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
-                </svg>
-              </button>
+                </button>
+              </div>
             </>
           ) : (
             <div className="flex items-center space-x-4">

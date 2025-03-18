@@ -9,6 +9,7 @@ interface ModalButtonProps {
   type?: "button" | "submit" | "reset";
   onClick?: () => void;
   variant?: string;
+  disabled?: boolean;
   children: ReactNode;
 }
 
@@ -17,18 +18,20 @@ export const ModalButton: React.FC<ModalButtonProps> = ({
   type = "button", 
   onClick, 
   variant = "primary", 
+  disabled = false,
   children 
 }) => (
   <motion.button
-    whileHover={{ scale: 1.01 }}
-    whileTap={{ scale: 0.99 }}
+    whileHover={{ scale: disabled ? 1 : 1.01 }}
+    whileTap={{ scale: disabled ? 1 : 0.99 }}
     type={type}
     onClick={onClick}
+    disabled={disabled}
     className={`
       px-6 py-3 rounded-lg transition-all duration-300
       ${variant === "primary" 
-        ? "bg-orange-500 text-white hover:bg-orange-600" 
-        : "bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200"}
+        ? `bg-orange-500 text-white ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-orange-600'}` 
+        : `bg-gray-100 text-gray-700 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'} border border-gray-200`}
     `}
   >
     {children}

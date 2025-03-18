@@ -6,7 +6,7 @@ import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/
 import { IconType } from "react-icons";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
-import { useAuth } from "@/contexts/AuthContext";
+// No need to import useAuth as we don't use it
 
 interface RegistrationProps {
   isOpen: boolean;
@@ -31,7 +31,7 @@ interface FieldConfig {
 }
 
 const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOpen }) => {
-  const { setIsAuth } = useAuth();
+  // We don't need any auth context here since we just redirect to login
   const [formData, setFormData] = useState<FormDataType>({
     fio: "",
     email: "",
@@ -40,6 +40,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
     whatsapp: "",
   });
   const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -49,6 +50,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
+    setIsLoading(true);
 
     try {
       const response = await fetch("/auth/register", {
@@ -58,12 +60,19 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
       });
 
       if (response.ok) {
-        const data = await response.json();
-        if (data.access_token) {
-          localStorage.setItem("token", data.access_token);
-          setIsAuth(true); // Авторизуем, если токен есть
-        }
+        // Registration successful
         onClose();
+        
+        // Reset form
+        setFormData({
+          fio: "",
+          email: "",
+          password: "",
+          telegram: "",
+          whatsapp: "",
+        });
+        
+        // Open login modal
         setLoginOpen(true);
       } else {
         const errorText = await response.text();
@@ -79,6 +88,8 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
     } catch (error) {
       setError("Произошла ошибка при попытке регистрации");
       console.error("Registration error:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -105,11 +116,11 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
           />
         ))}
         <div className="flex justify-end space-x-4">
-          <ModalButton variant="secondary" onClick={onClose}>
+          <ModalButton variant="secondary" onClick={onClose} disabled={isLoading}>
             Закрыть
           </ModalButton>
-          <ModalButton type="submit" variant="primary">
-            Зарегистрироваться
+          <ModalButton type="submit" variant="primary" disabled={isLoading}>
+            {isLoading ? "Регистрация..." : "Зарегистрироваться"}
           </ModalButton>
         </div>
       </form>

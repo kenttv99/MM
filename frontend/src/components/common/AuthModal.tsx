@@ -44,6 +44,7 @@ interface AuthModalProps {
   onClose: () => void;
   title: string;
   error?: string;
+  success?: string;
   children: ReactNode;
 }
 
@@ -52,7 +53,8 @@ const AuthModal: React.FC<AuthModalProps> = ({
   isOpen, 
   onClose, 
   title, 
-  error, 
+  error,
+  success,
   children 
 }) => {
   if (!isOpen) return null;
@@ -91,6 +93,19 @@ const AuthModal: React.FC<AuthModalProps> = ({
               >
                 <div className="text-red-500 mb-6 bg-red-50 p-3 rounded-lg border-l-4 border-red-500 text-sm">
                   {error}
+                </div>
+              </motion.div>
+            )}
+
+            {success && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="text-green-600 mb-6 bg-green-50 p-3 rounded-lg border-l-4 border-green-500 text-sm">
+                  {success}
                 </div>
               </motion.div>
             )}

@@ -20,11 +20,13 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoginSuccess, setIsLoginSuccess] = useState(false);
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
+    setIsLoginSuccess(false);
 
     try {
       const response = await fetch("/auth/login", {
@@ -35,20 +37,28 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
 
       if (response.ok) {
         const data = await response.json();
-        localStorage.setItem("token", data.access_token);
         
-        // Check auth state, this will update context and retrieve user data
-        const authSuccess = await checkAuth();
-        
-        if (authSuccess) {
-          // Dispatch global event for all components
-          window.dispatchEvent(new Event("auth-change"));
+        // Сохраняем токен
+        if (data.access_token) {
+          localStorage.setItem("token", data.access_token);
           
-          // Navigate to the home page after successful login
-          onClose();
-          router.push("/");
+          // Показываем успешное сообщение и закрываем через таймаут
+          setIsLoginSuccess(true);
+          
+          setTimeout(() => {
+            onClose();
+            
+            // Обновляем авторизационный статус
+            checkAuth();
+            
+            // Уведомляем другие компоненты
+            window.dispatchEvent(new Event("auth-change"));
+            
+            // Перенаправляем пользователя
+            router.push("/");
+          }, 1000); // Небольшая задержка для показа успешного сообщения
         } else {
-          setError("Не удалось получить данные пользователя");
+          setError("Сервер не вернул токен доступа");
         }
       } else {
         const errorText = await response.text();
@@ -73,7 +83,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
   const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value);
 
   return (
-    <AuthModal isOpen={isOpen} onClose={onClose} title="Вход" error={error}>
+    <AuthModal isOpen={isOpen} onClose={onClose} title="Вход" error={error} success={isLoginSuccess ? "Вход выполнен успешно!" : undefined}>
       <form onSubmit={handleSubmit} className="space-y-6">
         <InputField
           type="email"
@@ -82,6 +92,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
           placeholder="Введите email"
           icon={FaEnvelope}
           name="email"
+          disabled={isLoginSuccess}
         />
         
         <InputField
@@ -91,22 +102,23 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
           placeholder="Введите пароль"
           icon={FaLock}
           name="password"
+          disabled={isLoginSuccess}
         />
 
         <div className="flex justify-end space-x-4">
           <ModalButton 
             variant="secondary" 
             onClick={onClose}
-            disabled={isLoading}
+            disabled={isLoading || isLoginSuccess}
           >
             Закрыть
           </ModalButton>
           <ModalButton 
             type="submit" 
             variant="primary"
-            disabled={isLoading}
+            disabled={isLoading || isLoginSuccess}
           >
-            {isLoading ? "Вход..." : "Войти"}
+            {isLoading ? "Вход..." : (isLoginSuccess ? "Успешно!" : "Войти")}
           </ModalButton>
         </div>
       </form>

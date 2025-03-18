@@ -10,6 +10,7 @@ interface InputFieldProps {
   icon: IconType;
   required?: boolean;
   name?: string;
+  disabled?: boolean;
 }
 
 const InputField: React.FC<InputFieldProps> = ({
@@ -19,7 +20,8 @@ const InputField: React.FC<InputFieldProps> = ({
   placeholder,
   icon: Icon,
   required = true,
-  name
+  name,
+  disabled = false
 }) => {
   const [isFocused, setIsFocused] = useState(false);
   
@@ -32,13 +34,15 @@ const InputField: React.FC<InputFieldProps> = ({
           onChange={onChange}
           placeholder={placeholder}
           name={name}
-          className="
+          disabled={disabled}
+          className={`
             w-full h-full p-4 pr-12
             bg-white text-gray-900 
             placeholder:text-gray-400 
             rounded-lg outline-none
             border
-          "
+            ${disabled ? 'bg-gray-50 opacity-70 cursor-not-allowed' : ''}
+          `}
           style={{
             borderColor: isFocused ? "#f97316" : "#e5e7eb",
             borderWidth: "1px",
@@ -52,7 +56,7 @@ const InputField: React.FC<InputFieldProps> = ({
             transitionTimingFunction: "ease-out"
           }}
           required={required}
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => !disabled && setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
         />
         
@@ -61,7 +65,7 @@ const InputField: React.FC<InputFieldProps> = ({
           <Icon 
             className="transition-colors duration-500"
             style={{
-              color: isFocused ? "#f97316" : "#9ca3af" // orange-500 : gray-400
+              color: isFocused ? "#f97316" : (disabled ? "#d1d5db" : "#9ca3af") // orange-500 : gray-400 or gray-300 if disabled
             }}
             size={18}
           />

@@ -44,7 +44,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const lastCheckRef = useRef<number>(0);
   const checkInProgressRef = useRef<Promise<boolean> | null>(null);
-  const backoffTimeRef = useRef<number>(1000); // Start with 1 second backoff
+  const lastUserDataFetchRef = useRef<number>(0);
+  const useVerifyTokenEndpoint = useRef<boolean>(true); // Будем пробовать использовать эндпоинт, но при ошибках отключим
 
   // Initialize from cache if available
   useEffect(() => {
@@ -64,24 +65,109 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     window.dispatchEvent(new Event("auth-change"));
   }, []);
 
-  // Throttled checkAuth with better caching and backoff strategy
+  // Загрузка полных данных пользователя (используется реже)
+  const loadUserData = useCallback(async (): Promise<UserData | null> => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return null;
+
+      // Ограничиваем частые запросы данных пользователя
+      const now = Date.now();
+      if (now - lastUserDataFetchRef.current < 30000) { // Не чаще раза в 30 секунд
+        return userData || getUserCache();
+      }
+      
+      lastUserDataFetchRef.current = now;
+      
+      const response = await fetch("/auth/me", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        return data;
+      } else if (response.status === 429) {
+        // При превышении лимита используем кэшированные данные
+        console.warn("User data fetch rate limited, using cached data");
+        return userData || getUserCache();
+      } else if (response.status === 401) {
+        // Токен недействителен
+        return null;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Ошибка загрузки данных пользователя:", error);
+      return null;
+    }
+  }, [userData]);
+
+  // Проверка только валидности токена (используется чаще)
+  const verifyToken = useCallback(async (): Promise<boolean> => {
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) return false;
+
+      // Если предыдущие попытки показали, что эндпоинт недоступен, 
+      // используем стандартный /me
+      if (!useVerifyTokenEndpoint.current) {
+        console.log("Using /me endpoint for token verification (verify_token unavailable)");
+        const userData = await loadUserData();
+        return userData !== null;
+      }
+
+      try {
+        const response = await fetch("/auth/verify_token", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (response.ok) {
+          return true;
+        } else if (response.status >= 500) {
+          // Если эндпоинт вернул серверную ошибку, отключаем его использование
+          console.warn("verify_token endpoint returned server error, falling back to /me");
+          useVerifyTokenEndpoint.current = false;
+          
+          // Пробуем через /me
+          const userData = await loadUserData();
+          return userData !== null;
+        } else if (response.status === 401) {
+          // Явно невалидный токен
+          return false;
+        }
+        
+        // Любой другой статус считаем ошибкой
+        return false;
+      } catch (error) {
+        // При ошибке сети переключаемся на /me
+        console.error("Error accessing verify_token endpoint:", error);
+        useVerifyTokenEndpoint.current = false;
+        
+        const userData = await loadUserData();
+        return userData !== null;
+      }
+    } catch (error) {
+      console.error("Error in verifyToken:", error);
+      return false;
+    }
+  }, [loadUserData]);
+
+  // Проверка аутентификации с двухуровневым подходом
   const checkAuth = useCallback(async (): Promise<boolean> => {
     const now = Date.now();
     const timeSinceLastCheck = now - lastCheckRef.current;
     
-    // If a check is already in progress, return the existing promise
+    // Если проверка уже выполняется, возвращаем существующий промис
     if (checkInProgressRef.current) {
       return checkInProgressRef.current;
     }
     
-    // Throttle to at most once every 15 seconds unless forced
-    // If we have user data and a token, don't check as frequently
-    const throttleTime = (userData && localStorage.getItem("token")) ? 30000 : 15000; // 30 or 15 seconds
-    if (timeSinceLastCheck < throttleTime && lastCheckRef.current !== 0) {
-      return isAuth; // Return current auth state without checking
+    // Ограничиваем частоту проверок
+    if (timeSinceLastCheck < 5000 && lastCheckRef.current !== 0) {
+      return isAuth; // Возвращаем текущее состояние без проверки
     }
     
-    // Set loading only on initial load to prevent flickering
+    // Устанавливаем загрузку только при первой загрузке
     if (lastCheckRef.current === 0) {
       setIsLoading(true);
     }
@@ -90,6 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     const checkPromise = new Promise<boolean>(async (resolve) => {
       try {
+        // Проверяем наличие токена
         const token = localStorage.getItem("token");
         if (!token) {
           setIsAuth(false);
@@ -100,38 +187,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         
-        // Use relative URL to avoid cross-origin issues
-        const response = await fetch("/auth/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // Шаг 1: Проверка валидности токена (через verify_token или me)
+        const isValidToken = await verifyToken();
         
-        if (response.ok) {
-          const userData = await response.json();
-          setUserData(userData);
-          setUserCache(userData);
-          setIsAuth(true);
-          backoffTimeRef.current = 1000; // Reset backoff on success
-          resolve(true);
-        } else if (response.status === 429) {
-          // If rate limited, use cached data and implement exponential backoff
-          console.warn(`Auth check rate limited, backing off for ${backoffTimeRef.current}ms`);
-          
-          // Increase backoff time for next attempt (exponential backoff)
-          backoffTimeRef.current = Math.min(backoffTimeRef.current * 2, 60000); // Max 1 minute
-          
-          // Don't change auth state on rate limit
-          resolve(isAuth);
-        } else {
-          // Auth failed - clear everything
+        if (!isValidToken) {
+          // Токен невалиден - очищаем всё
           localStorage.removeItem("token");
           setUserCache(null);
           setIsAuth(false);
           setUserData(null);
           resolve(false);
+        } else {
+          // Токен валиден - устанавливаем аутентификацию
+          setIsAuth(true);
+          
+          // Шаг 2: Если у нас нет данных пользователя, загружаем их
+          if (!userData) {
+            const cachedUserData = getUserCache(); 
+            
+            if (cachedUserData) {
+              setUserData(cachedUserData);
+            }
+            
+            // Асинхронно загружаем актуальные данные
+            loadUserData().then(data => {
+              if (data) {
+                setUserData(data);
+                setUserCache(data);
+              }
+            }).catch(console.error);
+          }
+          
+          resolve(true);
         }
       } catch (error) {
-        console.error("Ошибка проверки авторизации:", error);
-        // Don't change auth state on network errors
+        console.error("Ошибка проверки аутентификации:", error);
+        // При серьезной ошибке возвращаем текущее состояние
         resolve(isAuth);
       } finally {
         setIsLoading(false);
@@ -141,7 +232,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     checkInProgressRef.current = checkPromise;
     return checkPromise;
-  }, [isAuth, userData]);
+  }, [isAuth, userData, verifyToken, loadUserData]);
 
   useEffect(() => {
     // Initial auth check

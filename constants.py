@@ -13,7 +13,8 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 RATE_LIMITS = {
-    "register": "20/minute",  # 10 регистраций в минуту
-    "login": "60/minute",    # 20 попыток входа в минуту
-    "access_me": "60/minute" # 50 запросов к /me в минуту
+    "register": "20/minute",      # 20 регистраций в минуту
+    "login": "60/minute",         # 60 попыток входа в минуту
+    "access_me": "60/minute",     # 60 запросов к /me в минуту
+    "verify_token": "600/minute"  # 600 запросов проверки токена в минуту (10 в секунду)
 }

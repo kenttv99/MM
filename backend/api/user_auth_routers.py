@@ -71,3 +71,29 @@ async def read_users_me(
     await log_user_activity(db, current_user.id, request, action="access_me")
     logger.info(f"User accessed their profile: {current_user.email}")
     return current_user
+
+@router.get("/verify_token")
+@rate_limit("verify_token")  # Отдельный лимит с более высоким порогом
+async def verify_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Облегченная проверка действительности токена без полной загрузки профиля.
+    Используется для клиентской авторизации с меньшими ограничениями по частоте запросов.
+    """
+    try:
+        token = credentials.credentials
+        # Только проверяем действительность токена без загрузки полного профиля
+        current_user = await get_current_user(token, db)
+        return {
+            "is_valid": True,
+            "user_id": current_user.id,
+            "email": current_user.email
+        }
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )

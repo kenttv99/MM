@@ -107,8 +107,8 @@ const Header: React.FC = () => {
 
   // User display name - use first name from FIO or email if not available
   const userDisplayName = userData ? 
-    userData.fio?.split(' ')[0] || userData.email.split('@')[0] : 
-    "Пользователь";
+    (userData.fio ? userData.fio.split(' ')[0] : userData.email.split('@')[0]) 
+    : "";
 
   return (
     <header
@@ -219,25 +219,27 @@ const Header: React.FC = () => {
                   )}
                 </AnimatePresence>
               </div>
-              <div className="flex items-center space-x-2">
-                <Link href="/profile" className="flex items-center space-x-2 text-orange-500 hover:text-orange-600">
-                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
-                    <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                    </svg>
-                  </div>
-                  <span className="hidden lg:inline">{userDisplayName}</span>
-                </Link>
-                <button 
-                  onClick={handleLogout} 
-                  className="text-orange-500 hover:text-orange-600 ml-2"
-                  title="Выход"
-                >
+              
+              <Link href="/profile" className="flex items-center space-x-2 text-orange-500 hover:text-orange-600">
+                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
                   <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                   </svg>
-                </button>
-              </div>
+                </div>
+                {userDisplayName && (
+                  <span className="hidden lg:inline">{userDisplayName}</span>
+                )}
+              </Link>
+              
+              <button 
+                onClick={handleLogout} 
+                className="text-orange-500 hover:text-orange-600 ml-2"
+                title="Выход"
+              >
+                <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
             </>
           ) : (
             <div className="flex items-center space-x-4">

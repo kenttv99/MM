@@ -1,3 +1,4 @@
+// frontend/src/contexts/AuthContext.tsx
 "use client";
 
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
@@ -25,11 +26,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Функция для декодирования JWT без проверки подписи
 function decodeJwt(token: string): { exp: number; sub: string } | null {
   try {
-    // JWT состоит из трех частей, разделенных точками
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     
-    // Декодируем payload (вторую часть)
     const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
     return payload;
   } catch (err) {
@@ -43,24 +42,28 @@ function isTokenExpired(token: string): boolean {
   const decoded = decodeJwt(token);
   if (!decoded) return true;
   
-  // exp хранится в секундах от эпохи Unix
   const currentTime = Math.floor(Date.now() / 1000);
   return decoded.exp < currentTime;
 }
 
-// Функция для хранения и получения данных пользователя из кэша
-const getUserCache = () => {
+// Функции для хранения и получения данных пользователя из кэша
+const STORAGE_KEYS = {
+  TOKEN: 'token',
+  USER_DATA: 'user_data'
+};
+
+const getUserCache = (): UserData | null => {
   if (typeof window === 'undefined') return null;
-  const cached = localStorage.getItem('user_data');
+  const cached = localStorage.getItem(STORAGE_KEYS.USER_DATA);
   return cached ? JSON.parse(cached) : null;
 };
 
 const setUserCache = (data: UserData | null) => {
   if (typeof window === 'undefined') return;
   if (data) {
-    localStorage.setItem('user_data', JSON.stringify(data));
+    localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(data));
   } else {
-    localStorage.removeItem('user_data');
+    localStorage.removeItem(STORAGE_KEYS.USER_DATA);
   }
 };
 
@@ -79,12 +82,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchingUserData.current = true;
     
     try {
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
       if (!token) return null;
 
       // Используем AbortController для установки таймаута
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 секунд таймаут
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
       
       const response = await fetch("/auth/me", {
         headers: { 
@@ -103,7 +106,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       return null;
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Ошибка загрузки данных пользователя:", error);
       return null;
     } finally {
@@ -113,18 +116,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Функция для проверки авторизации без запроса к серверу
   const checkAuth = useCallback(async (): Promise<boolean> => {
-    // Предотвращаем одновременные вызовы checkAuth
-    if (checkAuthInProgress.current) {
-      return isAuth;
-    }
+    if (checkAuthInProgress.current) return isAuth;
     
     checkAuthInProgress.current = true;
     
     try {
       setIsLoading(true);
       
-      // Проверяем наличие токена
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
       if (!token) {
         setIsAuth(false);
         setUserData(null);
@@ -132,20 +131,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return false;
       }
       
-      // Проверяем срок действия токена
       if (isTokenExpired(token)) {
-        // Токен просрочен - очищаем всё
-        localStorage.removeItem("token");
+        localStorage.removeItem(STORAGE_KEYS.TOKEN);
         setUserCache(null);
         setIsAuth(false);
         setUserData(null);
         return false;
       }
       
-      // Токен действителен - устанавливаем авторизацию
       setIsAuth(true);
       
-      // Если у нас нет данных пользователя, берем из кэша
       if (!userData) {
         const cachedData = getUserCache();
         if (cachedData) {
@@ -153,11 +148,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
       
-      // Обновляем данные с сервера только если это первая загрузка
       if (isInitialLoad.current) {
         isInitialLoad.current = false;
         
-        // Асинхронно загружаем данные пользователя, но не ждем
         fetchUserData().then(data => {
           if (data) {
             setUserData(data);
@@ -166,7 +159,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       return true;
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Ошибка проверки авторизации:", error);
       return isAuth;
     } finally {
@@ -177,7 +170,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Функция для выхода
   const logout = useCallback(() => {
-    localStorage.removeItem("token");
+    localStorage.removeItem(STORAGE_KEYS.TOKEN);
     setUserCache(null);
     setIsAuth(false);
     setUserData(null);
@@ -187,9 +180,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Инициализация из кэша - только один раз при монтировании компонента
   useEffect(() => {
     const initAuth = async () => {
-      // Инициализация из кэша
       const cachedUser = getUserCache();
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
       
       if (cachedUser && token && !isTokenExpired(token)) {
         setUserData(cachedUser);
@@ -201,19 +193,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
       
-      // Выполняем полную проверку 
       await checkAuth();
       setIsLoading(false);
     };
     
     initAuth();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Пустой массив зависимостей - запускается только при монтировании
+  }, []);
 
   // Настройка обработчиков событий - отдельный useEffect
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "token") {
+      if (e.key === STORAGE_KEYS.TOKEN) {
         checkAuth();
       }
     };

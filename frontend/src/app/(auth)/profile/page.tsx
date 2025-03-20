@@ -1,3 +1,4 @@
+// frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -14,6 +15,7 @@ const Profile = () => {
     if (!isLoading && !isAuth) router.push("/");
     if (isAuth) checkAuth().catch(console.error);
     
+    // Устанавливаем таймаут для показа сообщения о долгой загрузке
     const timer = setTimeout(() => {
       if (isLoading || !userData) setLoadingTimeout(true);
     }, 5000);

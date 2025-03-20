@@ -1,3 +1,4 @@
+// frontend/src/components/Header.tsx
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
@@ -254,8 +255,15 @@ const Header: React.FC = () => {
         </div>
       </div>
 
-      <Registration isOpen={isRegistrationOpen} onClose={() => setIsRegistrationOpen(false)} setLoginOpen={setIsLoginOpen} />
-      <Login isOpen={isLoginOpen} onClose={() => setIsLoginOpen(false)} />
+      <Registration 
+        isOpen={isRegistrationOpen} 
+        onClose={() => setIsRegistrationOpen(false)} 
+        setLoginOpen={setIsLoginOpen} 
+      />
+      <Login 
+        isOpen={isLoginOpen} 
+        onClose={() => setIsLoginOpen(false)} 
+      />
     </header>
   );
 };

@@ -1,12 +1,11 @@
 // frontend/src/components/Login.tsx
 "use client";
 
-import React, { useState, FormEvent, ChangeEvent } from "react";
-import { useRouter } from "next/navigation";
+import React from "react";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuthForm } from "@/hooks/useAuthForm";
 
 interface LoginProps {
   isOpen: boolean;
@@ -14,113 +13,63 @@ interface LoginProps {
 }
 
 const Login: React.FC<LoginProps> = ({ isOpen, onClose }) => {
-  const router = useRouter();
-  const { setIsAuth, checkAuth } = useAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoginSuccess, setIsLoginSuccess] = useState(false);
-
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setError("");
-    setIsLoading(true);
-    setIsLoginSuccess(false);
-
-    try {
-      const response = await fetch("/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Сохраняем токен
-        if (data.access_token) {
-          localStorage.setItem("token", data.access_token);
-          
-          // Устанавливаем состояние успешного входа
-          setIsLoginSuccess(true);
-          
-          // Обновляем состояние аутентификации
-          setIsAuth(true);
-          
-          // Немедленно запускаем проверку аутентификации для получения данных пользователя
-          await checkAuth();
-          
-          // Уведомляем другие компоненты об изменении аутентификации
-          window.dispatchEvent(new Event("auth-change"));
-          
-          // Задержка перед закрытием модального окна, чтобы пользователь увидел успешное сообщение
-          setTimeout(() => {
-            onClose();
-            router.push("/");
-          }, 1000);
-        } else {
-          setError("Сервер не вернул токен доступа");
-        }
-      } else {
-        const errorText = await response.text();
-        let errorMessage = "Ошибка авторизации";
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorMessage;
-        } catch {
-          console.error("Не удалось разобрать JSON ошибки:", errorText);
-        }
-        setError(errorMessage);
-      }
-    } catch (error) {
-      setError("Произошла ошибка при попытке входа");
-      console.error("Login error:", error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleEmailChange = (e: ChangeEvent<HTMLInputElement>) => setEmail(e.target.value);
-  const handlePasswordChange = (e: ChangeEvent<HTMLInputElement>) => setPassword(e.target.value);
+  const {
+    formValues,
+    error,
+    isLoading,
+    isSuccess,
+    handleChange,
+    handleSubmit
+  } = useAuthForm({
+    initialValues: { email: "", password: "" },
+    endpoint: "/auth/login",
+    redirectTo: "/",
+    isLogin: true
+  });
 
   return (
-    <AuthModal isOpen={isOpen} onClose={onClose} title="Вход" error={error} success={isLoginSuccess ? "Вход выполнен успешно!" : undefined}>
+    <AuthModal 
+      isOpen={isOpen} 
+      onClose={onClose} 
+      title="Вход" 
+      error={error} 
+      success={isSuccess ? "Вход выполнен успешно!" : undefined}
+    >
       <form onSubmit={handleSubmit} className="space-y-6">
         <InputField
           type="email"
-          value={email}
-          onChange={handleEmailChange}
+          value={formValues.email}
+          onChange={handleChange}
           placeholder="Введите email"
           icon={FaEnvelope}
           name="email"
-          disabled={isLoginSuccess}
+          disabled={isSuccess}
         />
         
         <InputField
           type="password"
-          value={password}
-          onChange={handlePasswordChange}
+          value={formValues.password}
+          onChange={handleChange}
           placeholder="Введите пароль"
           icon={FaLock}
           name="password"
-          disabled={isLoginSuccess}
+          disabled={isSuccess}
         />
 
         <div className="flex justify-end space-x-4">
           <ModalButton 
             variant="secondary" 
             onClick={onClose}
-            disabled={isLoading || isLoginSuccess}
+            disabled={isLoading || isSuccess}
           >
             Закрыть
           </ModalButton>
           <ModalButton 
             type="submit" 
             variant="primary"
-            disabled={isLoading || isLoginSuccess}
+            disabled={isLoading || isSuccess}
           >
-            {isLoading ? "Вход..." : (isLoginSuccess ? "Успешно!" : "Войти")}
+            {isLoading ? "Вход..." : (isSuccess ? "Успешно!" : "Войти")}
           </ModalButton>
         </div>
       </form>

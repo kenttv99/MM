@@ -2,6 +2,33 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 
+
+#------------------------
+# ADMINS
+#------------------------
+
+class AdminCreate(BaseModel):
+    fio: str
+    email: EmailStr
+    password: str
+
+class AdminLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+class AdminResponse(BaseModel):
+    id: int
+    fio: str
+    email: EmailStr
+
+    class Config:
+        from_attributes = True  # Для совместимости с SQLAlchemy
+        
+#------------------------
+# USERS
+#------------------------   
+    
+
 class UserCreate(BaseModel):
     fio: str
     email: EmailStr
@@ -29,7 +56,6 @@ class UserResponse(BaseModel):
 #------------------------
 
 class EventCreate(BaseModel):
-    id: Optional[int] = None  # id опционален, так как не передается в запросе
     title: str
     description: Optional[str] = None
     start_date: datetime
@@ -46,7 +72,7 @@ class EventCreate(BaseModel):
     
     
 class EventUpdate(BaseModel):
-    id: Optional[int] = None  # id опционален, так как не передается в запросе
+    id: Optional[int] = None  
     title: Optional[str] = None
     description: Optional[str] = None
     start_date: Optional[datetime] = None

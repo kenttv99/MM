@@ -16,5 +16,6 @@ RATE_LIMITS = {
     "register": "20/minute",      # 20 регистраций в минуту
     "login": "60/minute",         # 60 попыток входа в минуту
     "access_me": "60/minute",     # 60 запросов к /me в минуту
-    "verify_token": "600/minute"  # 600 запросов проверки токена в минуту (10 в секунду)
+    "verify_token": "600/minute",  # 600 запросов проверки токена в минуту (10 в секунду)
+    "verify_token_admin": "100/minute"
 }

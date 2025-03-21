@@ -58,6 +58,20 @@ async def get_current_user(token: str, session: AsyncSession) -> User:
         raise credentials_exception
     return user
 
+async def create_admin(session: AsyncSession, fio: str, email: str, password: str) -> Admin:
+    """Создание нового администратора с хэшированием пароля."""
+    password_hash = pwd_context.hash(password)
+    new_admin = Admin(fio=fio, email=email, password_hash=password_hash)
+    session.add(new_admin)
+    await session.commit()
+    await session.refresh(new_admin)
+    return new_admin
+
+async def get_admin_by_username(session: AsyncSession, email: str) -> Optional[Admin]:
+    """Получение администратора по email."""
+    result = await session.execute(select(Admin).where(Admin.email == email))
+    return result.scalars().first()
+
 async def get_current_admin(token: str, session: AsyncSession) -> Admin:
     """Проверка токена и получение текущего администратора."""
     credentials_exception = HTTPException(

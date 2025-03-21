@@ -1,7 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.event_routers import router as event_router
-from backend.api.admin_auth_routers import router as admin_auth_router  # Новый роутер
+from backend.api.admin_auth_routers import router as admin_auth_router
+from backend.api.admin_edit_routers import router as admin_edit_routers 
 from backend.config.auth import get_user_or_ip_key
 from backend.config.rate_limiter import limiter
 from slowapi import _rate_limit_exceeded_handler
@@ -29,8 +30,9 @@ app.state.limiter.key_func = get_user_or_ip_key
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # Подключение роутеров
-app.include_router(event_router)
-app.include_router(admin_auth_router, prefix="/admin", tags=["Admin Authentication"])  # Подключаем роутер для администраторов
+app.include_router(event_router, prefix="/events", tags=["Events"])
+app.include_router(admin_auth_router, prefix="/admin", tags=["Admin Authentication"])
+app.include_router(admin_edit_routers, prefix="/admin_edits", tags=["Admin Edits"])
 
 if __name__ == "__main__":
     uvicorn.run(

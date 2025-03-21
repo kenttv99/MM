@@ -1,5 +1,5 @@
 // frontend/src/components/common/InputField.tsx
-import React, { useState, ChangeEvent } from "react";
+import React, { useState, ChangeEvent, FocusEvent } from "react"; // Добавляем FocusEvent
 import { IconType } from "react-icons";
 
 interface InputFieldProps {
@@ -11,6 +11,7 @@ interface InputFieldProps {
   required?: boolean;
   name?: string;
   disabled?: boolean;
+  onBlur?: (e: FocusEvent<HTMLInputElement>) => void; // Добавляем новый проп
 }
 
 const InputField: React.FC<InputFieldProps> = ({
@@ -21,10 +22,11 @@ const InputField: React.FC<InputFieldProps> = ({
   icon: Icon,
   required = true,
   name,
-  disabled = false
+  disabled = false,
+  onBlur, // Добавляем в деструктуризацию
 }) => {
   const [isFocused, setIsFocused] = useState(false);
-  
+
   return (
     <div className="relative mb-5 h-[60px]">
       <div className="absolute inset-0">
@@ -57,7 +59,10 @@ const InputField: React.FC<InputFieldProps> = ({
           }}
           required={required}
           onFocus={() => !disabled && setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
+          onBlur={(e) => { // Обновляем обработчик
+            setIsFocused(false);
+            if (onBlur) onBlur(e); // Вызываем переданный onBlur, если он есть
+          }}
         />
         
         {/* Иконка с плавной анимацией цвета */}

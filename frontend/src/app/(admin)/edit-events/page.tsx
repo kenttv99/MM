@@ -2,9 +2,9 @@
 import { useState, useEffect, ChangeEvent, FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
+import { ModalButton } from "@/components/common/AuthModal";
 import { FaPen } from "react-icons/fa";
 
-// Интерфейс для данных мероприятия
 interface EventData {
   title: string;
   description: string;
@@ -42,32 +42,34 @@ export default function EditEventPage() {
     router.push("/dashboard");
   };
 
-  if (!event) return <p>Загрузка...</p>;
+  if (!event) return <p className="text-gray-900">Загрузка...</p>;
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>Редактировать мероприятие</h1>
-      <label>Название</label> {/* Убираем htmlFor */}
-      <InputField
-        type="text" // Убираем id
-        value={event.title}
-        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-          setEvent({ ...event, title: e.target.value })
-        }
-        placeholder="Введите название"
-        icon={FaPen}
-      />
-      <label>Описание</label> {/* Убираем htmlFor */}
-      <InputField
-        type="text" // Убираем id
-        value={event.description}
-        onChange={(e: ChangeEvent<HTMLInputElement>) =>
-          setEvent({ ...event, description: e.target.value })
-        }
-        placeholder="Введите описание"
-        icon={FaPen}
-      />
-      <button type="submit">Сохранить</button>
-    </form>
+    <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100 max-w-md mx-auto mt-8">
+      <h1 className="text-2xl font-bold mb-6 text-gray-900 tracking-tight">Редактировать мероприятие</h1>
+      <form onSubmit={handleSubmit}>
+        <label className="block text-gray-700 mb-2">Название</label>
+        <InputField
+          type="text"
+          value={event.title}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            setEvent({ ...event, title: e.target.value })
+          }
+          placeholder="Введите название"
+          icon={FaPen}
+        />
+        <label className="block text-gray-700 mb-2">Описание</label>
+        <InputField
+          type="text"
+          value={event.description}
+          onChange={(e: ChangeEvent<HTMLInputElement>) =>
+            setEvent({ ...event, description: e.target.value })
+          }
+          placeholder="Введите описание"
+          icon={FaPen}
+        />
+        <ModalButton type="submit">Сохранить</ModalButton>
+      </form>
+    </div>
   );
 }

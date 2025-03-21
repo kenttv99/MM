@@ -1,9 +1,8 @@
 "use client";
-import { useState, ChangeEvent } from "react"; // Убираем FocusEvent, так как он не нужен
+import { useState, ChangeEvent } from "react";
 import InputField from "@/components/common/InputField";
 import { FaSearch } from "react-icons/fa";
 
-// Интерфейсы для пользователей и мероприятий
 interface User {
   id: number;
   fio: string;
@@ -49,39 +48,37 @@ export default function DashboardPage() {
   };
 
   return (
-    <div>
-      <h1>Dashboard</h1>
-      <div>
-        <h2>Поиск пользователей</h2>
-        <label>Поиск пользователей</label> {/* Убираем htmlFor, так как id не передается */}
+    <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100 max-w-4xl mx-auto mt-8">
+      <h1 className="text-2xl font-bold mb-6 text-gray-900 tracking-tight">Dashboard</h1>
+      <div className="mb-8">
+        <h2 className="text-xl font-semibold text-gray-700 mb-4">Поиск пользователей</h2>
         <InputField
-          type="text" // Убираем id
+          type="text"
           value={userSearch}
           onChange={(e: ChangeEvent<HTMLInputElement>) => setUserSearch(e.target.value)}
           placeholder="Введите имя или email"
           icon={FaSearch}
-          onBlur={handleUserSearch} // Убираем параметр e, так как он не используется
+          onBlur={handleUserSearch}
         />
-        <ul>
+        <ul className="mt-4 text-gray-700">
           {users.map((user) => (
-            <li key={user.id}>{user.fio} ({user.email})</li>
+            <li key={user.id} className="mb-2">{user.fio} ({user.email})</li>
           ))}
         </ul>
       </div>
       <div>
-        <h2>Поиск мероприятий</h2>
-        <label>Поиск мероприятий</label> {/* Убираем htmlFor */}
+        <h2 className="text-xl font-semibold text-gray-700 mb-4">Поиск мероприятий</h2>
         <InputField
-          type="text" // Убираем id
+          type="text"
           value={eventSearch}
           onChange={(e: ChangeEvent<HTMLInputElement>) => setEventSearch(e.target.value)}
           placeholder="Введите название мероприятия"
           icon={FaSearch}
-          onBlur={handleEventSearch} // Убираем параметр e
+          onBlur={handleEventSearch}
         />
-        <ul>
+        <ul className="mt-4 text-gray-700">
           {events.map((event) => (
-            <li key={event.id}>{event.title}</li>
+            <li key={event.id} className="mb-2">{event.title}</li>
           ))}
         </ul>
       </div>

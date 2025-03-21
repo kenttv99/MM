@@ -2,7 +2,6 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-// Интерфейс для данных администратора
 interface AdminData {
   fio: string;
   email: string;
@@ -21,7 +20,7 @@ export default function AdminProfilePage() {
         return;
       }
       try {
-        const response = await fetch("/admin/me", {  // Относительный путь
+        const response = await fetch("/admin/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!response.ok) throw new Error("Ошибка загрузки профиля");
@@ -40,14 +39,22 @@ export default function AdminProfilePage() {
     fetchProfile();
   }, [router]);
 
-  if (!adminData) return <p>Загрузка...</p>;
+  if (!adminData) return <p className="text-gray-900">Загрузка...</p>;
 
   return (
-    <div>
-      <h1>Профиль администратора</h1>
-      <p><strong>ФИО:</strong> {adminData.fio}</p>
-      <p><strong>Email:</strong> {adminData.email}</p>
-      {error && <p style={{ color: "red" }}>{error}</p>}
+    <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100 max-w-md mx-auto mt-8">
+      <h1 className="text-2xl font-bold mb-6 text-gray-900 tracking-tight">Профиль администратора</h1>
+      <p className="text-gray-700 mb-4">
+        <strong className="font-semibold">ФИО:</strong> {adminData.fio}
+      </p>
+      <p className="text-gray-700 mb-4">
+        <strong className="font-semibold">Email:</strong> {adminData.email}
+      </p>
+      {error && (
+        <p className="text-red-500 bg-red-50 p-3 rounded-lg border-l-4 border-red-500 text-sm">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

@@ -70,7 +70,8 @@ async def update_event(
         if not db_event:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
 
-        update_data = event.dict(exclude_unset=True)
+        # Исправление: используем model_dump вместо dict для Pydantic v2
+        update_data = event.model_dump(exclude_unset=True)
         for key, value in update_data.items():
             setattr(db_event, key, value)
         db_event.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)

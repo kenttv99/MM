@@ -2,7 +2,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
-import Header from "@/components/Header";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -25,12 +24,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ru">
+    <html lang="ru" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <AuthProvider>
-          {/* Include Header in the root layout so it appears on all pages */}
-          <Header />
-          <main className="min-h-screen pt-16">{children}</main>
+          {/* Не включаем Header, так как он будет добавлен в соответствующих макетах */}
+          {children}
         </AuthProvider>
       </body>
     </html>

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from backend.schemas_enums.schemas import EventCreate, EventUpdate
 from backend.database.user_db import AsyncSession, get_async_db, Event
 from backend.config.auth import get_current_admin, log_admin_activity
@@ -6,17 +7,23 @@ from backend.config.logging_config import logger
 from datetime import datetime
 
 router = APIRouter(prefix="/events", tags=["Events"])
+bearer_scheme = HTTPBearer()
 
 # Маршрут для создания мероприятия
 @router.post("", response_model=EventCreate, status_code=status.HTTP_201_CREATED)
 async def create_event(
     event: EventCreate,
     db: AsyncSession = Depends(get_async_db),
-    current_admin=Depends(get_current_admin),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
     """Создание нового мероприятия администратором."""
     try:
+        # Получаем токен из авторизационного заголовка
+        token = credentials.credentials
+        # Получаем данные администратора
+        current_admin = await get_current_admin(token, db)
+        
         # Создаем объект мероприятия с данными из запроса
         db_event = Event(
             title=event.title,
@@ -54,11 +61,16 @@ async def update_event(
     event_id: int,
     event: EventUpdate,
     db: AsyncSession = Depends(get_async_db),
-    current_admin=Depends(get_current_admin),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
     """Обновление мероприятия администратором."""
     try:
+        # Получаем токен из авторизационного заголовка
+        token = credentials.credentials
+        # Получаем данные администратора
+        current_admin = await get_current_admin(token, db)
+        
         # Находим мероприятие по ID
         db_event = await db.get(Event, event_id)
         if not db_event:

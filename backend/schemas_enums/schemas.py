@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 
-from backend.schemas_enums.enums import TicketTypeEnum
+from backend.schemas_enums.enums import EventStatus, TicketTypeEnum
 
 
 #------------------------
@@ -73,18 +73,19 @@ class EventCreate(BaseModel):
     end_date: Optional[datetime] = None
     location: Optional[str] = None
     image_url: Optional[str] = None
-    price: float  # Оставляем для совместимости, но используем ticket_type.price
+    price: float
     published: Optional[bool] = False
     created_at: datetime
     updated_at: datetime
-    ticket_type: Optional[TicketTypeCreate] = None  # Вложенная схема для типа билета
+    status: Optional[EventStatus] = EventStatus.draft  # По умолчанию 'draft'
+    ticket_type: Optional[TicketTypeCreate] = None
 
     class Config:
         from_attributes = True
     
     
 class EventUpdate(BaseModel):
-    id: Optional[int] = None  
+    id: Optional[int] = None
     title: Optional[str] = None
     description: Optional[str] = None
     start_date: Optional[datetime] = None
@@ -93,8 +94,10 @@ class EventUpdate(BaseModel):
     image_url: Optional[str] = None
     price: Optional[float] = None
     published: Optional[bool] = None
-    created_at: Optional[datetime] = None  # Добавляем created_at как опциональное
-    updated_at: Optional[datetime] = None  # Добавляем updated_at как опциональное
-    
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    status: Optional[EventStatus] = None  # Позволяем обновлять статус
+
     class Config:
         from_attributes = True
+        

@@ -11,38 +11,26 @@ router = APIRouter(
 
 # Маршрут для получения списка мероприятий (без авторизации)
 @router.get("", response_model=list[EventCreate])
-async def get_events(
-    db: AsyncSession = Depends(get_async_db),
-    request: Request = None
-):
-    """Получение списка всех мероприятий (публичный доступ)."""
-    try:
-        # Подгружаем связанные tickets для всех событий
-        result = await db.execute(select(Event).options(selectinload(Event.tickets)))
-        events = result.scalars().all()
-        
-        # Формируем ответ с ticket_type
-        event_responses = []
-        for event in events:
-            event_dict = event.__dict__  # Получаем словарь атрибутов события
-            if event.tickets and len(event.tickets) > 0:
-                ticket = event.tickets[0]  # Берем первый тип билета
-                event_dict["ticket_type"] = TicketTypeCreate(
-                    name=ticket.name,
-                    price=ticket.price,
-                    available_quantity=ticket.available_quantity,
-                    free_registration=ticket.free_registration
-                ).model_dump()
-            event_responses.append(EventCreate(**event_dict))
-        
-        logger.info(f"Public request for list of events")
-        return event_responses
-    except Exception as e:
-        logger.error(f"Error retrieving events: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve events"
-        )
+async def get_events(db: AsyncSession = Depends(get_async_db)):
+    result = await db.execute(
+        select(Event).where(Event.status != "draft").options(selectinload(Event.tickets))
+    )
+    events = result.scalars().all()
+    
+    event_responses = []
+    for event in events:
+        event_dict = event.__dict__
+        if event.tickets:
+            ticket = event.tickets[0]
+            event_dict["ticket_type"] = TicketTypeCreate(
+                name=ticket.name,
+                price=ticket.price,
+                available_quantity=ticket.available_quantity,
+                free_registration=ticket.free_registration
+            ).model_dump()
+        event_responses.append(EventCreate(**event_dict))
+    
+    return event_responses
 
 # Маршрут для получения конкретного мероприятия (без авторизации)
 @router.get("/{event_id}", response_model=EventCreate)

@@ -1,7 +1,7 @@
 import asyncio
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from backend.schemas_enums.enums import MediaType, Status
+from backend.schemas_enums.enums import EventStatus, MediaType, Status
 from constants import DATABASE_URL
 from datetime import datetime
 from sqlalchemy.orm import (
@@ -62,11 +62,12 @@ class Event(Base):
     start_date = Column(TIMESTAMP, nullable=False)
     end_date = Column(TIMESTAMP)
     location = Column(String(255))
-    image_url = Column(String(255))  # Ссылка на обложку мероприятия
-    price = Column(DECIMAL(20, 8), nullable=False)  # Цена билета
-    published = Column(Boolean, default=False)  # Публикуемое событие
+    image_url = Column(String(255))
+    price = Column(DECIMAL(20, 8), nullable=False)
+    published = Column(Boolean, default=False)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
+    status = Column(Enum(EventStatus), default=EventStatus.draft, nullable=False)
     
     # Связь с типами билетов
     tickets = relationship("TicketType", back_populates="event")

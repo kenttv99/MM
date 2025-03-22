@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/edit-events/page.tsx
 "use client";
 
-import { useState, useEffect, ChangeEvent, FormEvent, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, ChangeEvent, FormEvent, useCallback, useMemo, Suspense } from "react"; // Добавляем импорт Suspense
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
@@ -29,9 +29,9 @@ interface EventData {
   published: boolean;
   created_at?: string;
   updated_at?: string;
+  status?: string;
 }
 
-// Компонент, использующий useSearchParams
 const EditEventContent: React.FC = () => {
   const searchParams = useSearchParams();
   const eventId = searchParams.get("event_id");
@@ -69,7 +69,7 @@ const EditEventContent: React.FC = () => {
         }, 2000);
         return;
       }
-      const response = await fetch(`/events/${id}`, {
+      const response = await fetch(`http://localhost:8001/events/${id}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Accept": "application/json",
@@ -164,7 +164,7 @@ const EditEventContent: React.FC = () => {
       updated_at: new Date().toISOString(),
     };
     try {
-      const url = isCreating ? `/admin_edits` : `/admin_edits/${eventId}`;
+      const url = isCreating ? "http://localhost:8001/admin_edits" : `http://localhost:8001/admin_edits/${eventId}`;
       const method = isCreating ? "POST" : "PUT";
       const response = await fetch(url, {
         method,
@@ -193,11 +193,11 @@ const EditEventContent: React.FC = () => {
         }
         throw new Error(errorMessage);
       }
+      const responseData = await response.json();
       setSuccess(isCreating ? "Мероприятие успешно создано" : "Мероприятие успешно обновлено");
       if (isCreating) {
-        const data = await response.json();
         setTimeout(() => {
-          router.push(`/edit-events?event_id=${data.id}`);
+          router.push(`/edit-events?event_id=${responseData.id}`);
         }, 1500);
       }
     } catch (err) {
@@ -360,7 +360,6 @@ const EditEventContent: React.FC = () => {
   );
 };
 
-// Основной компонент страницы, который оборачивает EditEventContent в Suspense
 export default function EditEventPage() {
   return (
     <Suspense

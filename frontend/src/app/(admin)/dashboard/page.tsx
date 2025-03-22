@@ -3,7 +3,7 @@
 import { useState, ChangeEvent, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
-import { FaSearch, FaUsers, FaCalendarAlt, FaPlus } from "react-icons/fa";
+import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
@@ -19,6 +19,7 @@ interface Event {
   start_date: string;
   location?: string;
   published: boolean;
+  status: string; // Добавляем поле status
 }
 
 export default function DashboardPage() {
@@ -28,7 +29,10 @@ export default function DashboardPage() {
   const [events, setEvents] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [eventToDelete, setEventToDelete] = useState<number | null>(null);
   const hasFetchedEvents = useRef(false);
+  const hasFetchedUsers = useRef(false);
 
   const router = useRouter();
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
@@ -53,15 +57,14 @@ export default function DashboardPage() {
         return;
       }
 
-      // Убедимся, что токен в правильном формате
       let authToken = token;
       if (token.startsWith("Bearer ")) {
         authToken = token.slice(7).trim();
       }
 
       const url = eventSearch.trim()
-        ? `http://localhost:8001/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
-        : "http://localhost:8001/admin_edits/events";
+        ? `/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
+        : "/admin_edits/events";
       const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -75,6 +78,7 @@ export default function DashboardPage() {
         return;
       }
       const data = await response.json();
+      console.log("Данные мероприятий с сервера:", data);
       setEvents(Array.isArray(data) ? data : []);
     } catch {
       setError("Не удалось загрузить мероприятия. Проверьте соединение с сервером.");
@@ -84,15 +88,7 @@ export default function DashboardPage() {
     }
   }, [eventSearch]);
 
-  useEffect(() => {
-    if (!authLoading && isAdminAuth && !hasFetchedEvents.current) {
-      hasFetchedEvents.current = true;
-      fetchEvents();
-    }
-  }, [isAdminAuth, authLoading, fetchEvents]);
-
-  const handleUserSearch = async () => {
-    if (!userSearch.trim()) return;
+  const fetchUsers = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -102,13 +98,15 @@ export default function DashboardPage() {
         return;
       }
 
-      // Убедимся, что токен в правильном формате
       let authToken = token;
       if (token.startsWith("Bearer ")) {
         authToken = token.slice(7).trim();
       }
 
-      const response = await fetch(`http://localhost:8001/admin_edits/users?search=${encodeURIComponent(userSearch)}`, {
+      const url = userSearch.trim()
+        ? `/admin_edits/users?search=${encodeURIComponent(userSearch)}`
+        : "/admin_edits/users";
+      const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${authToken}`,
           "Accept": "application/json",
@@ -120,6 +118,7 @@ export default function DashboardPage() {
         setUsers([]);
       } else {
         const data = await response.json();
+        console.log("Данные пользователей с сервера:", data);
         setUsers(Array.isArray(data) ? data : []);
       }
     } catch {
@@ -128,11 +127,76 @@ export default function DashboardPage() {
     } finally {
       setIsLoading(false);
     }
+  }, [userSearch]);
+
+  useEffect(() => {
+    if (!authLoading && isAdminAuth) {
+      if (!hasFetchedEvents.current) {
+        hasFetchedEvents.current = true;
+        fetchEvents();
+      }
+      if (!hasFetchedUsers.current) {
+        hasFetchedUsers.current = true;
+        fetchUsers();
+      }
+    }
+  }, [isAdminAuth, authLoading, fetchEvents, fetchUsers]);
+
+  const handleUserSearch = () => {
+    hasFetchedUsers.current = false;
+    fetchUsers();
   };
 
   const handleEventSearch = () => {
     hasFetchedEvents.current = false;
     fetchEvents();
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!eventToDelete) return;
+
+    setIsLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("admin_token");
+      if (!token) {
+        setError("Отсутствует токен авторизации");
+        setShowDeleteModal(false);
+        setEventToDelete(null);
+        return;
+      }
+
+      let authToken = token;
+      if (token.startsWith("Bearer ")) {
+        authToken = token.slice(7).trim();
+      }
+
+      const response = await fetch(`/admin_edits/events/${eventToDelete}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
+        setShowDeleteModal(false);
+        setEventToDelete(null);
+        return;
+      }
+
+      // Успешно удалено, обновляем список мероприятий
+      setEvents(events.filter((event) => event.id !== eventToDelete));
+      setShowDeleteModal(false);
+      setEventToDelete(null);
+    } catch {
+      setError("Не удалось удалить мероприятие. Проверьте соединение с сервером.");
+      setShowDeleteModal(false);
+      setEventToDelete(null);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (authLoading) {
@@ -206,7 +270,7 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <p className="text-gray-500 text-center py-4">
-                  {userSearch.trim() ? "Пользователи не найдены" : "Введите запрос для поиска пользователей"}
+                  {userSearch.trim() ? "Пользователи не найдены" : "Нет доступных пользователей"}
                 </p>
               )}
             </div>
@@ -252,13 +316,24 @@ export default function DashboardPage() {
                               <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
                             )}
                           </td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm">
+                          <td className="px-4 py-2 whitespace-nowrap text-sm relative">
                             <button
                               onClick={() => router.push(`/edit-events?event_id=${event.id}`)}
-                              className="text-blue-500 hover:text-blue-700"
+                              className="text-blue-500 hover:text-blue-700 inline-block"
                             >
                               Редактировать
                             </button>
+                            {event.status === "draft" && (
+                              <button
+                                onClick={() => {
+                                  setEventToDelete(event.id);
+                                  setShowDeleteModal(true);
+                                }}
+                                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-red-500 hover:text-red-700"
+                              >
+                                <FaTrashAlt className="w-2.5 h-2.5" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -274,6 +349,36 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
+
+      {/* Модальное окно для подтверждения удаления */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+            <h2 className="text-lg font-semibold mb-4">Подтверждение удаления</h2>
+            <p className="text-gray-600 mb-6">
+              Вы уверены, что хотите удалить это мероприятие? Это действие нельзя отменить.
+            </p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setEventToDelete(null);
+                }}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleDeleteEvent}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                disabled={isLoading}
+              >
+                {isLoading ? "Удаление..." : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

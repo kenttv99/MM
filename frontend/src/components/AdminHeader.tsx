@@ -1,12 +1,12 @@
 // frontend/src/components/AdminHeader.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Logo from "./Logo";
-import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { AdminAuthContext } from "@/contexts/AdminAuthContext";
 import { FaTachometerAlt, FaSignOutAlt, FaBars, FaTimes, FaUser } from "react-icons/fa";
 
 interface NavItem {
@@ -16,7 +16,15 @@ interface NavItem {
 }
 
 const AdminHeader: React.FC = () => {
-  const { isAdminAuth, logoutAdmin, adminData } = useAdminAuth();
+  // Безопасно получаем контекст админа
+  const adminAuthContext = useContext(AdminAuthContext);
+  const isAdminAuth = adminAuthContext?.isAdminAuth || false;
+  const adminData = adminAuthContext?.adminData || null;
+  const logoutAdmin = adminAuthContext?.logoutAdmin || (() => {
+    localStorage.removeItem('admin_token');
+    window.location.href = '/admin-login';
+  });
+
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const router = useRouter();

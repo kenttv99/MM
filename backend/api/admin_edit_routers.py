@@ -1,122 +1,99 @@
-from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from backend.schemas_enums.schemas import EventCreate, EventUpdate
-from backend.database.user_db import AsyncSession, Registration, TicketType, get_async_db, Event
-from backend.config.auth import get_current_admin, log_admin_activity
+from backend.schemas_enums.schemas import AdminCreate, AdminLogin, AdminResponse
+from backend.config.auth import create_admin, get_admin_by_username, pwd_context, create_access_token, get_current_admin, log_admin_activity
+from backend.database.user_db import AsyncSession, get_async_db
 from backend.config.logging_config import logger
-from datetime import datetime, timezone
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from datetime import timedelta
+from backend.config.rate_limiter import rate_limit
+from constants import ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter()
+
 bearer_scheme = HTTPBearer()
 
-# Маршрут для создания мероприятия
-# backend/api/admin_edit_routers.py
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from backend.schemas_enums.schemas import EventCreate, EventUpdate, TicketTypeCreate
-from backend.database.user_db import AsyncSession, get_async_db, Event, TicketType
-from backend.config.auth import get_current_admin, log_admin_activity
-from backend.config.logging_config import logger
-from datetime import datetime, timezone
-from sqlalchemy.orm import selectinload
-
-router = APIRouter()
-bearer_scheme = HTTPBearer()
-
-@router.post("", response_model=EventCreate, status_code=status.HTTP_201_CREATED)
-async def create_event(
-    event: EventCreate,
-    db: AsyncSession = Depends(get_async_db),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    request: Request = None
-):
-    token = credentials.credentials
-    current_admin = await get_current_admin(token, db)
-    
-    now_without_tz = datetime.now(timezone.utc).replace(tzinfo=None)
-    
-    db_event = Event(
-        title=event.title,
-        description=event.description,
-        start_date=event.start_date.replace(tzinfo=None) if event.start_date.tzinfo else event.start_date,
-        end_date=event.end_date.replace(tzinfo=None) if event.end_date and event.end_date.tzinfo else event.end_date,
-        location=event.location,
-        image_url=event.image_url,
-        price=event.price,
-        published=event.published,
-        created_at=now_without_tz,
-        updated_at=now_without_tz,
-        status=event.status  # Устанавливаем статус
-    )
-    db.add(db_event)
-    await db.flush()
-    
-    if event.ticket_type:
-        ticket_type = TicketType(
-            event_id=db_event.id,
-            name=event.ticket_type.name.value,
-            price=event.ticket_type.price,
-            available_quantity=event.ticket_type.available_quantity,
-            sold_quantity=0,
-            free_registration=event.ticket_type.free_registration
+@router.post("/register", response_model=AdminResponse, status_code=status.HTTP_201_CREATED)
+@rate_limit("register_admin")  # Лимит определяется в constants.py
+async def register_admin(admin: AdminCreate, db: AsyncSession = Depends(get_async_db), request: Request = None):
+    """Регистрация нового администратора."""
+    existing_admin = await get_admin_by_username(db, admin.email)
+    if existing_admin:
+        logger.warning(f"Attempt to register existing admin email: {admin.email}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already exists"
         )
-        db.add(ticket_type)
-        await db.flush()
-
-    await db.commit()
-    await db.refresh(db_event, options=[selectinload(Event.tickets)])
     
-    event_dict = db_event.__dict__
-    if db_event.tickets:
-        ticket = db_event.tickets[0]
-        event_dict["ticket_type"] = TicketTypeCreate(
-            name=ticket.name,
-            price=ticket.price,
-            available_quantity=ticket.available_quantity,
-            free_registration=ticket.free_registration
-        ).model_dump()
-    
-    await log_admin_activity(db, current_admin.id, request, action="create_event")
-    logger.info(f"Event created by admin {current_admin.email}: {db_event.title}")
-    return EventCreate(**event_dict)
+    try:
+        new_admin = await create_admin(db, admin.fio, admin.email, admin.password)
+        await log_admin_activity(db, new_admin.id, request, action="register")
+        logger.info(f"Admin registered successfully: {new_admin.email}")
+        return new_admin
+    except Exception as e:
+        logger.error(f"Error registering admin: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to register admin"
+        )
 
-# Маршрут для обновления мероприятия
-@router.put("/{event_id}", response_model=EventCreate)
-async def update_event(
-    event_id: int,
-    event: EventUpdate,
-    db: AsyncSession = Depends(get_async_db),
+@router.post("/login")
+@rate_limit("login_admin")  # Лимит определяется в constants.py
+async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
+    """Авторизация администратора с возвратом токена."""
+    db_admin = await get_admin_by_username(db, admin.email)
+    if not db_admin or not pwd_context.verify(admin.password, db_admin.password_hash):
+        await log_admin_activity(db, db_admin.id if db_admin else None, request, action="login_failed")
+        logger.warning(f"Failed login attempt for admin email: {admin.email}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный логин или пароль"
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Исправление: передаём сессию db в create_access_token
+    access_token = await create_access_token(
+        data={"sub": db_admin.email}, session=db, expires_delta=access_token_expires
+    )
+    await log_admin_activity(db, db_admin.id, request, action="login")
+    logger.info(f"Admin logged in successfully: {db_admin.email}")
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/me", response_model=AdminResponse)
+@rate_limit("access_me_admin")  # Лимит определяется в constants.py
+async def read_admins_me(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ):
+    """Получение данных текущего администратора (защищенный эндпоинт)."""
     token = credentials.credentials
     current_admin = await get_current_admin(token, db)
-    
-    db_event = await db.get(Event, event_id)
-    if not db_event:
-        raise HTTPException(status_code=404, detail="Event not found")
+    await log_admin_activity(db, current_admin.id, request, action="access_me")
+    logger.info(f"Admin accessed their profile: {current_admin.email}")
+    return current_admin
 
-    update_data = event.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if key == "status":
-            value = value.value if isinstance(value, Enum) else value
-        setattr(db_event, key, value)
-    db_event.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    await db.commit()
-    await db.refresh(db_event, options=[selectinload(Event.tickets)])
-
-    event_dict = db_event.__dict__
-    if db_event.tickets:
-        ticket = db_event.tickets[0]
-        event_dict["ticket_type"] = TicketTypeCreate(
-            name=ticket.name,
-            price=ticket.price,
-            available_quantity=ticket.available_quantity,
-            free_registration=ticket.free_registration
-        ).model_dump()
-
-    await log_admin_activity(db, current_admin.id, request, action="update_event")
-    logger.info(f"Event updated by admin {current_admin.email}: {db_event.title}")
-    return EventCreate(**event_dict)
+@router.get("/verify_token")
+@rate_limit("verify_token_admin")  # Отдельный лимит с более высоким порогом
+async def verify_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Облегченная проверка действительности токена без полной загрузки профиля.
+    Используется для клиентской авторизации с меньшими ограничениями по частоте запросов.
+    """
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        return {
+            "is_valid": True,
+            "admin_id": current_admin.id,
+            "email": current_admin.email
+        }
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )

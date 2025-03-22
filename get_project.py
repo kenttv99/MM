@@ -5,7 +5,7 @@ from pathlib import Path
 PROJECT_ROOT = "C:/Users/kentt/OneDrive/Desktop/projects/MM"
 
 # Путь для сохранения итогового файла (используем прямые слэши)
-OUTPUT_FILE = "C:/Users/kentt/OneDrive/Desktop/projects/MM/project_content.txt"
+OUTPUT_FILE = "C:/Users/kentt/OneDrive/Desktop/projects/MM/project_content/project_content.txt"
 
 # Разрешенные расширения файлов (указывай с точкой)
 INCLUDE_EXTENSIONS = [
@@ -99,8 +99,8 @@ def get_project_files(project_root):
     
     return all_files
 
-# Функция для записи содержимого файлов в текстовый файл
-def write_project_content(project_root, output_file):
+# Функция для записи содержимого файлов в текстовые файлы с разделением по 2000 строк
+def write_project_content(project_root, output_file_base):
     project_root = Path(project_root)
     
     # Проверяем, существует ли корневая директория
@@ -109,38 +109,85 @@ def write_project_content(project_root, output_file):
     
     # Получаем все файлы
     all_files = get_project_files(project_root)
-    print(f"Всего файлов найдено: {len(all_files)}")  # Отладочный вывод
-    # print(f"Список всех файлов: {[normalize_path(f) for f in all_files]}")  # Отладочный вывод
+    print(f"Всего файлов найдено: {len(all_files)}")
     
     # Фильтруем файлы
-    filtered_files = []
-    for file_path in all_files:
-        if should_include(file_path):
-            filtered_files.append(file_path)
+    filtered_files = [file_path for file_path in all_files if should_include(file_path)]
+    print(f"Файлов после фильтрации: {len(filtered_files)}")
     
-    print(f"Файлов после фильтрации: {len(filtered_files)}")  # Отладочный вывод
-    # print(f"Список отфильтрованных файлов: {[normalize_path(f) for f in filtered_files]}")  # Отладочный вывод
+    # Параметры для разделения
+    LINES_PER_FILE = 2000
+    file_counter = 1
+    line_counter = 0
+    output_file = f"{output_file_base[:-4]}_{file_counter}.txt"  # Убираем .txt и добавляем номер
+    out = open(output_file, "w", encoding="utf-8")
     
-    # Записываем содержимое в файл
-    with open(output_file, "w", encoding="utf-8") as out:
-        out.write("Project Files Content\n")
-        out.write("================\n")
+    # Записываем заголовок в первый файл
+    out.write("Project Files Content\n")
+    out.write("================\n")
+    line_counter += 2
+    
+    # Обрабатываем файлы
+    for file_path in filtered_files:
+        full_path = project_root / file_path
         
-        for file_path in filtered_files:
-            full_path = project_root / file_path
-            out.write(f"File: {file_path}\n")
-            try:
-                with open(full_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    out.write(content + "\n")
-            except Exception as e:
-                out.write(f"(Ошибка чтения файла: {e})\n")
+        # Записываем имя файла
+        file_header = f"File: {file_path}\n"
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                content = f.read()
+                content_lines = content.split('\n')
+                num_lines = len(content_lines) + 2  # +2 для заголовка и разделителя
+                
+                # Проверяем, нужно ли создать новый файл
+                while line_counter + num_lines > LINES_PER_FILE:
+                    # Записываем оставшиеся строки до лимита в текущий файл
+                    lines_to_write = LINES_PER_FILE - line_counter
+                    if lines_to_write > 0:
+                        if lines_to_write >= 2:  # Достаточно места для заголовка и части контента
+                            out.write(file_header)
+                            remaining_lines = lines_to_write - 1  # -1 для разделителя
+                            out.write('\n'.join(content_lines[:remaining_lines]) + '\n')
+                            content_lines = content_lines[remaining_lines:]
+                        out.write("================\n")
+                    
+                    # Закрываем текущий файл и открываем новый
+                    out.close()
+                    file_counter += 1
+                    output_file = f"{output_file_base[:-4]}_{file_counter}.txt"
+                    out = open(output_file, "w", encoding="utf-8")
+                    line_counter = 0
+                    
+                # Записываем оставшееся содержимое
+                out.write(file_header)
+                out.write(content + "\n")
+                out.write("================\n")
+                line_counter += num_lines
+                
+        except Exception as e:
+            error_message = f"(Ошибка чтения файла: {e})\n"
+            error_lines = len(error_message.split('\n')) + 2  # +2 для заголовка и разделителя
+            
+            if line_counter + error_lines > LINES_PER_FILE:
+                out.close()
+                file_counter += 1
+                output_file = f"{output_file_base[:-4]}_{file_counter}.txt"
+                out = open(output_file, "w", encoding="utf-8")
+                line_counter = 0
+                
+            out.write(file_header)
+            out.write(error_message)
             out.write("================\n")
+            line_counter += error_lines
+    
+    # Закрываем последний файл
+    out.close()
+    print(f"Содержимое проекта сохранено в файлах: {output_file_base[:-4]}_1.txt и последующих")
 
 # Запуск скрипта
 if __name__ == "__main__":
     try:
         write_project_content(PROJECT_ROOT, OUTPUT_FILE)
-        print(f"Содержимое проекта сохранено в {OUTPUT_FILE}")
+        print(f"Содержимое проекта сохранено с разделением по 2000 строк")
     except Exception as e:
         print(f"Произошла ошибка: {e}")

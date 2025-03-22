@@ -7,6 +7,13 @@ import { FaPen, FaCalendar, FaMapMarkerAlt, FaDollarSign, FaImage, FaCheck } fro
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
+// Определяем интерфейс для ошибки валидации прямо в файле
+interface ValidationError {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}
+
 interface EventData {
   id?: number;
   title: string;
@@ -22,13 +29,12 @@ interface EventData {
 }
 
 export default function EditEventPage() {
-  // Используем useMemo для initialEventState, чтобы он не пересоздавался при каждом рендере
   const initialEventState = useMemo<EventData>(() => ({
     title: "",
     description: "",
     start_date: new Date().toISOString().split('T')[0],
     price: 0,
-    published: false
+    published: false,
   }), []);
 
   const [event, setEvent] = useState<EventData>(initialEventState);
@@ -37,21 +43,19 @@ export default function EditEventPage() {
   const [success, setSuccess] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
-  
+
   const router = useRouter();
   const searchParams = useSearchParams();
   const eventId = searchParams.get("event_id");
   const isNew = searchParams.get("new") === "true";
-  
+
   const { isAdminAuth, isLoading: authLoading } = useAdminAuth();
 
-  // Определяем fetchEvent как useCallback, чтобы он сохранял стабильность между рендерами
   const fetchEvent = useCallback(async (id: string) => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("admin_token");
-      
-      // Проверяем наличие токена
+
       if (!token) {
         setError("Отсутствует токен авторизации");
         setTimeout(() => {
@@ -59,27 +63,26 @@ export default function EditEventPage() {
         }, 2000);
         return;
       }
-      
+
       const response = await fetch(`/events/${id}`, {
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
           "Accept": "application/json",
-          "Cache-Control": "no-cache"
+          "Cache-Control": "no-cache",
         },
       });
-      
-      // Проверяем тип содержимого ответа
+
       const contentType = response.headers.get("content-type");
       if (!contentType || !contentType.includes("application/json")) {
         setError(`Получен неверный формат ответа: ${contentType || "неизвестный тип"}`);
         console.error("API вернул неверный формат:", contentType);
-        
+
         setTimeout(() => {
           router.push("/dashboard");
         }, 3000);
         return;
       }
-      
+
       if (!response.ok) {
         setError(`Ошибка API: ${response.status} ${response.statusText}`);
         setTimeout(() => {
@@ -87,25 +90,23 @@ export default function EditEventPage() {
         }, 3000);
         return;
       }
-      
+
       const data = await response.json();
-      
-      // Форматируем даты для input[type="date"]
+
       if (data.start_date) {
         data.start_date = new Date(data.start_date).toISOString().split('T')[0];
       }
       if (data.end_date) {
         data.end_date = new Date(data.end_date).toISOString().split('T')[0];
       }
-      
+
       setEvent(data);
       setIsCreating(false);
       setIsInitialized(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Произошла ошибка при загрузке данных");
       console.error("Ошибка загрузки мероприятия:", err);
-      
-      // При ошибке загрузки перенаправляем на dashboard
+
       setTimeout(() => {
         router.push("/dashboard");
       }, 3000);
@@ -115,20 +116,16 @@ export default function EditEventPage() {
   }, [router]);
 
   useEffect(() => {
-    // Проверка параметров URL
     if (!eventId && !isNew) {
-      // Если нет параметров, перенаправляем на dashboard
       router.push("/dashboard");
       return;
     }
 
-    // Проверка авторизации
     if (!authLoading && !isAdminAuth) {
       router.push("/admin-login");
       return;
     }
 
-    // Инициализация для создания нового мероприятия
     if (isNew) {
       setIsCreating(true);
       setEvent(initialEventState);
@@ -136,7 +133,6 @@ export default function EditEventPage() {
       return;
     }
 
-    // Загрузка данных существующего мероприятия
     if (eventId) {
       fetchEvent(eventId);
     }
@@ -144,7 +140,7 @@ export default function EditEventPage() {
 
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value, type } = e.target as HTMLInputElement;
-    
+
     if (type === 'checkbox') {
       const target = e.target as HTMLInputElement;
       setEvent({ ...event, [name]: target.checked });
@@ -160,29 +156,32 @@ export default function EditEventPage() {
     setError("");
     setSuccess("");
     setIsLoading(true);
-    
+
     const token = localStorage.getItem("admin_token");
     if (!token) {
       setError("Не авторизован");
       setIsLoading(false);
       return;
     }
-    
-    // Форматируем данные для отправки
+
+    // Форматируем даты в полный ISO-формат
+    const startDate = new Date(event.start_date);
+    const endDate = event.end_date ? new Date(event.end_date) : null;
+
     const eventData = {
       ...event,
-      start_date: new Date(event.start_date).toISOString(),
-      end_date: event.end_date ? new Date(event.end_date).toISOString() : null
+      start_date: startDate.toISOString(),
+      end_date: endDate ? endDate.toISOString() : null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
-    
+
     try {
-      // Определяем URL и метод в зависимости от того, создаем или редактируем
-      const url = isCreating 
-        ? `/admin_edits` 
-        : `/admin_edits/${eventId}`;
-      
+      const url = isCreating ? `/admin_edits` : `/admin_edits/${eventId}`;
       const method = isCreating ? "POST" : "PUT";
-      
+
+      console.log("Sending eventData:", eventData);
+
       const response = await fetch(url, {
         method,
         headers: {
@@ -191,15 +190,29 @@ export default function EditEventPage() {
         },
         body: JSON.stringify(eventData),
       });
-      
+
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Ошибка сохранения мероприятия");
+        let errorMessage = "Ошибка сохранения мероприятия";
+        if (errorData.detail) {
+          if (typeof errorData.detail === "string") {
+            errorMessage = errorData.detail;
+          } else if (Array.isArray(errorData.detail)) {
+            errorMessage = errorData.detail.map((err: ValidationError) => {
+              if (err.msg && err.loc) {
+                return `${err.loc.join(".")}: ${err.msg}`;
+              }
+              return JSON.stringify(err);
+            }).join("; ");
+          } else {
+            errorMessage = JSON.stringify(errorData.detail);
+          }
+        }
+        throw new Error(errorMessage);
       }
-      
+
       setSuccess(isCreating ? "Мероприятие успешно создано" : "Мероприятие успешно обновлено");
-      
-      // Если создали новое мероприятие, перенаправляем на страницу редактирования
+
       if (isCreating) {
         const data = await response.json();
         setTimeout(() => {
@@ -214,7 +227,6 @@ export default function EditEventPage() {
     }
   };
 
-  // Показываем индикатор загрузки
   if (authLoading || (isLoading && !isInitialized)) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -223,7 +235,6 @@ export default function EditEventPage() {
     );
   }
 
-  // Если нет прав или не инициализировано, не показываем содержимое
   if (!isAdminAuth || !isInitialized) {
     return null;
   }
@@ -231,26 +242,26 @@ export default function EditEventPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
-      
+
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-3xl mx-auto">
           <h1 className="text-3xl font-bold mb-8">
             {isCreating ? "Создание нового мероприятия" : "Редактирование мероприятия"}
           </h1>
-          
+
           <div className="bg-white p-6 rounded-lg shadow-md">
             {error && (
               <div className="mb-6 bg-red-50 p-4 rounded-lg border-l-4 border-red-500 text-red-700">
                 {error}
               </div>
             )}
-            
+
             {success && (
               <div className="mb-6 bg-green-50 p-4 rounded-lg border-l-4 border-green-500 text-green-700">
                 {success}
               </div>
             )}
-            
+
             <form onSubmit={handleSubmit}>
               <div className="mb-6">
                 <label className="block text-gray-700 mb-2 font-medium">Название мероприятия</label>
@@ -264,7 +275,7 @@ export default function EditEventPage() {
                   required
                 />
               </div>
-              
+
               <div className="mb-6">
                 <label className="block text-gray-700 mb-2 font-medium">Описание</label>
                 <textarea
@@ -276,7 +287,7 @@ export default function EditEventPage() {
                   rows={5}
                 />
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <label className="block text-gray-700 mb-2 font-medium">Дата начала</label>
@@ -302,7 +313,7 @@ export default function EditEventPage() {
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <label className="block text-gray-700 mb-2 font-medium">Местоположение</label>
@@ -328,7 +339,7 @@ export default function EditEventPage() {
                   />
                 </div>
               </div>
-              
+
               <div className="mb-6">
                 <label className="block text-gray-700 mb-2 font-medium">URL изображения</label>
                 <InputField
@@ -340,7 +351,7 @@ export default function EditEventPage() {
                   name="image_url"
                 />
               </div>
-              
+
               <div className="mb-6 flex items-center">
                 <input
                   type="checkbox"
@@ -354,7 +365,7 @@ export default function EditEventPage() {
                   Опубликовать мероприятие
                 </label>
               </div>
-              
+
               <div className="flex justify-between">
                 <button
                   type="button"
@@ -363,7 +374,7 @@ export default function EditEventPage() {
                 >
                   Отмена
                 </button>
-                <ModalButton 
+                <ModalButton
                   type="submit"
                   disabled={isLoading}
                 >

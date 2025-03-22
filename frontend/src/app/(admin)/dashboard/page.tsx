@@ -1,10 +1,10 @@
 "use client";
-import { useState, ChangeEvent, useEffect } from "react";
+import { useState, ChangeEvent, useEffect, useContext, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { FaSearch, FaUsers, FaCalendarAlt, FaPlus } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
-import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { AdminAuthContext } from "@/contexts/AdminAuthContext";
 
 interface User {
   id: number;
@@ -26,102 +26,169 @@ export default function DashboardPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const { isAdminAuth, isLoading: authLoading } = useAdminAuth();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const router = useRouter();
 
-  useEffect(() => {
-    // Перенаправляем неавторизованных пользователей
-    if (!authLoading && !isAdminAuth) {
-      router.push("/admin-login");
-    } else if (isAdminAuth) {
-      // Загружаем события при первой загрузке страницы
-      fetchEvents();
-    }
-  }, [isAdminAuth, authLoading, router]);
+  // Безопасно получаем контекст админа
+  const adminAuthContext = useContext(AdminAuthContext);
 
-  const fetchEvents = async () => {
+  // Перемещаем fetchEvents выше useEffect
+  const fetchEvents = useCallback(async () => {
     setIsLoading(true);
+    setError(null);
+
     try {
       const token = localStorage.getItem("admin_token");
-      
-      // Проверяем наличие токена
+
       if (!token) {
-        console.error("Отсутствует токен авторизации");
+        setError("Отсутствует токен авторизации");
         setIsLoading(false);
         return;
       }
-      
-      const response = await fetch("/events", {
-        headers: { 
+
+      const url = eventSearch.trim()
+        ? `http://localhost:8001/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
+        : "http://localhost:8001/admin_edits/events";
+
+      const response = await fetch(url, {
+        headers: {
           Authorization: `Bearer ${token}`,
           "Accept": "application/json",
-          "Cache-Control": "no-cache"
         },
       });
-      
-      // Проверяем тип содержимого ответа
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error("Получен неверный формат ответа:", contentType);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
         setEvents([]);
         setIsLoading(false);
         return;
       }
-      
-      if (response.ok) {
-        const data = await response.json();
-        setEvents(data);
-      } else {
-        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
+
+      const responseText = await response.text();
+
+      try {
+        const data = JSON.parse(responseText);
+        if (Array.isArray(data)) {
+          setEvents(data);
+        } else {
+          console.warn("Получен JSON, но не массив:", data);
+          setEvents([]);
+        }
+      } catch (parseError) {
+        console.error("Не удалось разобрать ответ как JSON:", parseError);
+        console.error("Содержимое ответа:", responseText.substring(0, 200) + "...");
+        setError("Получен неверный формат ответа от сервера");
         setEvents([]);
       }
     } catch (err) {
       console.error("Ошибка при загрузке мероприятий:", err);
+      setError(`Не удалось загрузить мероприятия: ${err instanceof Error ? err.message : String(err)}`);
       setEvents([]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [eventSearch, setEvents, setError, setIsLoading]);
+
+  // Теперь fetchEvents доступен для useEffect
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        // Проверяем наличие токена
+        const token = localStorage.getItem("admin_token");
+        if (!token) {
+          router.push("/admin-login");
+          return;
+        }
+
+        // Если контекст доступен, используем его
+        if (adminAuthContext) {
+          const isAuth = await adminAuthContext.checkAdminAuth();
+
+          if (!isAuth) {
+            router.push("/admin-login");
+            return;
+          }
+        } else {
+          // Если контекст недоступен, делаем простую проверку токена
+          try {
+            const response = await fetch("/admin/verify_token", {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Accept": "application/json",
+              },
+            });
+
+            if (!response.ok) {
+              router.push("/admin-login");
+              return;
+            }
+          } catch (error) {
+            console.error("Ошибка проверки токена:", error);
+            router.push("/admin-login");
+            return;
+          }
+        }
+
+        setAuthChecked(true);
+        // Загружаем события при успешной авторизации
+        fetchEvents();
+      } catch (error) {
+        console.error("Ошибка проверки авторизации:", error);
+        router.push("/admin-login");
+      }
+    };
+
+    checkAuth();
+  }, [router, adminAuthContext, fetchEvents]);
 
   const handleUserSearch = async () => {
     if (!userSearch.trim()) return;
-    
+
     setIsLoading(true);
+    setError(null);
+
     try {
       const token = localStorage.getItem("admin_token");
-      
-      // Проверяем наличие токена
+
       if (!token) {
-        console.error("Отсутствует токен авторизации");
+        setError("Отсутствует токен авторизации");
         setIsLoading(false);
         return;
       }
-      
+
       const response = await fetch(`/admin_edits/users?search=${encodeURIComponent(userSearch)}`, {
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
-          "Accept": "application/json" 
+          "Accept": "application/json",
         },
       });
-      
-      // Проверяем тип содержимого ответа
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error("Получен неверный формат ответа:", contentType);
+
+      if (!response.ok) {
+        setError(`Ошибка API: ${response.status} ${response.statusText}`);
         setUsers([]);
         setIsLoading(false);
         return;
       }
-      
-      if (response.ok) {
+
+      try {
         const data = await response.json();
-        setUsers(data);
-      } else {
-        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
+        if (Array.isArray(data)) {
+          setUsers(data);
+        } else {
+          console.warn("Получен JSON, но не массив:", data);
+          setUsers([]);
+        }
+      } catch (parseError) {
+        console.error("Не удалось разобрать ответ как JSON:", parseError);
+        setError("Получен неверный формат ответа от сервера");
         setUsers([]);
       }
     } catch (err) {
       console.error("Ошибка поиска пользователей:", err);
+      setError("Не удалось выполнить поиск пользователей");
       setUsers([]);
     } finally {
       setIsLoading(false);
@@ -129,53 +196,10 @@ export default function DashboardPage() {
   };
 
   const handleEventSearch = async () => {
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem("admin_token");
-      
-      // Проверяем наличие токена
-      if (!token) {
-        console.error("Отсутствует токен авторизации");
-        setIsLoading(false);
-        return;
-      }
-      
-      const url = eventSearch.trim() 
-        ? `/events?search=${encodeURIComponent(eventSearch)}`
-        : '/events';
-        
-      const response = await fetch(url, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          "Accept": "application/json"
-        },
-      });
-      
-      // Проверяем тип содержимого ответа
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        console.error("Получен неверный формат ответа:", contentType);
-        setEvents([]);
-        setIsLoading(false);
-        return;
-      }
-      
-      if (response.ok) {
-        const data = await response.json();
-        setEvents(data);
-      } else {
-        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
-        setEvents([]);
-      }
-    } catch (err) {
-      console.error("Ошибка поиска мероприятий:", err);
-      setEvents([]);
-    } finally {
-      setIsLoading(false);
-    }
+    await fetchEvents();
   };
 
-  if (authLoading) {
+  if (!authChecked || (adminAuthContext?.isLoading)) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -186,12 +210,12 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
-      
+
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold">Панель управления</h1>
-            <button 
+            <button
               onClick={() => router.push("/edit-events?new=true")}
               className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-600 transition-colors"
             >
@@ -199,7 +223,13 @@ export default function DashboardPage() {
               Новое мероприятие
             </button>
           </div>
-          
+
+          {error && (
+            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500">
+              {error}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Управление пользователями */}
             <div className="bg-white p-6 rounded-lg shadow-md">
@@ -207,7 +237,7 @@ export default function DashboardPage() {
                 <FaUsers className="text-blue-500 text-xl mr-2" />
                 <h2 className="text-xl font-semibold">Пользователи</h2>
               </div>
-              
+
               <div className="mb-6">
                 <InputField
                   type="text"
@@ -218,7 +248,7 @@ export default function DashboardPage() {
                   onBlur={handleUserSearch}
                 />
               </div>
-              
+
               {isLoading && users.length === 0 ? (
                 <div className="text-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
@@ -250,14 +280,14 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
-            
+
             {/* Управление мероприятиями */}
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center mb-6">
                 <FaCalendarAlt className="text-blue-500 text-xl mr-2" />
                 <h2 className="text-xl font-semibold">Мероприятия</h2>
               </div>
-              
+
               <div className="mb-6">
                 <InputField
                   type="text"
@@ -268,7 +298,7 @@ export default function DashboardPage() {
                   onBlur={handleEventSearch}
                 />
               </div>
-              
+
               {isLoading && events.length === 0 ? (
                 <div className="text-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
@@ -285,9 +315,13 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {events.map((event) => (
-                        <tr key={event.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id}</td>
+                    {events.map((event, index) => {
+                      console.log("Event:", event);
+                      const key = event.id !== undefined ? event.id : index;
+
+                      return (
+                        <tr key={key} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id || "N/A"}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
                             {event.published ? (
@@ -297,7 +331,7 @@ export default function DashboardPage() {
                             )}
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
-                            <button 
+                            <button
                               onClick={() => router.push(`/edit-events?event_id=${event.id}`)}
                               className="text-blue-500 hover:text-blue-700"
                             >
@@ -305,7 +339,8 @@ export default function DashboardPage() {
                             </button>
                           </td>
                         </tr>
-                      ))}
+                      );
+                    })}
                     </tbody>
                   </table>
                 </div>

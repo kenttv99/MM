@@ -4,7 +4,7 @@ import React from "react";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
-import { useAdminAuthForm } from "@/hooks/useAdminAuthForm";
+import { useAuthForm } from "@/hooks/useAuthForm";
 
 interface LoginProps {
   isOpen?: boolean; // Опционально для модального окна
@@ -23,7 +23,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
     isSuccess,
     handleChange,
     handleSubmit,
-  } = useAdminAuthForm({
+  } = useAuthForm({
     initialValues: { email: "", password: "" },
     endpoint,
     redirectTo,

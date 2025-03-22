@@ -2,3 +2,37 @@
 [SQL: INSERT INTO events (title, description, start_date, end_date, location, image_url, price, published, created_at, updated_at) VALUES ($1::VARCHAR, $2::VARCHAR, $3::TIMESTAMP WITHOUT TIME ZONE, $4::TIMESTAMP WITHOUT TIME ZONE, $5::VARCHAR, $6::VARCHAR, $7::NUMERIC(20, 8), $8::BOOLEAN, $9::TIMESTAMP WITHOUT TIME ZONE, $10::TIMESTAMP WITHOUT TIME ZONE) RETURNING events.id]
 [parameters: ('КИРТАН МЕЛА', 'Киртан мела MM', datetime.datetime(2025, 3, 21, 10, 26, 22, 123000, tzinfo=TzInfo(UTC)), datetime.datetime(2025, 3, 21, 10, 26, 22, 123000, tzinfo=TzInfo(UTC)), 'Куусинена 19а', 'string', 0.0, False, datetime.datetime(2025, 3, 21, 10, 27, 22, 564609), datetime.datetime(2025, 3, 21, 10, 27, 22, 564609))]
 (Background on this error at: https://sqlalche.me/e/20/dbapi)
+2025-03-22 17:43:39,559 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец events.status не существует
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-22 17:44:45,807 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец events.status не существует
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-22 17:45:13,426 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец events.status не существует
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-22 17:48:31,654 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец events.status не существует
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-22 17:48:31,673 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец events.status не существует
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-22 17:48:31,690 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец events.status не существует
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-22 17:51:11,939 - root - ERROR - Error registering admin: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: INSERT или UPDATE в таблице "user_activities" нарушает ограничение внешнего ключа "user_activities_user_id_fkey"
+DETAIL:  Ключ (user_id)=(1) отсутствует в таблице "users".
+[SQL: INSERT INTO user_activities (user_id, ip_address, cookies, user_agent, action, created_at, device_fingerprint) VALUES ($1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::TIMESTAMP WITHOUT TIME ZONE, $7::VARCHAR) RETURNING user_activities.id]
+[parameters: (1, '127.0.0.1', 'next-auth.csrf-token=548735245255ed12a218c7df520c38264b58b9c721d3183cd0067161af2cb00d%7C82fb559a7b01833c42145f5b5a99a2fbd48d471020972ca8f065d1042fefe49c; next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000%2Flogin; __next_hmr_refresh_hash__=131afb9219f9f75ab0c46eac49302c0d633457081244afec', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36', 'register', datetime.datetime(2025, 3, 22, 14, 51, 11, 875139), '4b6dfb1aee88e405a0d3840241264130c0d1b482be184b46bb7df53dc0dc5474')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-03-22 18:11:40,052 - root - ERROR - Validation error creating event: Could not validate credentials
+2025-03-22 18:12:38,493 - root - ERROR - Error creating event: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+2025-03-22 18:18:25,277 - root - ERROR - Error creating event: A transaction is already begun on this Session.
+2025-03-22 18:23:02,946 - root - ERROR - Error creating event: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+2025-03-22 18:27:11,302 - root - ERROR - Error creating event: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)

@@ -51,8 +51,9 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": db_user.email}, expires_delta=access_token_expires
+    # Исправление: передаём сессию db в create_access_token
+    access_token = await create_access_token(
+        data={"sub": db_user.email}, session=db, expires_delta=access_token_expires
     )
     await log_user_activity(db, db_user.id, request, action="login")
     logger.info(f"User logged in successfully: {db_user.email}")

@@ -51,7 +51,8 @@ async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
+    # Исправление: добавляем await для асинхронной функции create_access_token
+    access_token = await create_access_token(
         data={"sub": db_admin.email}, expires_delta=access_token_expires
     )
     await log_admin_activity(db, db_admin.id, request, action="login")

@@ -1,6 +1,6 @@
 // frontend/src/hooks/useAdminAuthForm.ts
-import { useState, FormEvent, ChangeEvent } from 'react';
-import { useAdminAuth } from '@/contexts/AdminAuthContext';
+import { useState, FormEvent, ChangeEvent, useContext } from 'react';
+import { AdminAuthContext } from '@/contexts/AdminAuthContext';
 import { useRouter } from 'next/navigation';
 
 interface AdminAuthFormValues {
@@ -25,7 +25,12 @@ export const useAdminAuthForm = ({
   isLogin = false
 }: UseAdminAuthFormProps) => {
   const router = useRouter();
-  const { setIsAdminAuth, checkAdminAuth } = useAdminAuth();
+  
+  // Безопасное получение контекста без исключений
+  const adminAuthContext = useContext(AdminAuthContext);
+  const setIsAdminAuth = adminAuthContext?.setIsAdminAuth || (() => {});
+  const checkAdminAuth = adminAuthContext?.checkAdminAuth || (async () => false);
+  
   const [formValues, setFormValues] = useState<AdminAuthFormValues>(initialValues);
   const [error, setError] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -59,16 +64,18 @@ export const useAdminAuthForm = ({
           if (!data.access_token) {
             throw new Error('Токен не получен от сервера');
           }
+          
+          // Сохраняем токен в localStorage
           localStorage.setItem('admin_token', data.access_token);
-          setIsAdminAuth(true);
-          setIsSuccess(true);
-
-          const isAuthenticated = await checkAdminAuth();
-          if (!isAuthenticated) {
-            throw new Error('Ошибка синхронизации состояния авторизации');
+          
+          // Только если контекст админа доступен
+          if (adminAuthContext) {
+            setIsAdminAuth(true);
+            await checkAdminAuth();
+            window.dispatchEvent(new Event('admin-auth-change'));
           }
-
-          window.dispatchEvent(new Event('admin-auth-change'));
+          
+          setIsSuccess(true);
 
           if (redirectTo) {
             setTimeout(() => {

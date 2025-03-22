@@ -19,7 +19,8 @@ interface AdminAuthContextType {
   logoutAdmin: () => void;
 }
 
-const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
+// Экспортируем сам контекст
+export const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
 
 // Функция для декодирования JWT без проверки подписи
 function decodeJwt(token: string): { exp: number; sub: string } | null {
@@ -143,8 +144,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       if (!adminData) {
         const cachedData = getAdminCache();
-        if (cachedData) {
-          setAdminData(cachedData);
+        if (cachedData) {setAdminData(cachedData);
         }
       }
       

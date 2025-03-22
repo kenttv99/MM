@@ -66,6 +66,8 @@ const Header: React.FC = () => {
 
   const handleLogout = () => {
     logout();
+    setIsNotificationsOpen(false); // Закрываем уведомления
+    setIsMobileMenuOpen(false); // Закрываем мобильное меню
     router.push("/");
   };
 

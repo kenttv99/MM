@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr
 
+from backend.schemas_enums.enums import TicketTypeEnum
+
 
 #------------------------
 # ADMINS
@@ -55,6 +57,15 @@ class UserResponse(BaseModel):
 # EVENTS
 #------------------------
 
+class TicketTypeCreate(BaseModel):
+    name: TicketTypeEnum  # Заменяем str на TicketTypeEnum
+    price: float  # Цена билета
+    available_quantity: int  # Доступное количество
+    free_registration: Optional[bool] = False  # Бесплатная регистрация (по умолчанию False)
+
+    class Config:
+        from_attributes = True
+
 class EventCreate(BaseModel):
     title: str
     description: Optional[str] = None
@@ -62,11 +73,12 @@ class EventCreate(BaseModel):
     end_date: Optional[datetime] = None
     location: Optional[str] = None
     image_url: Optional[str] = None
-    price: float
+    price: float  # Оставляем для совместимости, но используем ticket_type.price
     published: Optional[bool] = False
-    created_at: datetime  # Добавляем created_at
-    updated_at: datetime  # Добавляем updated_at
-    
+    created_at: datetime
+    updated_at: datetime
+    ticket_type: Optional[TicketTypeCreate] = None  # Вложенная схема для типа билета
+
     class Config:
         from_attributes = True
     

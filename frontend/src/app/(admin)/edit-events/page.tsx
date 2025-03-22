@@ -50,15 +50,42 @@ export default function EditEventPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("admin_token");
+      
+      // Проверяем наличие токена
+      if (!token) {
+        setError("Отсутствует токен авторизации");
+        setTimeout(() => {
+          router.push("/admin-login");
+        }, 2000);
+        return;
+      }
+      
       const response = await fetch(`/events/${id}`, {
         headers: { 
           Authorization: `Bearer ${token}`,
+          "Accept": "application/json",
           "Cache-Control": "no-cache"
         },
       });
       
+      // Проверяем тип содержимого ответа
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        setError(`Получен неверный формат ответа: ${contentType || "неизвестный тип"}`);
+        console.error("API вернул неверный формат:", contentType);
+        
+        setTimeout(() => {
+          router.push("/dashboard");
+        }, 3000);
+        return;
+      }
+      
       if (!response.ok) {
-        throw new Error("Не удалось загрузить данные мероприятия");
+        setError(`Ошибка API: ${response.status} ${response.statusText}`);
+        setTimeout(() => {
+          router.push("/dashboard");
+        }, 3000);
+        return;
       }
       
       const data = await response.json();
@@ -75,7 +102,7 @@ export default function EditEventPage() {
       setIsCreating(false);
       setIsInitialized(true);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Произошла ошибка");
+      setError(err instanceof Error ? err.message : "Произошла ошибка при загрузке данных");
       console.error("Ошибка загрузки мероприятия:", err);
       
       // При ошибке загрузки перенаправляем на dashboard

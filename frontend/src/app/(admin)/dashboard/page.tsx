@@ -43,18 +43,41 @@ export default function DashboardPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("admin_token");
-      const response = await fetch(`/events`, {
+      
+      // Проверяем наличие токена
+      if (!token) {
+        console.error("Отсутствует токен авторизации");
+        setIsLoading(false);
+        return;
+      }
+      
+      const response = await fetch("/events", {
         headers: { 
           Authorization: `Bearer ${token}`,
+          "Accept": "application/json",
           "Cache-Control": "no-cache"
         },
       });
+      
+      // Проверяем тип содержимого ответа
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("Получен неверный формат ответа:", contentType);
+        setEvents([]);
+        setIsLoading(false);
+        return;
+      }
+      
       if (response.ok) {
         const data = await response.json();
         setEvents(data);
+      } else {
+        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
+        setEvents([]);
       }
     } catch (err) {
       console.error("Ошибка при загрузке мероприятий:", err);
+      setEvents([]);
     } finally {
       setIsLoading(false);
     }
@@ -66,15 +89,40 @@ export default function DashboardPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("admin_token");
-      const response = await fetch(`/admin_edits/users?search=${userSearch}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      
+      // Проверяем наличие токена
+      if (!token) {
+        console.error("Отсутствует токен авторизации");
+        setIsLoading(false);
+        return;
+      }
+      
+      const response = await fetch(`/admin_edits/users?search=${encodeURIComponent(userSearch)}`, {
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          "Accept": "application/json" 
+        },
       });
+      
+      // Проверяем тип содержимого ответа
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("Получен неверный формат ответа:", contentType);
+        setUsers([]);
+        setIsLoading(false);
+        return;
+      }
+      
       if (response.ok) {
         const data = await response.json();
         setUsers(data);
+      } else {
+        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
+        setUsers([]);
       }
     } catch (err) {
       console.error("Ошибка поиска пользователей:", err);
+      setUsers([]);
     } finally {
       setIsLoading(false);
     }
@@ -84,19 +132,44 @@ export default function DashboardPage() {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("admin_token");
+      
+      // Проверяем наличие токена
+      if (!token) {
+        console.error("Отсутствует токен авторизации");
+        setIsLoading(false);
+        return;
+      }
+      
       const url = eventSearch.trim() 
-        ? `/events?search=${eventSearch}`
+        ? `/events?search=${encodeURIComponent(eventSearch)}`
         : '/events';
         
       const response = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { 
+          Authorization: `Bearer ${token}`,
+          "Accept": "application/json"
+        },
       });
+      
+      // Проверяем тип содержимого ответа
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error("Получен неверный формат ответа:", contentType);
+        setEvents([]);
+        setIsLoading(false);
+        return;
+      }
+      
       if (response.ok) {
         const data = await response.json();
         setEvents(data);
+      } else {
+        console.error(`Ошибка API: ${response.status} ${response.statusText}`);
+        setEvents([]);
       }
     } catch (err) {
       console.error("Ошибка поиска мероприятий:", err);
+      setEvents([]);
     } finally {
       setIsLoading(false);
     }

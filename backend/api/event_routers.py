@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from backend.database.user_db import AsyncSession, get_async_db, Event
 from backend.config.logging_config import logger
 from sqlalchemy.future import select
-from backend.schemas_enums.schemas import EventCreate
+from sqlalchemy.orm import selectinload
+from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate
 
 router = APIRouter(
     tags=["Events"]
@@ -16,10 +17,26 @@ async def get_events(
 ):
     """Получение списка всех мероприятий (публичный доступ)."""
     try:
-        result = await db.execute(select(Event))
+        # Подгружаем связанные tickets для всех событий
+        result = await db.execute(select(Event).options(selectinload(Event.tickets)))
         events = result.scalars().all()
+        
+        # Формируем ответ с ticket_type
+        event_responses = []
+        for event in events:
+            event_dict = event.__dict__  # Получаем словарь атрибутов события
+            if event.tickets and len(event.tickets) > 0:
+                ticket = event.tickets[0]  # Берем первый тип билета
+                event_dict["ticket_type"] = TicketTypeCreate(
+                    name=ticket.name,
+                    price=ticket.price,
+                    available_quantity=ticket.available_quantity,
+                    free_registration=ticket.free_registration
+                ).model_dump()
+            event_responses.append(EventCreate(**event_dict))
+        
         logger.info(f"Public request for list of events")
-        return [EventCreate.model_validate(event) for event in events]
+        return event_responses
     except Exception as e:
         logger.error(f"Error retrieving events: {str(e)}")
         raise HTTPException(
@@ -36,11 +53,25 @@ async def get_event(
 ):
     """Получение конкретного мероприятия по ID (публичный доступ)."""
     try:
-        db_event = await db.get(Event, event_id)
+        # Подгружаем событие с связанными tickets
+        db_event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
         if not db_event:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        
+        # Формируем ответ с ticket_type
+        event_dict = db_event.__dict__
+        if db_event.tickets and len(db_event.tickets) > 0:
+            ticket = db_event.tickets[0]  # Берем первый тип билета
+            event_dict["ticket_type"] = TicketTypeCreate(
+                name=ticket.name,
+                price=ticket.price,
+                available_quantity=ticket.available_quantity,
+                free_registration=ticket.free_registration
+            ).model_dump()
+            logger.info(f"Event {event_id} retrieved with {ticket.available_quantity - ticket.sold_quantity} available tickets")
+        
         logger.info(f"Public request for event {event_id}")
-        return EventCreate.model_validate(db_event)
+        return EventCreate(**event_dict)
     except Exception as e:
         logger.error(f"Error retrieving event {event_id}: {str(e)}")
         raise HTTPException(

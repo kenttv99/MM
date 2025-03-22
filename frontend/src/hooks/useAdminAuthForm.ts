@@ -1,8 +1,13 @@
-// src/hooks/useAdminAuthForm.ts
+// frontend/src/hooks/useAdminAuthForm.ts
 import { useState, FormEvent, ChangeEvent } from 'react';
 import { useAdminAuth } from '@/contexts/AdminAuthContext';
+import { useRouter } from 'next/navigation';
 
-type AdminAuthFormValues = Record<string, string>;
+interface AdminAuthFormValues {
+  email: string;
+  password: string;
+  fio?: string; // Опционально для регистрации
+}
 
 interface UseAdminAuthFormProps {
   initialValues: AdminAuthFormValues;
@@ -19,15 +24,16 @@ export const useAdminAuthForm = ({
   redirectTo,
   isLogin = false
 }: UseAdminAuthFormProps) => {
+  const router = useRouter();
   const { setIsAdminAuth, checkAdminAuth } = useAdminAuth();
   const [formValues, setFormValues] = useState<AdminAuthFormValues>(initialValues);
-  const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isSuccess, setIsSuccess] = useState<boolean>(false);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormValues(prev => ({ ...prev, [name]: value }));
+    setFormValues((prev: AdminAuthFormValues) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
@@ -39,36 +45,37 @@ export const useAdminAuthForm = ({
     try {
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
         body: JSON.stringify(formValues),
       });
 
       if (response.ok) {
         const data = await response.json();
-        
-        if (isLogin && data.access_token) {
-          // Сохраняем токен
+
+        if (isLogin) {
+          if (!data.access_token) {
+            throw new Error('Токен не получен от сервера');
+          }
           localStorage.setItem('admin_token', data.access_token);
-          
-          // Устанавливаем состояние авторизации
           setIsAdminAuth(true);
           setIsSuccess(true);
-          
-          // Явно обновляем состояние авторизации
-          await checkAdminAuth();
-          
-          // Диспатчим событие для компонентов
+
+          const isAuthenticated = await checkAdminAuth();
+          if (!isAuthenticated) {
+            throw new Error('Ошибка синхронизации состояния авторизации');
+          }
+
           window.dispatchEvent(new Event('admin-auth-change'));
-          
+
           if (redirectTo) {
-            // Используем прямое перенаправление вместо router.push
-            // для очистки состояния при переходе
             setTimeout(() => {
-              window.location.href = redirectTo;
+              router.push(redirectTo);
             }, 1500);
           }
         } else {
-          // Для регистрации или других форм
           setFormValues(initialValues);
           if (onSuccess) onSuccess();
         }
@@ -97,6 +104,6 @@ export const useAdminAuthForm = ({
     isLoading,
     isSuccess,
     handleChange,
-    handleSubmit
+    handleSubmit,
   };
 };

@@ -76,36 +76,38 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   // Функция для загрузки данных администратора с сервера
   const fetchAdminData = useCallback(async (): Promise<AdminData | null> => {
     if (fetchingAdminData.current) return null;
-    
     fetchingAdminData.current = true;
-    
+  
     try {
-      const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
+      let token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
       if (!token) return null;
-
-      // Используем AbortController для установки таймаута
+  
+      // Проверяем формат токена
+      if (token.startsWith('Bearer ')) {
+        token = token.slice(7).trim();
+      }
+  
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
-      
-      const response = await fetch("/admin/me", {
-        headers: { 
+  
+      const response = await fetch('/admin/me', {
+        headers: {
           Authorization: `Bearer ${token}`,
-          "Cache-Control": "no-cache"
+          'Cache-Control': 'no-cache',
         },
-        signal: controller.signal
+        signal: controller.signal,
       });
-      
+  
       clearTimeout(timeoutId);
-      
+  
       if (response.ok) {
         const data = await response.json();
         setAdminCache(data);
         return data;
       }
-      
       return null;
     } catch (error) {
-      console.error("Ошибка загрузки данных администратора:", error);
+      console.error('Ошибка загрузки данных администратора:', error);
       return null;
     } finally {
       fetchingAdminData.current = false;

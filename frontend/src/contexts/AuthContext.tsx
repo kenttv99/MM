@@ -2,6 +2,7 @@
 "use client";
 
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 interface UserData {
   id: number;
@@ -26,13 +27,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Функция для декодирования JWT без проверки подписи
 function decodeJwt(token: string): { exp: number; sub: string } | null {
   try {
-    const parts = token.split('.');
+    const parts = token.split(".");
     if (parts.length !== 3) return null;
-    
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
     return payload;
   } catch (err) {
-    console.error('Ошибка при декодировании токена:', err);
+    console.error("Ошибка при декодировании токена:", err);
     return null;
   }
 }
@@ -41,25 +42,25 @@ function decodeJwt(token: string): { exp: number; sub: string } | null {
 function isTokenExpired(token: string): boolean {
   const decoded = decodeJwt(token);
   if (!decoded) return true;
-  
+
   const currentTime = Math.floor(Date.now() / 1000);
   return decoded.exp < currentTime;
 }
 
 // Функции для хранения и получения данных пользователя из кэша
 const STORAGE_KEYS = {
-  TOKEN: 'token',
-  USER_DATA: 'user_data'
+  TOKEN: "token",
+  USER_DATA: "user_data",
 };
 
 const getUserCache = (): UserData | null => {
-  if (typeof window === 'undefined') return null;
+  if (typeof window === "undefined") return null;
   const cached = localStorage.getItem(STORAGE_KEYS.USER_DATA);
   return cached ? JSON.parse(cached) : null;
 };
 
 const setUserCache = (data: UserData | null) => {
-  if (typeof window === 'undefined') return;
+  if (typeof window === "undefined") return;
   if (data) {
     localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(data));
   } else {
@@ -74,37 +75,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isInitialLoad = useRef(true);
   const fetchingUserData = useRef(false);
   const checkAuthInProgress = useRef(false);
+  const router = useRouter();
 
   // Функция для загрузки данных пользователя с сервера
   const fetchUserData = useCallback(async (): Promise<UserData | null> => {
     if (fetchingUserData.current) return null;
-    
+
     fetchingUserData.current = true;
-    
+
     try {
-      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+      let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
       if (!token) return null;
 
-      // Используем AbortController для установки таймаута
+      // Проверяем и извлекаем токен, если он в формате "Bearer "
+      if (token.startsWith("Bearer ")) {
+        token = token.slice(7).trim();
+      }
+
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
-      
+
       const response = await fetch("/auth/me", {
-        headers: { 
+        headers: {
           Authorization: `Bearer ${token}`,
-          "Cache-Control": "no-cache"
+          "Cache-Control": "no-cache",
         },
-        signal: controller.signal
+        signal: controller.signal,
       });
-      
+
       clearTimeout(timeoutId);
-      
+
       if (response.ok) {
         const data = await response.json();
         setUserCache(data);
         return data;
       }
-      
+
       return null;
     } catch (error) {
       console.error("Ошибка загрузки данных пользователя:", error);
@@ -114,23 +120,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Функция для проверки авторизации без запроса к серверу
+  // Функция для проверки авторизации
   const checkAuth = useCallback(async (): Promise<boolean> => {
     if (checkAuthInProgress.current) return isAuth;
-    
+
     checkAuthInProgress.current = true;
-    
+
     try {
       setIsLoading(true);
-      
-      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
       if (!token) {
         setIsAuth(false);
         setUserData(null);
         setUserCache(null);
         return false;
       }
-      
+
+      // Проверяем формат токена
+      if (token.startsWith("Bearer ")) {
+        token = token.slice(7).trim();
+      }
+
       if (isTokenExpired(token)) {
         localStorage.removeItem(STORAGE_KEYS.TOKEN);
         setUserCache(null);
@@ -138,26 +149,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserData(null);
         return false;
       }
-      
+
       setIsAuth(true);
-      
+
       if (!userData) {
         const cachedData = getUserCache();
         if (cachedData) {
           setUserData(cachedData);
         }
       }
-      
+
       if (isInitialLoad.current) {
         isInitialLoad.current = false;
-        
-        fetchUserData().then(data => {
-          if (data) {
-            setUserData(data);
-          }
-        }).catch(console.error);
+
+        const fetchedData = await fetchUserData();
+        if (fetchedData) {
+          setUserData(fetchedData);
+        } else if (!getUserCache()) {
+          // Если данные не удалось загрузить и кэш пуст, считаем пользователя неавторизованным
+          setIsAuth(false);
+          localStorage.removeItem(STORAGE_KEYS.TOKEN);
+          return false;
+        }
       }
-      
+
       return true;
     } catch (error) {
       console.error("Ошибка проверки авторизации:", error);
@@ -175,14 +190,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuth(false);
     setUserData(null);
     window.dispatchEvent(new Event("auth-change"));
-  }, []);
+    router.push("/"); // Перенаправляем на главную страницу после выхода
+  }, [router]);
 
-  // Инициализация из кэша - только один раз при монтировании компонента
+  // Инициализация из кэша при монтировании компонента
   useEffect(() => {
     const initAuth = async () => {
       const cachedUser = getUserCache();
-      const token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-      
+      let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+
+      if (token && token.startsWith("Bearer ")) {
+        token = token.slice(7).trim();
+      }
+
       if (cachedUser && token && !isTokenExpired(token)) {
         setUserData(cachedUser);
         setIsAuth(true);
@@ -192,28 +212,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserData(null);
         }
       }
-      
+
       await checkAuth();
       setIsLoading(false);
     };
-    
+
     initAuth();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Настройка обработчиков событий - отдельный useEffect
+  // Настройка обработчиков событий
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
       if (e.key === STORAGE_KEYS.TOKEN) {
         checkAuth();
       }
     };
-    
+
     const handleAuthChange = () => checkAuth();
-    
+
     window.addEventListener("storage", handleStorageChange);
     window.addEventListener("auth-change", handleAuthChange);
-    
+
     return () => {
       window.removeEventListener("storage", handleStorageChange);
       window.removeEventListener("auth-change", handleAuthChange);
@@ -221,12 +241,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [checkAuth]);
 
   const contextValue = {
-    isAuth, 
+    isAuth,
     userData,
-    setIsAuth, 
-    checkAuth, 
+    setIsAuth,
+    checkAuth,
     isLoading,
-    logout
+    logout,
   };
 
   return (

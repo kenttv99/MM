@@ -1,40 +1,28 @@
-// frontend/src/app/(admin)/layout.tsx
 "use client";
 
 import { usePathname } from "next/navigation";
-import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
-import { Geist, Geist_Mono } from "next/font/google";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { ReactNode } from "react";
 
-// Настраиваем шрифты
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+interface AdminLayoutProps {
+  children: ReactNode;
+}
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export default function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function AdminLayout({ children }: AdminLayoutProps) {
+  const { isAdminAuth } = useAdminAuth();
   const pathname = usePathname();
-  
-  // Проверка, является ли текущий путь страницей входа
+
+  // Не показываем текст на странице /admin-login
   const isLoginPage = pathname === "/admin-login";
 
   return (
-    <html lang="ru">
-      <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <AdminAuthProvider>
-          <main className={`min-h-screen ${isLoginPage ? "" : "pt-16"}`}>
-            {children}
-          </main>
-        </AdminAuthProvider>
-      </body>
-    </html>
+    <div className="min-h-screen bg-gray-100">
+      {!isAdminAuth && !isLoginPage && (
+        <p className="text-center text-red-500 py-4">
+          Вход только для администраторов
+        </p>
+      )}
+      {children}
+    </div>
   );
 }

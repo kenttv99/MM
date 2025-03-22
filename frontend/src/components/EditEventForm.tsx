@@ -33,7 +33,7 @@ const EditEventForm = () => {
       setLoading(true);
       try {
         const token = localStorage.getItem("admin_token");
-        const response = await fetch("http://localhost:8001/events", {
+        const response = await fetch("/events", {
           headers: {
             Authorization: `Bearer ${token}`,
             "Cache-Control": "no-store",
@@ -61,7 +61,7 @@ const EditEventForm = () => {
 
     try {
       const token = localStorage.getItem("admin_token");
-      const response = await fetch(`http://localhost:8001/admin_edits/${eventId}`, {
+      const response = await fetch(`admin_edits/${eventId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

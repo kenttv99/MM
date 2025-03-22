@@ -1,28 +1,24 @@
+// frontend/src/app/(admin)/admin-login/page.tsx
 "use client";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuthForm } from "@/hooks/useAdminAuthForm";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
-  const { isAdminAuth } = useAdminAuth();
-  
-  // Перенаправляем уже авторизованных администраторов на страницу профиля
+  const { isLoading, checkAuth } = useAdminAuth();
+
   useEffect(() => {
-    if (isAdminAuth) {
-      router.push("/admin-profile");
-    }
-  }, [isAdminAuth, router]);
-  
+    checkAuth();
+  }, [checkAuth]);
+
   const {
     formValues,
     error,
-    isLoading,
+    isLoading: formLoading,
     isSuccess,
     handleChange,
     handleSubmit
@@ -32,9 +28,16 @@ export default function AdminLoginPage() {
       password: "",
     },
     endpoint: "/admin/login",
-    redirectTo: "/admin-profile",
-    isLogin: true
+    redirectTo: "/admin-profile"
   });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -77,9 +80,9 @@ export default function AdminLoginPage() {
             )}
             <ModalButton 
               type="submit" 
-              disabled={isLoading || isSuccess}
+              disabled={formLoading || isSuccess}
             >
-              {isLoading ? "Вход..." : (isSuccess ? "Успешно!" : "Войти")}
+              {formLoading ? "Вход..." : (isSuccess ? "Успешно!" : "Войти")}
             </ModalButton>
           </form>
         </div>

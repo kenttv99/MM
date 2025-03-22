@@ -8,6 +8,7 @@ export default function PublicLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Make sure there are no conditions preventing Header from rendering
   return (
     <>
       <Header />

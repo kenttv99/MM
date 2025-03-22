@@ -54,7 +54,10 @@ async def create_access_token(data: dict, session: AsyncSession, expires_delta: 
     else:
         expire = now + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    
+    # Исправляем вызов метода encode, используя правильный синтаксис для authlib
+    header = {"alg": ALGORITHM}
+    encoded_jwt = jwt.encode(header, to_encode, SECRET_KEY)
     return encoded_jwt
 
 async def get_current_user(token: str, session: AsyncSession) -> User:

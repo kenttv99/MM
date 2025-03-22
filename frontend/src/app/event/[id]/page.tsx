@@ -1,4 +1,8 @@
-// frontend/src/app/events/[id]/page.tsx
+// frontend/src/app/event/[id]/page.tsx
+"use client";
+
+import { useState, useEffect } from "react";
+import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -13,20 +17,45 @@ interface EventData {
   ticket_type?: { name: string; price: number; available_quantity: number };
 }
 
-async function fetchEvent(id: string): Promise<EventData> {
-  const res = await fetch(`http://localhost:8001/events/${id}`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error("Event not found");
-  return res.json();
-}
+export default function EventPage() {
+  const { id } = useParams<{ id: string }>();
+  const [event, setEvent] = useState<EventData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-export default async function EventPage({ params }: { params: { id: string } }) {
-  let event: EventData;
-  try {
-    event = await fetchEvent(params.id);
-  } catch (error) {
-    console.error("Ошибка при загрузке мероприятия:", error);
+  useEffect(() => {
+    const fetchEvent = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`http://localhost:8001/events/${id}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          throw new Error("Event not found");
+        }
+        const data = await res.json();
+        setEvent(data);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Произошла ошибка");
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (id) {
+      fetchEvent();
+    }
+  }, [id]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
+
+  if (error || !event) {
     return notFound();
   }
 

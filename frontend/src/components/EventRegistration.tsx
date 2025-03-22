@@ -26,7 +26,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({ eventId }) => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:8000/register", {
+      const response = await fetch("/register", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

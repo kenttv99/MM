@@ -1,10 +1,11 @@
+// frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
-import { useState, ChangeEvent, useEffect, useContext, useCallback } from "react";
+import { useState, ChangeEvent, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { FaSearch, FaUsers, FaCalendarAlt, FaPlus } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
-import { AdminAuthContext } from "@/contexts/AdminAuthContext";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
 interface User {
   id: number;
@@ -26,168 +27,87 @@ export default function DashboardPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [authChecked, setAuthChecked] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const hasFetchedEvents = useRef(false);
 
   const router = useRouter();
+  const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
 
-  // Безопасно получаем контекст админа
-  const adminAuthContext = useContext(AdminAuthContext);
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
 
-  // Перемещаем fetchEvents выше useEffect
+  useEffect(() => {
+    if (!authLoading && !isAdminAuth) {
+      router.push("/admin-login");
+    }
+  }, [isAdminAuth, authLoading, router]);
+
   const fetchEvents = useCallback(async () => {
     setIsLoading(true);
     setError(null);
-
     try {
       const token = localStorage.getItem("admin_token");
-
       if (!token) {
         setError("Отсутствует токен авторизации");
-        setIsLoading(false);
         return;
       }
-
       const url = eventSearch.trim()
-        ? `http://localhost:8001/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
-        : "http://localhost:8001/admin_edits/events";
-
+        ? `/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
+        : "/admin_edits/events";
       const response = await fetch(url, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Accept": "application/json",
         },
       });
-
       if (!response.ok) {
         const errorText = await response.text();
         setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
         setEvents([]);
-        setIsLoading(false);
         return;
       }
-
-      const responseText = await response.text();
-
-      try {
-        const data = JSON.parse(responseText);
-        if (Array.isArray(data)) {
-          setEvents(data);
-        } else {
-          console.warn("Получен JSON, но не массив:", data);
-          setEvents([]);
-        }
-      } catch (parseError) {
-        console.error("Не удалось разобрать ответ как JSON:", parseError);
-        console.error("Содержимое ответа:", responseText.substring(0, 200) + "...");
-        setError("Получен неверный формат ответа от сервера");
-        setEvents([]);
-      }
-    } catch (err) {
-      console.error("Ошибка при загрузке мероприятий:", err);
-      setError(`Не удалось загрузить мероприятия: ${err instanceof Error ? err.message : String(err)}`);
+      const data = await response.json();
+      setEvents(Array.isArray(data) ? data : []);
+    } catch {
+      setError("Не удалось загрузить мероприятия");
       setEvents([]);
     } finally {
       setIsLoading(false);
     }
-  }, [eventSearch, setEvents, setError, setIsLoading]);
+  }, [eventSearch]);
 
-  // Теперь fetchEvents доступен для useEffect
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        // Проверяем наличие токена
-        const token = localStorage.getItem("admin_token");
-        if (!token) {
-          router.push("/admin-login");
-          return;
-        }
-
-        // Если контекст доступен, используем его
-        if (adminAuthContext) {
-          const isAuth = await adminAuthContext.checkAdminAuth();
-
-          if (!isAuth) {
-            router.push("/admin-login");
-            return;
-          }
-        } else {
-          // Если контекст недоступен, делаем простую проверку токена
-          try {
-            const response = await fetch("/admin/verify_token", {
-              headers: {
-                Authorization: `Bearer ${token}`,
-                "Accept": "application/json",
-              },
-            });
-
-            if (!response.ok) {
-              router.push("/admin-login");
-              return;
-            }
-          } catch (error) {
-            console.error("Ошибка проверки токена:", error);
-            router.push("/admin-login");
-            return;
-          }
-        }
-
-        setAuthChecked(true);
-        // Загружаем события при успешной авторизации
-        fetchEvents();
-      } catch (error) {
-        console.error("Ошибка проверки авторизации:", error);
-        router.push("/admin-login");
-      }
-    };
-
-    checkAuth();
-  }, [router, adminAuthContext, fetchEvents]);
+    if (!authLoading && isAdminAuth && !hasFetchedEvents.current) {
+      hasFetchedEvents.current = true;
+      fetchEvents();
+    }
+  }, [isAdminAuth, authLoading, fetchEvents]);
 
   const handleUserSearch = async () => {
     if (!userSearch.trim()) return;
-
     setIsLoading(true);
     setError(null);
-
     try {
       const token = localStorage.getItem("admin_token");
-
       if (!token) {
         setError("Отсутствует токен авторизации");
-        setIsLoading(false);
         return;
       }
-
       const response = await fetch(`/admin_edits/users?search=${encodeURIComponent(userSearch)}`, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Accept": "application/json",
         },
       });
-
       if (!response.ok) {
         setError(`Ошибка API: ${response.status} ${response.statusText}`);
         setUsers([]);
-        setIsLoading(false);
-        return;
-      }
-
-      try {
+      } else {
         const data = await response.json();
-        if (Array.isArray(data)) {
-          setUsers(data);
-        } else {
-          console.warn("Получен JSON, но не массив:", data);
-          setUsers([]);
-        }
-      } catch (parseError) {
-        console.error("Не удалось разобрать ответ как JSON:", parseError);
-        setError("Получен неверный формат ответа от сервера");
-        setUsers([]);
+        setUsers(Array.isArray(data) ? data : []);
       }
-    } catch (err) {
-      console.error("Ошибка поиска пользователей:", err);
+    } catch {
       setError("Не удалось выполнить поиск пользователей");
       setUsers([]);
     } finally {
@@ -195,11 +115,12 @@ export default function DashboardPage() {
     }
   };
 
-  const handleEventSearch = async () => {
-    await fetchEvents();
+  const handleEventSearch = () => {
+    hasFetchedEvents.current = false;
+    fetchEvents();
   };
 
-  if (!authChecked || (adminAuthContext?.isLoading)) {
+  if (authLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -210,7 +131,6 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
-
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-6xl mx-auto">
           <div className="flex justify-between items-center mb-8">
@@ -223,21 +143,17 @@ export default function DashboardPage() {
               Новое мероприятие
             </button>
           </div>
-
           {error && (
             <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500">
               {error}
             </div>
           )}
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Управление пользователями */}
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center mb-6">
                 <FaUsers className="text-blue-500 text-xl mr-2" />
                 <h2 className="text-xl font-semibold">Пользователи</h2>
               </div>
-
               <div className="mb-6">
                 <InputField
                   type="text"
@@ -248,7 +164,6 @@ export default function DashboardPage() {
                   onBlur={handleUserSearch}
                 />
               </div>
-
               {isLoading && users.length === 0 ? (
                 <div className="text-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
@@ -280,14 +195,11 @@ export default function DashboardPage() {
                 </p>
               )}
             </div>
-
-            {/* Управление мероприятиями */}
             <div className="bg-white p-6 rounded-lg shadow-md">
               <div className="flex items-center mb-6">
                 <FaCalendarAlt className="text-blue-500 text-xl mr-2" />
                 <h2 className="text-xl font-semibold">Мероприятия</h2>
               </div>
-
               <div className="mb-6">
                 <InputField
                   type="text"
@@ -298,7 +210,6 @@ export default function DashboardPage() {
                   onBlur={handleEventSearch}
                 />
               </div>
-
               {isLoading && events.length === 0 ? (
                 <div className="text-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
@@ -315,12 +226,8 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                    {events.map((event, index) => {
-                      console.log("Event:", event);
-                      const key = event.id !== undefined ? event.id : index;
-
-                      return (
-                        <tr key={key} className="hover:bg-gray-50">
+                      {events.map((event) => (
+                        <tr key={event.id} className="hover:bg-gray-50">
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id || "N/A"}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
@@ -339,8 +246,7 @@ export default function DashboardPage() {
                             </button>
                           </td>
                         </tr>
-                      );
-                    })}
+                      ))}
                     </tbody>
                   </table>
                 </div>

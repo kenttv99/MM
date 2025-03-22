@@ -77,8 +77,9 @@ async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": db_admin.email}, expires_delta=access_token_expires
+    # Исправление: добавляем session=db в вызов create_access_token
+    access_token = await create_access_token(
+        data={"sub": db_admin.email}, session=db, expires_delta=access_token_expires
     )
     await log_admin_activity(db, db_admin.id, request, action="login")
     logger.info(f"Admin logged in successfully: {db_admin.email}")
@@ -124,184 +125,105 @@ async def verify_token(
         )
 ================
 File: backend\api\admin_edit_routers.py
-from enum import Enum
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from backend.schemas_enums.schemas import EventCreate, EventUpdate, TicketTypeCreate
-from backend.database.user_db import AsyncSession, get_async_db, Event, TicketType
-from backend.config.auth import get_current_admin, log_admin_activity
+from backend.schemas_enums.schemas import AdminCreate, AdminLogin, AdminResponse
+from backend.config.auth import create_admin, get_admin_by_username, pwd_context, create_access_token, get_current_admin, log_admin_activity
+from backend.database.user_db import AsyncSession, get_async_db
 from backend.config.logging_config import logger
-from sqlalchemy.sql import func
-from sqlalchemy.orm import selectinload
-from sqlalchemy.future import select
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from datetime import timedelta
+from backend.config.rate_limiter import rate_limit
+from constants import ACCESS_TOKEN_EXPIRE_MINUTES
 
 router = APIRouter()
+
 bearer_scheme = HTTPBearer()
 
-# Маршрут для получения списка всех мероприятий (для администраторов)
-@router.get("/events", response_model=list[EventCreate])
-async def get_admin_events(
-    db: AsyncSession = Depends(get_async_db),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    request: Request = None
-):
-    """
-    Получение списка всех мероприятий (включая черновики) для администраторов.
-    """
-    try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-
-        # Получаем все мероприятия, включая черновики
-        result = await db.execute(
-            select(Event).options(selectinload(Event.tickets))
-        )
-        events = result.scalars().all()
-
-        event_responses = []
-        for event in events:
-            event_dict = event.__dict__
-            if event.tickets:
-                ticket = event.tickets[0]
-                event_dict["ticket_type"] = TicketTypeCreate(
-                    name=ticket.name,
-                    price=ticket.price,
-                    available_quantity=ticket.available_quantity,
-                    free_registration=ticket.free_registration
-                ).model_dump()
-            event_responses.append(EventCreate(**event_dict))
-
-        await log_admin_activity(db, current_admin.id, request, action="get_events")
-        logger.info(f"Admin {current_admin.email} retrieved all events")
-        return event_responses
-    except HTTPException as e:
-        logger.error(f"Unauthorized access to /admin_edits/events: {str(e)}")
-        raise e
-    except Exception as e:
-        logger.error(f"Error retrieving events for admin: {str(e)}")
+@router.post("/register", response_model=AdminResponse, status_code=status.HTTP_201_CREATED)
+@rate_limit("register_admin")  # Лимит определяется в constants.py
+async def register_admin(admin: AdminCreate, db: AsyncSession = Depends(get_async_db), request: Request = None):
+    """Регистрация нового администратора."""
+    existing_admin = await get_admin_by_username(db, admin.email)
+    if existing_admin:
+        logger.warning(f"Attempt to register existing admin email: {admin.email}")
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve events"
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already exists"
         )
-
-# Маршрут для создания мероприятия
-@router.post("", response_model=EventCreate, status_code=status.HTTP_201_CREATED)
-async def create_event(
-    event: EventCreate,
-    db: AsyncSession = Depends(get_async_db),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    request: Request = None
-):
+    
     try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-        
-        # Получаем текущее время из базы данных
-        result = await db.execute(select(func.now()))
-        now_without_tz = result.scalar()
-        
-        db_event = Event(
-            title=event.title,
-            description=event.description,
-            start_date=event.start_date.replace(tzinfo=None) if event.start_date.tzinfo else event.start_date,
-            end_date=event.end_date.replace(tzinfo=None) if event.end_date and event.end_date.tzinfo else event.end_date,
-            location=event.location,
-            image_url=event.image_url,
-            price=event.price,
-            published=event.published,
-            created_at=now_without_tz,
-            updated_at=now_without_tz,
-            status=event.status
-        )
-        db.add(db_event)
-        await db.flush()
-        
-        if event.ticket_type:
-            ticket_type = TicketType(
-                event_id=db_event.id,
-                name=event.ticket_type.name.value,
-                price=event.ticket_type.price,
-                available_quantity=event.ticket_type.available_quantity,
-                sold_quantity=0,
-                free_registration=event.ticket_type.free_registration
-            )
-            db.add(ticket_type)
-            await db.flush()
-
-        await db.commit()
-
-        # Повторно получаем объект с подгрузкой связанных данных
-        db_event = await db.get(Event, db_event.id, options=[selectinload(Event.tickets)])
-        
-        event_dict = db_event.__dict__
-        if db_event.tickets:
-            ticket = db_event.tickets[0]
-            event_dict["ticket_type"] = TicketTypeCreate(
-                name=ticket.name,
-                price=ticket.price,
-                available_quantity=ticket.available_quantity,
-                free_registration=ticket.free_registration
-            ).model_dump()
-        
-        await log_admin_activity(db, current_admin.id, request, action="create_event")
-        logger.info(f"Event created by admin {current_admin.email}: {db_event.title}")
-        return EventCreate(**event_dict)
-    except HTTPException as e:
-        logger.error(f"Validation error creating event: {str(e.detail)}")
-        raise e
+        new_admin = await create_admin(db, admin.fio, admin.email, admin.password)
+        await log_admin_activity(db, new_admin.id, request, action="register")
+        logger.info(f"Admin registered successfully: {new_admin.email}")
+        return new_admin
     except Exception as e:
-        logger.error(f"Error creating event: {str(e)}")
+        logger.error(f"Error registering admin: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create event: {str(e)}"
+            detail="Failed to register admin"
         )
 
-# Маршрут для обновления мероприятия
-@router.put("/{event_id}", response_model=EventCreate)
-async def update_event(
-    event_id: int,
-    event: EventUpdate,
-    db: AsyncSession = Depends(get_async_db),
+@router.post("/login")
+@rate_limit("login_admin")  # Лимит определяется в constants.py
+async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
+    """Авторизация администратора с возвратом токена."""
+    db_admin = await get_admin_by_username(db, admin.email)
+    if not db_admin or not pwd_context.verify(admin.password, db_admin.password_hash):
+        await log_admin_activity(db, db_admin.id if db_admin else None, request, action="login_failed")
+        logger.warning(f"Failed login attempt for admin email: {admin.email}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный логин или пароль"
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    # Исправление: передаём сессию db в create_access_token
+    access_token = await create_access_token(
+        data={"sub": db_admin.email}, session=db, expires_delta=access_token_expires
+    )
+    await log_admin_activity(db, db_admin.id, request, action="login")
+    logger.info(f"Admin logged in successfully: {db_admin.email}")
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@router.get("/me", response_model=AdminResponse)
+@rate_limit("access_me_admin")  # Лимит определяется в constants.py
+async def read_admins_me(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ):
+    """Получение данных текущего администратора (защищенный эндпоинт)."""
     token = credentials.credentials
     current_admin = await get_current_admin(token, db)
-    
-    db_event = await db.get(Event, event_id)
-    if not db_event:
-        raise HTTPException(status_code=404, detail="Event not found")
+    await log_admin_activity(db, current_admin.id, request, action="access_me")
+    logger.info(f"Admin accessed their profile: {current_admin.email}")
+    return current_admin
 
-    update_data = event.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        if key == "status":
-            value = value.value if isinstance(value, Enum) else value
-        setattr(db_event, key, value)
-    
-    # Получаем текущее время из базы данных
-    result = await db.execute(select(func.now()))
-    now_without_tz = result.scalar()
-    db_event.updated_at = now_without_tz
-
-    await db.commit()
-
-    # Повторно получаем объект с подгрузкой связанных данных
-    db_event = await db.get(Event, db_event.id, options=[selectinload(Event.tickets)])
-
-    event_dict = db_event.__dict__
-    if db_event.tickets:
-        ticket = db_event.tickets[0]
-        event_dict["ticket_type"] = TicketTypeCreate(
-            name=ticket.name,
-            price=ticket.price,
-            available_quantity=ticket.available_quantity,
-            free_registration=ticket.free_registration
-        ).model_dump()
-
-    await log_admin_activity(db, current_admin.id, request, action="update_event")
-    logger.info(f"Event updated by admin {current_admin.email}: {db_event.title}")
-    return EventCreate(**event_dict)
+@router.get("/verify_token")
+@rate_limit("verify_token_admin")  # Отдельный лимит с более высоким порогом
+async def verify_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db)
+):
+    """
+    Облегченная проверка действительности токена без полной загрузки профиля.
+    Используется для клиентской авторизации с меньшими ограничениями по частоте запросов.
+    """
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        return {
+            "is_valid": True,
+            "admin_id": current_admin.id,
+            "email": current_admin.email
+        }
+    except HTTPException:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token"
+        )
 ================
 File: backend\api\event_routers.py
 from fastapi import APIRouter, Depends, HTTPException, status, Request
@@ -477,8 +399,9 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(
-        data={"sub": db_user.email}, expires_delta=access_token_expires
+    # Исправление: передаём сессию db в create_access_token
+    access_token = await create_access_token(
+        data={"sub": db_user.email}, session=db, expires_delta=access_token_expires
     )
     await log_user_activity(db, db_user.id, request, action="login")
     logger.info(f"User logged in successfully: {db_user.email}")
@@ -555,8 +478,8 @@ async def create_user(session: AsyncSession, fio: str, email: str, password: str
         password_hash=password_hash,
         telegram=telegram,
         whatsapp=whatsapp,
-        created_at=now,
-        updated_at=now
+        created_at=now.replace(tzinfo=None),
+        updated_at=now.replace(tzinfo=None)
     )
     session.add(new_user)
     await session.commit()
@@ -568,21 +491,23 @@ async def get_user_by_username(session: AsyncSession, email: str) -> Optional[Us
     result = await session.execute(select(User).where(User.email == email))
     return result.scalars().first()
 
-async def create_access_token(data: dict, expires_delta: timedelta = None):
+async def create_access_token(data: dict, session: AsyncSession, expires_delta: timedelta = None):
     """Генерация JWT-токена."""
     to_encode = data.copy()
     
-    # Получаем текущее время из базы данных
-    async with get_async_db() as session:
-        result = await session.execute(select(func.now()))
-        now = result.scalar()
+    # Получаем текущее время из базы данных, используя переданную сессию
+    result = await session.execute(select(func.now()))
+    now = result.scalar()
 
     if expires_delta:
         expire = now + expires_delta
     else:
         expire = now + timedelta(minutes=15)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    
+    # Исправляем вызов метода encode, используя правильный синтаксис для authlib
+    header = {"alg": ALGORITHM}
+    encoded_jwt = jwt.encode(header, to_encode, SECRET_KEY)
     return encoded_jwt
 
 async def get_current_user(token: str, session: AsyncSession) -> User:
@@ -618,8 +543,8 @@ async def create_admin(session: AsyncSession, fio: str, email: str, password: st
         fio=fio,
         email=email,
         password_hash=password_hash,
-        created_at=now,
-        updated_at=now
+        created_at=now.replace(tzinfo=None),
+        updated_at=now.replace(tzinfo=None)
     )
     session.add(new_admin)
     await session.commit()
@@ -684,13 +609,16 @@ async def log_user_activity(
         result = await db.execute(select(func.now()))
         now = result.scalar()
 
+        # Исправление: приводим now к offset-naive, убирая временную зону
+        now_naive = now.replace(tzinfo=None)
+
         # Проверяем существование записи с теми же данными за последние 5 минут
         stmt = select(UserActivity).where(
             UserActivity.user_id == user_id,
             UserActivity.ip_address == ip_address,
             UserActivity.device_fingerprint == device_fingerprint,
             UserActivity.action == action,
-            UserActivity.created_at >= func.now() - text("INTERVAL '5 minutes'")
+            UserActivity.created_at >= now_naive - timedelta(minutes=5)
         )
         result = await db.execute(stmt)
         existing_activity = result.scalars().first()
@@ -703,14 +631,14 @@ async def log_user_activity(
                 cookies=cookies,
                 user_agent=user_agent,
                 action=action,
-                created_at=now.replace(tzinfo=None),  # Удаляем временную зону
+                created_at=now_naive,
                 device_fingerprint=device_fingerprint
             )
             db.add(activity)
             await db.commit()
         else:
             # Если запись существует, обновляем created_at
-            existing_activity.created_at = now.replace(tzinfo=None)
+            existing_activity.created_at = now_naive
             await db.commit()
             logger.info(f"Duplicate activity ignored for user_id={user_id}, action={action}")
     except Exception as e:
@@ -744,13 +672,16 @@ async def log_admin_activity(
         result = await db.execute(select(func.now()))
         now = result.scalar()
 
+        # Исправление: приводим now к offset-naive, убирая временную зону
+        now_naive = now.replace(tzinfo=None)
+
         # Проверяем существование записи с теми же данными за последние 5 минут
         stmt = select(UserActivity).where(
             UserActivity.user_id == admin_id,
             UserActivity.ip_address == ip_address,
             UserActivity.device_fingerprint == device_fingerprint,
             UserActivity.action == action,
-            UserActivity.created_at >= func.now() - text("INTERVAL '5 minutes'")
+            UserActivity.created_at >= now_naive - timedelta(minutes=5)
         )
         result = await db.execute(stmt)
         existing_activity = result.scalars().first()
@@ -763,14 +694,14 @@ async def log_admin_activity(
                 cookies=cookies,
                 user_agent=user_agent,
                 action=action,
-                created_at=now.replace(tzinfo=None),  # Удаляем временную зону
+                created_at=now_naive,
                 device_fingerprint=device_fingerprint
             )
             db.add(activity)
             await db.commit()
         else:
             # Если запись существует, обновляем created_at
-            existing_activity.created_at = now.replace(tzinfo=None)
+            existing_activity.created_at = now_naive
             await db.commit()
             logger.info(f"Duplicate admin activity ignored for admin_id={admin_id}, action={action}")
     except Exception as e:
@@ -1783,31 +1714,27 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 }
 ================
 File: frontend\src\app\(admin)\admin-login\page.tsx
+// frontend/src/app/(admin)/admin-login/page.tsx
 "use client";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuthForm } from "@/hooks/useAdminAuthForm";
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
-  const { isAdminAuth } = useAdminAuth();
-  
-  // Перенаправляем уже авторизованных администраторов на страницу профиля
+  const { isLoading, checkAuth } = useAdminAuth();
+
   useEffect(() => {
-    if (isAdminAuth) {
-      router.push("/admin-profile");
-    }
-  }, [isAdminAuth, router]);
-  
+    checkAuth();
+  }, [checkAuth]);
+
   const {
     formValues,
     error,
-    isLoading,
+    isLoading: formLoading,
     isSuccess,
     handleChange,
     handleSubmit
@@ -1817,9 +1744,16 @@ export default function AdminLoginPage() {
       password: "",
     },
     endpoint: "/admin/login",
-    redirectTo: "/admin-profile",
-    isLogin: true
+    redirectTo: "/admin-profile"
   });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -1862,9 +1796,9 @@ export default function AdminLoginPage() {
             )}
             <ModalButton 
               type="submit" 
-              disabled={isLoading || isSuccess}
+              disabled={formLoading || isSuccess}
             >
-              {isLoading ? "Вход..." : (isSuccess ? "Успешно!" : "Войти")}
+              {formLoading ? "Вход..." : (isSuccess ? "Успешно!" : "Войти")}
             </ModalButton>
           </form>
         </div>
@@ -1874,75 +1808,73 @@ export default function AdminLoginPage() {
 }
 ================
 File: frontend\src\app\(admin)\admin-profile\page.tsx
+// frontend/src/app/(admin)/admin-profile/page.tsx
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 import { FaUser, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
 
 export default function AdminProfilePage() {
-  const { adminData, isAdminAuth, isLoading, checkAdminAuth } = useAdminAuth();
-  const [isInitialized, setIsInitialized] = useState(false);
+  const { isAdminAuth, adminData, isLoading, checkAuth } = useAdminAuth();
   const router = useRouter();
 
-  // Инициализация и проверка авторизации
   useEffect(() => {
-    const init = async () => {
-      try {
-        await checkAdminAuth();
-      } catch (error) {
-        console.error("Ошибка при проверке авторизации:", error);
-      } finally {
-        setIsInitialized(true);
-      }
-    };
-    
-    init();
-  }, [checkAdminAuth]);
+    checkAuth();
+  }, [checkAuth]);
 
-  // Перенаправление неавторизованных пользователей
   useEffect(() => {
-    if (isInitialized && !isLoading && !isAdminAuth) {
+    if (!isLoading && !isAdminAuth) {
       router.push("/admin-login");
     }
-  }, [isInitialized, isLoading, isAdminAuth, router]);
+  }, [isAdminAuth, isLoading, router]);
 
-  // Показываем спиннер, пока идет инициализация
-  if (!isInitialized || isLoading) {
+  if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen">
+        <AdminHeader />
+        <div className="flex items-center justify-center h-screen">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        </div>
       </div>
     );
   }
 
-  // Если нет авторизации (будет перенаправление)
-  if (!isAdminAuth || !adminData) {
+  if (!isAdminAuth) {
     return null;
+  }
+
+  if (!adminData) {
+    return (
+      <div className="min-h-screen">
+        <AdminHeader />
+        <div className="container mx-auto px-4 pt-24 pb-12">
+          <div className="bg-red-50 p-4 rounded-lg text-red-600 max-w-md mx-auto mt-10">
+            Не удалось загрузить данные администратора.
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
-      
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto">
           <h1 className="text-3xl font-bold mb-8">Профиль администратора</h1>
-          
           <div className="bg-white p-6 rounded-lg shadow-md mb-8">
             <div className="flex items-start md:items-center flex-col md:flex-row">
               <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mr-6 mb-4 md:mb-0">
                 <FaUser className="text-blue-500 text-2xl" />
               </div>
-              
               <div className="flex-grow">
-                <h2 className="text-2xl font-semibold mb-1">{adminData.fio}</h2>
-                <div className="flex items-center text-gray-600 mb-4">
+                <h2 className="text-2xl font-semibold mb-1">{adminData?.fio || "Администратор"}</h2>
+                <div className="flex items-center mb-4 text-gray-600">
                   <FaEnvelope className="mr-2" />
-                  <span>{adminData.email}</span>
+                  <span>{adminData?.email || "Нет данных"}</span>
                 </div>
-                
                 <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm inline-flex items-center">
                   <FaCog className="mr-1" />
                   Администратор
@@ -1950,7 +1882,6 @@ export default function AdminProfilePage() {
               </div>
             </div>
           </div>
-          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-xl font-semibold mb-4 flex items-center">
@@ -1960,14 +1891,13 @@ export default function AdminProfilePage() {
               <p className="text-gray-600 mb-4">
                 Создавайте, редактируйте и управляйте мероприятиями на платформе.
               </p>
-              <button 
+              <button
                 onClick={() => router.push("/edit-events")}
                 className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
               >
                 Перейти к мероприятиям
               </button>
             </div>
-            
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h3 className="text-xl font-semibold mb-4 flex items-center">
                 <FaCog className="mr-2 text-blue-500" />
@@ -1976,7 +1906,7 @@ export default function AdminProfilePage() {
               <p className="text-gray-600 mb-4">
                 Управляйте настройками системы и вашего профиля.
               </p>
-              <button 
+              <button
                 onClick={() => router.push("/dashboard")}
                 className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
               >
@@ -1991,11 +1921,81 @@ export default function AdminProfilePage() {
 }
 ================
 File: frontend\src\app\(admin)\dashboard\page.tsx
+// frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
-import { useState, ChangeEvent, useEffect, useContext, useCallback } from "react";
+import { useState, ChangeEvent, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { FaSearch, FaUsers, FaCalendarAlt, FaPlus } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
-import { AdminAuthContext } from "@/contexts/AdminAuthContext";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
+
+interface User {
+  id: number;
+  fio: string;
+  email: string;
+}
+
+interface Event {
+  id: number;
+  title: string;
+  start_date: string;
+  location?: string;
+  published: boolean;
+}
+
+export default function DashboardPage() {
+  const [userSearch, setUserSearch] = useState("");
+  const [eventSearch, setEventSearch] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const hasFetchedEvents = useRef(false);
+
+  const router = useRouter();
+  const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
+
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  useEffect(() => {
+    if (!authLoading && !isAdminAuth) {
+      router.push("/admin-login");
+    }
+  }, [isAdminAuth, authLoading, router]);
+
+  const fetchEvents = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("admin_token");
+      if (!token) {
+        setError("Отсутствует токен авторизации");
+        return;
+      }
+      const url = eventSearch.trim()
+        ? `/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
+        : "/admin_edits/events";
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Accept": "application/json",
+        },
+      });
+      if (!response.ok) {
+        const errorText = await response.text();
+        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
+        setEvents([]);
+        return;
+      }
+      const data = await response.json();
+      setEvents(Array.isArray(data) ? data : []);
+    } catch {
+      setError("Не удалось загрузить мероприятия");
+      setEvents([]);
+    } finally {
+      setIsLoading(false);
+    }
 ================

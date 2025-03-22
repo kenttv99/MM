@@ -1,3 +1,4 @@
+# backend/api/admin_auth_routers.py
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from backend.schemas_enums.schemas import AdminCreate, AdminLogin, AdminResponse
 from backend.config.auth import create_admin, get_admin_by_username, pwd_context, create_access_token, get_current_admin, log_admin_activity
@@ -51,7 +52,6 @@ async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    # Исправление: добавляем session=db в вызов create_access_token
     access_token = await create_access_token(
         data={"sub": db_admin.email}, session=db, expires_delta=access_token_expires
     )

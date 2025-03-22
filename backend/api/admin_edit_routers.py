@@ -1,99 +1,108 @@
+# backend/api/admin_edit_routers.py
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from backend.schemas_enums.schemas import AdminCreate, AdminLogin, AdminResponse
-from backend.config.auth import create_admin, get_admin_by_username, pwd_context, create_access_token, get_current_admin, log_admin_activity
-from backend.database.user_db import AsyncSession, get_async_db
+from backend.schemas_enums.schemas import EventCreate, UserResponse
+from backend.config.auth import get_current_admin, log_admin_activity
+from backend.database.user_db import AsyncSession, get_async_db, Event, User
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from datetime import timedelta
-from backend.config.rate_limiter import rate_limit
-from constants import ACCESS_TOKEN_EXPIRE_MINUTES
+from sqlalchemy.future import select
+from sqlalchemy.orm import selectinload
 
 router = APIRouter()
 
 bearer_scheme = HTTPBearer()
 
-@router.post("/register", response_model=AdminResponse, status_code=status.HTTP_201_CREATED)
-@rate_limit("register_admin")  # Лимит определяется в constants.py
-async def register_admin(admin: AdminCreate, db: AsyncSession = Depends(get_async_db), request: Request = None):
-    """Регистрация нового администратора."""
-    existing_admin = await get_admin_by_username(db, admin.email)
-    if existing_admin:
-        logger.warning(f"Attempt to register existing admin email: {admin.email}")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Email already exists"
-        )
-    
-    try:
-        new_admin = await create_admin(db, admin.fio, admin.email, admin.password)
-        await log_admin_activity(db, new_admin.id, request, action="register")
-        logger.info(f"Admin registered successfully: {new_admin.email}")
-        return new_admin
-    except Exception as e:
-        logger.error(f"Error registering admin: {str(e)}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to register admin"
-        )
-
-@router.post("/login")
-@rate_limit("login_admin")  # Лимит определяется в constants.py
-async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
-    """Авторизация администратора с возвратом токена."""
-    db_admin = await get_admin_by_username(db, admin.email)
-    if not db_admin or not pwd_context.verify(admin.password, db_admin.password_hash):
-        await log_admin_activity(db, db_admin.id if db_admin else None, request, action="login_failed")
-        logger.warning(f"Failed login attempt for admin email: {admin.email}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный логин или пароль"
-        )
-    
-    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    # Исправление: передаём сессию db в create_access_token
-    access_token = await create_access_token(
-        data={"sub": db_admin.email}, session=db, expires_delta=access_token_expires
-    )
-    await log_admin_activity(db, db_admin.id, request, action="login")
-    logger.info(f"Admin logged in successfully: {db_admin.email}")
-    return {"access_token": access_token, "token_type": "bearer"}
-
-@router.get("/me", response_model=AdminResponse)
-@rate_limit("access_me_admin")  # Лимит определяется в constants.py
-async def read_admins_me(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+# Маршрут для получения списка мероприятий
+@router.get("/events", response_model=list[EventCreate])
+async def get_admin_events(
+    search: str = None,
     db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Получение данных текущего администратора (защищенный эндпоинт)."""
-    token = credentials.credentials
-    current_admin = await get_current_admin(token, db)
-    await log_admin_activity(db, current_admin.id, request, action="access_me")
-    logger.info(f"Admin accessed their profile: {current_admin.email}")
-    return current_admin
-
-@router.get("/verify_token")
-@rate_limit("verify_token_admin")  # Отдельный лимит с более высоким порогом
-async def verify_token(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """
-    Облегченная проверка действительности токена без полной загрузки профиля.
-    Используется для клиентской авторизации с меньшими ограничениями по частоте запросов.
-    """
+    """Получение списка мероприятий для админа (с возможностью поиска)."""
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
-        return {
-            "is_valid": True,
-            "admin_id": current_admin.id,
-            "email": current_admin.email
-        }
-    except HTTPException:
+        await log_admin_activity(db, current_admin.id, request, action="access_events")
+
+        query = select(Event).options(selectinload(Event.tickets))
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where(Event.title.ilike(search_pattern))
+
+        result = await db.execute(query)
+        events = result.scalars().all()
+
+        event_responses = []
+        for event in events:
+            # Явно формируем словарь с необходимыми полями
+            event_dict = {
+                "id": event.id,
+                "title": event.title,
+                "description": event.description,
+                "start_date": event.start_date,
+                "end_date": event.end_date,
+                "location": event.location,
+                "image_url": event.image_url,
+                "price": float(event.price) if event.price is not None else 0.0,
+                "published": event.published,
+                "created_at": event.created_at,
+                "updated_at": event.updated_at,
+                "status": event.status
+            }
+            if event.tickets:
+                ticket = event.tickets[0]
+                event_dict["ticket_type"] = {
+                    "name": ticket.name,
+                    "price": float(ticket.price),
+                    "available_quantity": ticket.available_quantity,
+                    "free_registration": ticket.free_registration
+                }
+            event_responses.append(EventCreate(**event_dict))
+
+        logger.info(f"Admin {current_admin.email} accessed events list")
+        return event_responses
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error retrieving events for admin: {str(e)}")
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve events"
+        )
+
+# Маршрут для получения списка пользователей
+@router.get("/users", response_model=list[UserResponse])
+async def get_admin_users(
+    search: str = None,
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request = None
+):
+    """Получение списка пользователей для админа (с возможностью поиска)."""
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        await log_admin_activity(db, current_admin.id, request, action="access_users")
+
+        query = select(User)
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where(
+                (User.fio.ilike(search_pattern)) | (User.email.ilike(search_pattern))
+            )
+
+        result = await db.execute(query)
+        users = result.scalars().all()
+
+        logger.info(f"Admin {current_admin.email} accessed users list")
+        return users
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error retrieving users for admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve users"
         )

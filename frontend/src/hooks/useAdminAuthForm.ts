@@ -1,6 +1,6 @@
 // frontend/src/hooks/useAdminAuthForm.ts
 import { useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+// import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
 interface FormValues {
@@ -14,12 +14,12 @@ interface AuthFormOptions {
   redirectTo: string;
 }
 
-export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AuthFormOptions) => {
+export const useAdminAuthForm = ({ initialValues, endpoint}: AuthFormOptions) => {
   const [formValues, setFormValues] = useState<FormValues>(initialValues);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const router = useRouter();
+  // const router = useRouter();
   const { checkAuth } = useAdminAuth();
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,17 +53,14 @@ export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AuthFo
 
         // Обновляем состояние авторизации в контексте
         await checkAuth();
-
-        setTimeout(() => {
-          router.push(redirectTo);
-        }, 1500);
+        // Перенаправление теперь выполняется в AdminLoginPage через useEffect
       } catch (err) {
         setError(err instanceof Error ? err.message : "Произошла ошибка");
       } finally {
         setIsLoading(false);
       }
     },
-    [formValues, endpoint, redirectTo, router, checkAuth]
+    [formValues, endpoint, checkAuth]
   );
 
   return {

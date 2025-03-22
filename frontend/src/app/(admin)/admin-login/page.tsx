@@ -5,15 +5,24 @@ import { ModalButton } from "@/components/common/AuthModal";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuthForm } from "@/hooks/useAdminAuthForm";
 import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 
 export default function AdminLoginPage() {
-  const { isLoading, checkAuth } = useAdminAuth();
+  const router = useRouter();
+  const { isAdminAuth, isLoading, checkAuth } = useAdminAuth();
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+
+  // Перенаправление после успешной авторизации
+  useEffect(() => {
+    if (!isLoading && isAdminAuth) {
+      router.push("/admin-profile");
+    }
+  }, [isAdminAuth, isLoading, router]);
 
   const {
     formValues,
@@ -21,14 +30,14 @@ export default function AdminLoginPage() {
     isLoading: formLoading,
     isSuccess,
     handleChange,
-    handleSubmit
+    handleSubmit,
   } = useAdminAuthForm({
     initialValues: {
       email: "",
       password: "",
     },
     endpoint: "/admin/login",
-    redirectTo: "/admin-profile"
+    redirectTo: "/admin-profile",
   });
 
   if (isLoading) {
@@ -37,6 +46,11 @@ export default function AdminLoginPage() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
+  }
+
+  // Если пользователь уже авторизован, не показываем форму
+  if (isAdminAuth) {
+    return null; // Или можно показать сообщение, например: "Вы уже авторизованы, перенаправляем..."
   }
 
   return (
@@ -78,11 +92,8 @@ export default function AdminLoginPage() {
                 Вход выполнен успешно! Перенаправление...
               </div>
             )}
-            <ModalButton 
-              type="submit" 
-              disabled={formLoading || isSuccess}
-            >
-              {formLoading ? "Вход..." : (isSuccess ? "Успешно!" : "Войти")}
+            <ModalButton type="submit" disabled={formLoading || isSuccess}>
+              {formLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
             </ModalButton>
           </form>
         </div>

@@ -26,6 +26,29 @@ const STORAGE_KEYS = {
   ADMIN_DATA: 'admin_data'
 };
 
+// Функция для декодирования JWT без проверки подписи
+function decodeJwt(token: string): { exp: number; sub: string } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return payload;
+  } catch (err) {
+    console.error("Ошибка при декодировании токена:", err);
+    return null;
+  }
+}
+
+// Проверяем, истек ли срок действия токена
+function isTokenExpired(token: string): boolean {
+  const decoded = decodeJwt(token);
+  if (!decoded) return true;
+
+  const currentTime = Math.floor(Date.now() / 1000);
+  return decoded.exp < currentTime;
+}
+
 const setAdminCache = (data: AdminData | null) => {
   if (typeof window === 'undefined') return;
   if (data) {
@@ -39,54 +62,66 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [hasCheckedAuth, setHasCheckedAuth] = useState(false);
   const router = useRouter();
 
-  const fetchAdminData = useCallback(async (token: string): Promise<AdminData | null> => {
-    try {
-      const response = await fetch('/admin/me', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Cache-Control': 'no-cache',
-        },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAdminCache(data);
-        return data;
-      }
-      return null;
-    } catch (error) {
-      console.error('Ошибка загрузки данных админа:', error);
-      return null;
-    }
-  }, []);
-
   const checkAuth = useCallback(async () => {
-    if (hasCheckedAuth) return;
-    setHasCheckedAuth(true);
     setIsLoading(true);
 
     const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
     if (!token) {
+      console.log("Токен отсутствует в localStorage");
       setIsAdminAuth(false);
       setAdminData(null);
       setIsLoading(false);
       return;
     }
 
-    const data = await fetchAdminData(token);
-    if (data) {
-      setAdminData(data);
-      setIsAdminAuth(true);
+    // Проверяем, истёк ли токен
+    if (isTokenExpired(token)) {
+      console.log("Токен истёк");
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+      setAdminCache(null);
+      setIsAdminAuth(false);
+      setAdminData(null);
+      setIsLoading(false);
+      return;
+    }
+
+    // Декодируем токен, чтобы получить данные администратора
+    const decoded = decodeJwt(token);
+    if (!decoded || !decoded.sub) {
+      console.log("Не удалось декодировать токен");
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+      setAdminCache(null);
+      setIsAdminAuth(false);
+      setAdminData(null);
+      setIsLoading(false);
+      return;
+    }
+
+    // Загружаем данные из кэша
+    const cachedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
+    if (cachedData) {
+      try {
+        const parsedData = JSON.parse(cachedData);
+        setAdminData(parsedData);
+        setIsAdminAuth(true);
+      } catch (err) {
+        console.error("Ошибка при парсинге кэшированных данных:", err);
+        setAdminCache(null);
+        setIsAdminAuth(false);
+        setAdminData(null);
+      }
     } else {
+      // Если кэш отсутствует, сбрасываем авторизацию
       localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
       setAdminCache(null);
       setIsAdminAuth(false);
       setAdminData(null);
     }
+
     setIsLoading(false);
-  }, [fetchAdminData, hasCheckedAuth]);
+  }, []);
 
   const logoutAdmin = useCallback(() => {
     localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);

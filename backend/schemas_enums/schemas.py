@@ -67,6 +67,7 @@ class TicketTypeCreate(BaseModel):
         from_attributes = True
 
 class EventCreate(BaseModel):
+    id: Optional[int] = None  # Добавляем поле id как опциональное
     title: str
     description: Optional[str] = None
     start_date: datetime

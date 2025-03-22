@@ -52,12 +52,19 @@ export default function DashboardPage() {
         setError("Отсутствует токен авторизации");
         return;
       }
+
+      // Убедимся, что токен в правильном формате
+      let authToken = token;
+      if (token.startsWith("Bearer ")) {
+        authToken = token.slice(7).trim();
+      }
+
       const url = eventSearch.trim()
-        ? `/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
-        : "/admin_edits/events";
+        ? `http://localhost:8001/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
+        : "http://localhost:8001/admin_edits/events";
       const response = await fetch(url, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
           "Accept": "application/json",
         },
       });
@@ -70,7 +77,7 @@ export default function DashboardPage() {
       const data = await response.json();
       setEvents(Array.isArray(data) ? data : []);
     } catch {
-      setError("Не удалось загрузить мероприятия");
+      setError("Не удалось загрузить мероприятия. Проверьте соединение с сервером.");
       setEvents([]);
     } finally {
       setIsLoading(false);
@@ -94,21 +101,29 @@ export default function DashboardPage() {
         setError("Отсутствует токен авторизации");
         return;
       }
-      const response = await fetch(`/admin_edits/users?search=${encodeURIComponent(userSearch)}`, {
+
+      // Убедимся, что токен в правильном формате
+      let authToken = token;
+      if (token.startsWith("Bearer ")) {
+        authToken = token.slice(7).trim();
+      }
+
+      const response = await fetch(`http://localhost:8001/admin_edits/users?search=${encodeURIComponent(userSearch)}`, {
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
           "Accept": "application/json",
         },
       });
       if (!response.ok) {
-        setError(`Ошибка API: ${response.status} ${response.statusText}`);
+        const errorText = await response.text();
+        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
         setUsers([]);
       } else {
         const data = await response.json();
         setUsers(Array.isArray(data) ? data : []);
       }
     } catch {
-      setError("Не удалось выполнить поиск пользователей");
+      setError("Не удалось выполнить поиск пользователей. Проверьте соединение с сервером.");
       setUsers([]);
     } finally {
       setIsLoading(false);
@@ -226,9 +241,9 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {events.map((event) => (
-                        <tr key={event.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id || "N/A"}</td>
+                      {events.map((event, index) => (
+                        <tr key={event.id ?? index} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
                             {event.published ? (

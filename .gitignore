@@ -23,3 +23,5 @@ yarn-error.log*
 
 # Local env files
 .env*.local
+
+project_content/

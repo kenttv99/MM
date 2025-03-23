@@ -153,6 +153,8 @@ class User(Base):
     avatar_url = Column(String(255), nullable=True)
     telegram = Column(String(255), unique=True, nullable=False)
     whatsapp = Column(String(255), unique=True, nullable=False)
+    is_blocked = Column(Boolean, default=False)
+    is_partner = Column(Boolean, default=False)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     

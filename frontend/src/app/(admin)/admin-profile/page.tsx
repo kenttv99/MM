@@ -1,49 +1,84 @@
 // frontend/src/app/(admin)/admin-profile/page.tsx
 "use client";
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import AdminHeader from "@/components/AdminHeader";
-import { FaUser, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
 
-export default function AdminProfilePage() {
-  const { isAdminAuth, adminData, isLoading, checkAuth } = useAdminAuth();
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import AdminHeader from "@/components/AdminHeader";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
+
+interface AdminProfile {
+  id: number;
+  fio: string;
+  email: string;
+  avatar_url?: string;
+}
+
+const AdminProfilePage: React.FC = () => {
+  const [profile, setProfile] = useState<AdminProfile | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const router = useRouter();
+  const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
-  useEffect(() => {
-    if (!isLoading && !isAdminAuth) {
-      router.push("/admin-login");
+  const fetchAdminProfile = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("admin_token");
+      if (!token) {
+        setError("Отсутствует токен авторизации");
+        return;
+      }
+
+      let authToken = token;
+      if (token.startsWith("Bearer ")) {
+        authToken = token.slice(7).trim();
+      }
+
+      const response = await fetch("/admin/me", {
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Accept": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
+        setProfile(null);
+        return;
+      }
+
+      const data = await response.json();
+      setProfile(data);
+    } catch {
+      setError("Не удалось загрузить профиль. Проверьте соединение с сервером.");
+      setProfile(null);
+    } finally {
+      setIsLoading(false);
     }
-  }, [isAdminAuth, isLoading, router]);
+  }, []);
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!authLoading) {
+      if (!isAdminAuth) {
+        router.push("/admin-login");
+      } else {
+        fetchAdminProfile();
+      }
+    }
+  }, [isAdminAuth, authLoading, router, fetchAdminProfile]);
+
+  if (authLoading || isLoading) {
     return (
-      <div className="min-h-screen">
-        <AdminHeader />
-        <div className="flex items-center justify-center h-screen">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isAdminAuth) {
-    return null;
-  }
-
-  if (!adminData) {
-    return (
-      <div className="min-h-screen">
-        <AdminHeader />
-        <div className="container mx-auto px-4 pt-24 pb-12">
-          <div className="bg-red-50 p-4 rounded-lg text-red-600 max-w-md mx-auto mt-10">
-            Не удалось загрузить данные администратора.
-          </div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
@@ -52,55 +87,48 @@ export default function AdminProfilePage() {
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-4xl mx-auto">
+        <div className="max-w-3xl mx-auto">
           <h1 className="text-3xl font-bold mb-8">Профиль администратора</h1>
-          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-            <div className="flex items-start md:items-center flex-col md:flex-row">
-              <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mr-6 mb-4 md:mb-0">
-                <FaUser className="text-blue-500 text-2xl" />
+          {error && (
+            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500">
+              {error}
+            </div>
+          )}
+          {profile ? (
+            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+              <div className="flex items-center mb-6">
+                <FaUserCircle className="text-gray-400 text-5xl mr-4" />
+                <div>
+                  <h2 className="text-xl font-semibold">{profile.fio}</h2>
+                  <p className="text-gray-600 flex items-center">
+                    <FaEnvelope className="mr-2" /> {profile.email}
+                  </p>
+                </div>
               </div>
-              <div className="flex-grow">
-                <h2 className="text-2xl font-semibold mb-1">{adminData?.fio || "Администратор"}</h2>
-                <div className="flex items-center mb-4 text-gray-600">
-                  <FaEnvelope className="mr-2" />
-                  <span>{adminData?.email || "Нет данных"}</span>
-                </div>
-                <div className="bg-blue-50 text-blue-700 px-3 py-1 rounded-full text-sm inline-flex items-center">
-                  <FaCog className="mr-1" />
+              <div className="flex items-center mb-6">
+                <span className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-800 text-sm font-semibold rounded-full">
+                  <FaCog className="mr-1 text-blue-600" />
                   Администратор
-                </div>
+                </span>
               </div>
             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          ) : (
+            <p className="text-gray-500 text-center">Профиль не найден</p>
+          )}
+          <div className="grid grid-cols-1 gap-8">
             <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-semibold mb-4 flex items-center">
-                <FaCalendarAlt className="mr-2 text-blue-500" />
-                Управление мероприятиями
-              </h3>
-              <p className="text-gray-600 mb-4">
+              <div className="flex items-center mb-6">
+                <FaCalendarAlt className="text-blue-500 text-xl mr-2" />
+                <h2 className="text-xl font-semibold">Управление мероприятиями</h2>
+              </div>
+              <p className="text-gray-600 mb-6">
                 Создавайте, редактируйте и управляйте мероприятиями на платформе.
               </p>
               <button
-                onClick={() => router.push("/edit-events")}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
+                onClick={() => router.push("/dashboard")}
+                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors w-full"
               >
                 Перейти к мероприятиям
-              </button>
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h3 className="text-xl font-semibold mb-4 flex items-center">
-                <FaCog className="mr-2 text-blue-500" />
-                Настройки
-              </h3>
-              <p className="text-gray-600 mb-4">
-                Управляйте настройками системы и вашего профиля.
-              </p>
-              <button
-                onClick={() => router.push("/dashboard")}
-                className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors"
-              >
-                Перейти в панель управления
               </button>
             </div>
           </div>
@@ -108,4 +136,6 @@ export default function AdminProfilePage() {
       </main>
     </div>
   );
-}
+};
+
+export default AdminProfilePage;

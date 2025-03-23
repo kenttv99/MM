@@ -1,9 +1,8 @@
+# backend/schemas_enums/schemas.py
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr
-
 from backend.schemas_enums.enums import EventStatus, TicketTypeEnum
-
 
 #------------------------
 # ADMINS
@@ -24,12 +23,11 @@ class AdminResponse(BaseModel):
     email: EmailStr
 
     class Config:
-        from_attributes = True  # Для совместимости с SQLAlchemy
-        
+        from_attributes = True
+
 #------------------------
 # USERS
 #------------------------   
-    
 
 class UserCreate(BaseModel):
     fio: str
@@ -48,26 +46,38 @@ class UserResponse(BaseModel):
     email: EmailStr
     telegram: str
     whatsapp: str
+    is_blocked: bool  # Новое поле
+    is_partner: bool  # Новое поле
 
     class Config:
-        from_attributes = True  # Для совместимости с SQLAlchemy
-        
-        
+        from_attributes = True
+
+class UserUpdate(BaseModel):
+    fio: Optional[str] = None
+    email: Optional[EmailStr] = None
+    telegram: Optional[str] = None
+    whatsapp: Optional[str] = None
+    is_blocked: Optional[bool] = None
+    is_partner: Optional[bool] = None
+
+    class Config:
+        from_attributes = True
+
 #------------------------
 # EVENTS
 #------------------------
 
 class TicketTypeCreate(BaseModel):
-    name: TicketTypeEnum  # Заменяем str на TicketTypeEnum
-    price: float  # Цена билета
-    available_quantity: int  # Доступное количество
-    free_registration: Optional[bool] = False  # Бесплатная регистрация (по умолчанию False)
+    name: TicketTypeEnum
+    price: float
+    available_quantity: int
+    free_registration: Optional[bool] = False
 
     class Config:
         from_attributes = True
 
 class EventCreate(BaseModel):
-    id: Optional[int] = None  # Добавляем поле id как опциональное
+    id: Optional[int] = None
     title: str
     description: Optional[str] = None
     start_date: datetime
@@ -78,13 +88,12 @@ class EventCreate(BaseModel):
     published: Optional[bool] = False
     created_at: datetime
     updated_at: datetime
-    status: Optional[EventStatus] = EventStatus.draft  # По умолчанию 'draft'
+    status: Optional[EventStatus] = EventStatus.draft
     ticket_type: Optional[TicketTypeCreate] = None
 
     class Config:
         from_attributes = True
-    
-    
+
 class EventUpdate(BaseModel):
     id: Optional[int] = None
     title: Optional[str] = None
@@ -97,8 +106,7 @@ class EventUpdate(BaseModel):
     published: Optional[bool] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    status: Optional[EventStatus] = None  # Позволяем обновлять статус
+    status: Optional[EventStatus] = None
 
     class Config:
         from_attributes = True
-        

@@ -188,7 +188,6 @@ export default function DashboardPage() {
         return;
       }
 
-      // Успешно удалено, обновляем список мероприятий
       setEvents(events.filter((event) => event.id !== eventToDelete));
       setShowDeleteModal(false);
       setEventToDelete(null);
@@ -257,6 +256,7 @@ export default function DashboardPage() {
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
                         <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -265,6 +265,14 @@ export default function DashboardPage() {
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.fio}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm">
+                            <button
+                              onClick={() => router.push(`/edit-user?user_id=${user.id}`)}
+                              className="text-blue-500 hover:text-blue-700"
+                            >
+                              Управлять
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

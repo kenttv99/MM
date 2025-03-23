@@ -1,3 +1,4 @@
+# backend/api/user_auth_routers.py
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from backend.schemas_enums.schemas import UserCreate, UserLogin, UserResponse
 from backend.config.auth import create_user, get_user_by_username, pwd_context, create_access_token, get_current_user, log_user_activity
@@ -13,7 +14,7 @@ router = APIRouter()
 bearer_scheme = HTTPBearer()
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-@rate_limit("register")  # Лимит определяется в constants.py
+@rate_limit("register")
 async def register_user(user: UserCreate, db: AsyncSession = Depends(get_async_db), request: Request = None):
     """Регистрация нового пользователя."""
     existing_user = await get_user_by_username(db, user.email)
@@ -38,7 +39,7 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_async_d
         )
 
 @router.post("/login")
-@rate_limit("login")  # Лимит определяется в constants.py
+@rate_limit("login")
 async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
     """Авторизация пользователя с возвратом токена."""
     db_user = await get_user_by_username(db, user.email)
@@ -51,7 +52,6 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
         )
     
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    # Исправление: передаём сессию db в create_access_token
     access_token = await create_access_token(
         data={"sub": db_user.email}, session=db, expires_delta=access_token_expires
     )
@@ -60,7 +60,7 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
     return {"access_token": access_token, "token_type": "bearer"}
 
 @router.get("/me", response_model=UserResponse)
-@rate_limit("access_me")  # Лимит определяется в constants.py
+@rate_limit("access_me")
 async def read_users_me(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_async_db),
@@ -72,29 +72,3 @@ async def read_users_me(
     await log_user_activity(db, current_user.id, request, action="access_me")
     logger.info(f"User accessed their profile: {current_user.email}")
     return current_user
-
-@router.get("/verify_token")
-@rate_limit("verify_token")  # Отдельный лимит с более высоким порогом
-async def verify_token(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """
-    Облегченная проверка действительности токена без полной загрузки профиля.
-    Используется для клиентской авторизации с меньшими ограничениями по частоте запросов.
-    """
-    try:
-        token = credentials.credentials
-        # Только проверяем действительность токена без загрузки полного профиля
-        current_user = await get_current_user(token, db)
-        return {
-            "is_valid": True,
-            "user_id": current_user.id,
-            "email": current_user.email
-        }
-    except HTTPException:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )

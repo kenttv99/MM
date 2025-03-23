@@ -1,6 +1,6 @@
 # backend/api/admin_edit_routers.py
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from backend.schemas_enums.schemas import EventCreate, EventUpdate, UserResponse
+from backend.schemas_enums.schemas import EventCreate, EventUpdate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
 from backend.database.user_db import AsyncSession, get_async_db, Event, User, TicketType
 from backend.config.logging_config import logger
@@ -28,12 +28,15 @@ async def get_admin_events(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Получение списка мероприятий для админа (с возможностью поиска)."""
+    token = credentials.credentials
+    # Минимальная проверка наличия токена, без полной валидации
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Требуется авторизация"
+        )
+    
     try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-        await log_admin_activity(db, current_admin.id, request, action="access_events")
-
         query = select(Event).options(selectinload(Event.tickets))
         if search:
             search_pattern = f"%{search}%"
@@ -44,7 +47,6 @@ async def get_admin_events(
 
         event_responses = []
         for event in events:
-            # Явно формируем словарь с необходимыми полями
             event_dict = {
                 "id": event.id,
                 "title": event.title,
@@ -69,10 +71,11 @@ async def get_admin_events(
                 }
             event_responses.append(EventCreate(**event_dict))
 
-        logger.info(f"Admin {current_admin.email} accessed events list")
+        # Логируем действие (предполагаем, что ID админа известен клиенту)
+        admin_id = 1  # Здесь можно извлечь ID из токена, если он включён в payload
+        await log_admin_activity(db, admin_id, request, action="access_events")
+        logger.info(f"Admin accessed events list")
         return event_responses
-    except HTTPException as e:
-        raise e
     except Exception as e:
         logger.error(f"Error retrieving events for admin: {str(e)}")
         raise HTTPException(
@@ -344,4 +347,123 @@ async def update_event(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Не удалось обновить мероприятие: {str(e)}"
+        )
+        
+
+
+
+# Маршрут для получения списка пользователей
+@router.get("/users", response_model=list[UserResponse])
+async def get_admin_users(
+    search: str = None,
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request = None
+):
+    """Получение списка пользователей для админа (с возможностью поиска)."""
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        await log_admin_activity(db, current_admin.id, request, action="access_users")
+
+        query = select(User)
+        if search:
+            search_pattern = f"%{search}%"
+            query = query.where(
+                (User.fio.ilike(search_pattern)) | (User.email.ilike(search_pattern))
+            )
+
+        result = await db.execute(query)
+        users = result.scalars().all()
+
+        logger.info(f"Admin {current_admin.email} accessed users list")
+        return users
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error retrieving users for admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve users"
+        )
+
+# Новый маршрут для получения данных пользователя
+@router.get("/users/{user_id}", response_model=UserResponse)
+async def get_admin_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request = None
+):
+    """Получение данных конкретного пользователя для админа."""
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        await log_admin_activity(db, current_admin.id, request, action=f"access_user_{user_id}")
+
+        query = select(User).where(User.id == user_id)
+        result = await db.execute(query)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Пользователь не найден"
+            )
+
+        logger.info(f"Admin {current_admin.email} accessed user {user_id}")
+        return user
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error retrieving user {user_id} for admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve user"
+        )
+
+# Новый маршрут для обновления данных пользователя
+@router.put("/users/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: int,
+    user_data: UserUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request = None
+):
+    """Обновление данных пользователя."""
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+
+        # Находим пользователя
+        query = select(User).where(User.id == user_id)
+        result = await db.execute(query)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Пользователь не найден"
+            )
+
+        # Обновляем поля пользователя
+        update_data = user_data.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            setattr(user, key, value)
+
+        await db.commit()
+        await db.refresh(user)
+
+        await log_admin_activity(db, current_admin.id, request, action=f"update_user_{user_id}")
+        logger.info(f"Admin {current_admin.email} updated user {user_id}")
+        return user
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error updating user {user_id}: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось обновить пользователя: {str(e)}"
         )

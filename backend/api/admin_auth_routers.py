@@ -14,7 +14,7 @@ router = APIRouter()
 bearer_scheme = HTTPBearer()
 
 @router.post("/register", response_model=AdminResponse, status_code=status.HTTP_201_CREATED)
-@rate_limit("register_admin")  # Лимит определяется в constants.py
+@rate_limit("register_admin")
 async def register_admin(admin: AdminCreate, db: AsyncSession = Depends(get_async_db), request: Request = None):
     """Регистрация нового администратора."""
     existing_admin = await get_admin_by_username(db, admin.email)
@@ -39,9 +39,9 @@ async def register_admin(admin: AdminCreate, db: AsyncSession = Depends(get_asyn
         )
 
 @router.post("/login")
-@rate_limit("login_admin")  # Лимит определяется в constants.py
+@rate_limit("login_admin")
 async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
-    """Авторизация администратора с возвратом токена."""
+    """Авторизация администратора с возвратом токена и данных администратора."""
     db_admin = await get_admin_by_username(db, admin.email)
     if not db_admin or not pwd_context.verify(admin.password, db_admin.password_hash):
         await log_admin_activity(db, db_admin.id if db_admin else None, request, action="login_failed")
@@ -57,10 +57,17 @@ async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db
     )
     await log_admin_activity(db, db_admin.id, request, action="login")
     logger.info(f"Admin logged in successfully: {db_admin.email}")
-    return {"access_token": access_token, "token_type": "bearer"}
+    logger.info(f"Returning admin data: id={db_admin.id}, fio={db_admin.fio}, email={db_admin.email}")  # Отладочный лог
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "id": db_admin.id,
+        "fio": db_admin.fio if db_admin.fio else "Администратор",  # Гарантируем, что fio всегда строка
+        "email": db_admin.email
+    }
 
 @router.get("/me", response_model=AdminResponse)
-@rate_limit("access_me_admin")  # Лимит определяется в constants.py
+@rate_limit("access_me_admin")
 async def read_admins_me(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_async_db),
@@ -72,28 +79,3 @@ async def read_admins_me(
     await log_admin_activity(db, current_admin.id, request, action="access_me")
     logger.info(f"Admin accessed their profile: {current_admin.email}")
     return current_admin
-
-@router.get("/verify_token")
-@rate_limit("verify_token_admin")  # Отдельный лимит с более высоким порогом
-async def verify_token(
-    request: Request,
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_async_db)
-):
-    """
-    Облегченная проверка действительности токена без полной загрузки профиля.
-    Используется для клиентской авторизации с меньшими ограничениями по частоте запросов.
-    """
-    try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-        return {
-            "is_valid": True,
-            "admin_id": current_admin.id,
-            "email": current_admin.email
-        }
-    except HTTPException:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token"
-        )

@@ -1,5 +1,6 @@
 // frontend/src/hooks/useAdminAuthForm.ts
 import { useState, useCallback } from "react";
+import { useRouter } from "next/navigation"; // Добавляем импорт useRouter
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
 interface FormValues {
@@ -13,12 +14,13 @@ interface AuthFormOptions {
   redirectTo: string;
 }
 
-export const useAdminAuthForm = ({ initialValues, endpoint}: AuthFormOptions) => {
+export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AuthFormOptions) => {
   const [formValues, setFormValues] = useState<FormValues>(initialValues);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const { checkAuth } = useAdminAuth();
+  const { push } = useRouter();
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -46,27 +48,31 @@ export const useAdminAuthForm = ({ initialValues, endpoint}: AuthFormOptions) =>
         }
 
         const data = await response.json();
+        console.log("Server response on /admin/login:", data);
+
         // Сохраняем токен
         localStorage.setItem("admin_token", data.access_token);
         // Сохраняем данные администратора
         const adminData = {
-          email: formValues.email,
-          // Добавляем дополнительные поля, если сервер их возвращает
-          id: data.id || 0, // Если сервер возвращает ID, используем его
-          fio: data.fio || "Admin", // Если сервер возвращает fio, используем его
+          email: data.email,
+          id: data.id,
+          fio: data.fio,
         };
+        console.log("Saving to localStorage:", adminData);
         localStorage.setItem("admin_data", JSON.stringify(adminData));
         setIsSuccess(true);
 
-        // Обновляем состояние авторизации в контексте
+        // Обновляем контекст
         await checkAuth();
+        // Перенаправляем после успешной авторизации
+        push(redirectTo);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Произошла ошибка");
       } finally {
         setIsLoading(false);
       }
     },
-    [formValues, endpoint, checkAuth]
+    [formValues, endpoint, checkAuth, redirectTo, push]
   );
 
   return {

@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 import { useState, ChangeEvent, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
@@ -19,7 +19,7 @@ interface Event {
   start_date: string;
   location?: string;
   published: boolean;
-  status: string; // Добавляем поле status
+  status: string;
 }
 
 export default function DashboardPage() {
@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const hasFetchedUsers = useRef(false);
 
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
 
   useEffect(() => {
@@ -131,16 +132,17 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authLoading && isAdminAuth) {
-      if (!hasFetchedEvents.current) {
+      const shouldRefresh = searchParams.get("refresh") === "true";
+      if (!hasFetchedEvents.current || shouldRefresh) {
         hasFetchedEvents.current = true;
         fetchEvents();
       }
-      if (!hasFetchedUsers.current) {
+      if (!hasFetchedUsers.current || shouldRefresh) {
         hasFetchedUsers.current = true;
         fetchUsers();
       }
     }
-  }, [isAdminAuth, authLoading, fetchEvents, fetchUsers]);
+  }, [isAdminAuth, authLoading, fetchEvents, fetchUsers, searchParams]);
 
   const handleUserSearch = () => {
     hasFetchedUsers.current = false;
@@ -310,8 +312,12 @@ export default function DashboardPage() {
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
-                            {event.published ? (
-                              <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">Опубликовано</span>
+                            {event.status === "registration_open" ? (
+                              <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
+                            ) : event.status === "registration_closed" ? (
+                              <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
+                            ) : event.status === "completed" ? (
+                              <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">Завершено</span>
                             ) : (
                               <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
                             )}

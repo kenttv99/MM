@@ -1,6 +1,6 @@
 # backend/api/admin_edit_routers.py
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from backend.schemas_enums.schemas import EventCreate, UserResponse
+from backend.schemas_enums.schemas import EventCreate, EventUpdate, UserResponse
 from backend.config.auth import get_current_admin, log_admin_activity
 from backend.database.user_db import AsyncSession, get_async_db, Event, User, TicketType
 from backend.config.logging_config import logger
@@ -248,4 +248,100 @@ async def create_event(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Не удалось создать мероприятие: {str(e)}"
+        )
+        
+        
+@router.put("/{event_id}", response_model=EventCreate)
+async def update_event(
+    event_id: int,
+    event_data: EventUpdate,
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request = None
+):
+    """Обновление существующего мероприятия."""
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+
+        # Находим мероприятие
+        query = select(Event).where(Event.id == event_id)
+        result = await db.execute(query)
+        event = result.scalar_one_or_none()
+
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Мероприятие не найдено"
+            )
+
+        # Обновляем поля мероприятия
+        update_data = event_data.dict(exclude_unset=True)
+        for key, value in update_data.items():
+            if key in ["start_date", "end_date", "created_at", "updated_at"] and value:
+                value = make_naive(value)
+            setattr(event, key, value)
+
+        # Если переданы данные о билетах, обновляем их
+        if "ticket_type" in update_data and update_data["ticket_type"]:
+            ticket_query = select(TicketType).where(TicketType.event_id == event_id)
+            result = await db.execute(ticket_query)
+            ticket = result.scalar_one_or_none()
+            if ticket:
+                ticket_data = update_data["ticket_type"]
+                ticket.name = ticket_data["name"]
+                ticket.price = ticket_data["price"]
+                ticket.available_quantity = ticket_data["available_quantity"]
+                ticket.free_registration = ticket_data["free_registration"]
+            else:
+                # Если билета нет, создаём новый
+                ticket = TicketType(
+                    event_id=event_id,
+                    name=update_data["ticket_type"]["name"],
+                    price=update_data["ticket_type"]["price"],
+                    available_quantity=update_data["ticket_type"]["available_quantity"],
+                    free_registration=update_data["ticket_type"]["free_registration"]
+                )
+                db.add(ticket)
+
+        await db.commit()
+        await db.refresh(event)
+
+        # Формируем ответ в формате EventCreate
+        response_data = {
+            "id": event.id,
+            "title": event.title,
+            "description": event.description,
+            "start_date": event.start_date,
+            "end_date": event.end_date,
+            "location": event.location,
+            "image_url": event.image_url,
+            "price": float(event.price),
+            "published": event.published,
+            "created_at": event.created_at,
+            "updated_at": event.updated_at,
+            "status": event.status
+        }
+        ticket_query = select(TicketType).where(TicketType.event_id == event_id)
+        result = await db.execute(ticket_query)
+        ticket = result.scalar_one_or_none()
+        if ticket:
+            response_data["ticket_type"] = {
+                "name": ticket.name,
+                "price": float(ticket.price),
+                "available_quantity": ticket.available_quantity,
+                "free_registration": ticket.free_registration
+            }
+
+        await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
+        logger.info(f"Admin {current_admin.email} updated event {event_id}")
+        return response_data
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error updating event {event_id}: {str(e)}")
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Не удалось обновить мероприятие: {str(e)}"
         )

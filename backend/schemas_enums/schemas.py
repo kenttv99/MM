@@ -1,4 +1,4 @@
-# backend/schemas_enums/schemas.py
+# backend/schemas_enums.schemas.py
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, EmailStr
@@ -90,6 +90,21 @@ class EventCreate(BaseModel):
     updated_at: datetime
     status: Optional[EventStatus] = EventStatus.draft
     ticket_type: Optional[TicketTypeCreate] = None
+
+    class Config:
+        from_attributes = True
+
+class EventCreateForm(BaseModel):
+    title: str
+    description: Optional[str] = None
+    start_date: str  # Изменено на str, так как фронтенд отправляет строку
+    end_date: Optional[str] = None  # Изменено на str
+    location: Optional[str] = None
+    price: str  # Изменено на str, так как фронтенд отправляет строку
+    published: bool = False
+    created_at: str  # Изменено на str
+    updated_at: str  # Изменено на str
+    status: EventStatus = EventStatus.draft
 
     class Config:
         from_attributes = True

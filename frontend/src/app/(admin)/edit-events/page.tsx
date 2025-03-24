@@ -1,23 +1,20 @@
-// frontend/src/app/(admin)/edit-events/page.tsx
 "use client";
 
-import { useState, useEffect, ChangeEvent, FormEvent, useCallback, useMemo, Suspense } from "react";
+import { useState, useEffect, ChangeEvent, FormEvent, useCallback, useMemo, Suspense, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
-import { FaPen, FaCalendar, FaMapMarkerAlt, FaImage, FaCheck, FaClock } from "react-icons/fa";
+import { FaPen, FaCalendar, FaMapMarkerAlt, FaImage, FaCheck, FaClock, FaTrash, FaTicketAlt } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 
-// Интерфейс для ошибок валидации
 interface ValidationError {
   loc: (string | number)[];
   msg: string;
   type: string;
 }
 
-// Интерфейс для данных мероприятия
 interface EventData {
   id?: number;
   title: string;
@@ -27,12 +24,18 @@ interface EventData {
   end_date?: string;
   end_time?: string;
   location?: string;
+  image_file?: File | null;
   image_url?: string;
   price: number;
   published: boolean;
   created_at?: string;
   updated_at?: string;
   status?: string;
+  ticket_type?: {
+    name: string;
+    available_quantity: number;
+    free_registration: boolean;
+  };
 }
 
 const EditEventContent: React.FC = () => {
@@ -43,11 +46,18 @@ const EditEventContent: React.FC = () => {
   const initialEventState = useMemo<EventData>(() => ({
     title: "",
     description: "",
-    start_date: new Date().toISOString().split('T')[0],
+    start_date: new Date().toISOString().split("T")[0],
     start_time: "12:00",
     price: 0,
     published: false,
     status: "draft",
+    image_file: null,
+    image_url: "",
+    ticket_type: {
+      name: "standart",
+      available_quantity: 0,
+      free_registration: false,
+    },
   }), []);
 
   const [event, setEvent] = useState<EventData>(initialEventState);
@@ -57,6 +67,10 @@ const EditEventContent: React.FC = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [pendingStatus, setPendingStatus] = useState<string | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isImageRemoved, setIsImageRemoved] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const router = useRouter();
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
@@ -69,98 +83,137 @@ const EditEventContent: React.FC = () => {
     setIsLoading(true);
     try {
       const token = localStorage.getItem("admin_token");
-      if (!token) {
-        setError("Отсутствует токен авторизации");
-        setTimeout(() => {
-          router.push("/admin-login");
-        }, 2000);
-        return;
-      }
+      if (!token) throw new Error("Отсутствует токен авторизации");
       const response = await fetch(`/events/${id}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Accept": "application/json",
-          "Cache-Control": "no-cache",
-        },
+        headers: { Authorization: `Bearer ${token}`, "Accept": "application/json" },
       });
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
-        setError(`Получен неверный формат ответа: ${contentType || "неизвестный тип"}`);
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 3000);
-        return;
-      }
-      if (!response.ok) {
-        setError(`Ошибка API: ${response.status} ${response.statusText}`);
-        setTimeout(() => {
-          router.push("/dashboard");
-        }, 3000);
-        return;
-      }
+      if (!response.ok) throw new Error(`Ошибка API: ${response.status}`);
       const data = await response.json();
-      if (data.start_date) {
-        const startDateTime = new Date(data.start_date);
-        data.start_date = startDateTime.toISOString().split('T')[0];
-        data.start_time = startDateTime.toTimeString().slice(0, 5);
+      const startDateTime = new Date(data.start_date);
+      const endDateTime = data.end_date ? new Date(data.end_date) : null;
+      setEvent({
+        ...data,
+        start_date: startDateTime.toISOString().split("T")[0],
+        start_time: startDateTime.toTimeString().slice(0, 5),
+        end_date: endDateTime?.toISOString().split("T")[0] || "",
+        end_time: endDateTime?.toTimeString().slice(0, 5) || "",
+        ticket_type: data.ticket_type || initialEventState.ticket_type,
+      });
+
+      // Загружаем изображение через fetch с авторизацией
+      if (data.image_url) {
+        const imageResponse = await fetch(data.image_url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (imageResponse.ok) {
+          const blob = await imageResponse.blob();
+          const reader = new FileReader();
+          reader.onloadend = () => setImagePreview(reader.result as string);
+          reader.readAsDataURL(blob);
+        } else {
+          console.error("Failed to load image:", imageResponse.status);
+          setImagePreview(null);
+        }
+      } else {
+        setImagePreview(null);
       }
-      if (data.end_date) {
-        const endDateTime = new Date(data.end_date);
-        data.end_date = endDateTime.toISOString().split('T')[0];
-        data.end_time = endDateTime.toTimeString().slice(0, 5);
-      }
-      setEvent(data);
+
       setIsCreating(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Произошла ошибка при загрузке данных");
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 3000);
+      setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
+      setTimeout(() => router.push("/dashboard"), 3000);
     } finally {
       setIsLoading(false);
     }
-  }, [router]);
+  }, [router, initialEventState]);
 
   useEffect(() => {
     if (!authLoading) {
-      if (!eventId && !isNew) {
-        router.push("/dashboard");
-        return;
-      }
-      if (!isAdminAuth) {
-        router.push("/admin-login");
-        return;
-      }
-      if (isNew) {
+      if (!eventId && !isNew) router.push("/dashboard");
+      else if (!isAdminAuth) router.push("/admin-login");
+      else if (isNew) {
         setIsCreating(true);
         setEvent(initialEventState);
-        return;
-      }
-      if (eventId) {
-        fetchEvent(eventId);
-      }
+      } else if (eventId) fetchEvent(eventId);
     }
   }, [eventId, isNew, isAdminAuth, authLoading, router, fetchEvent, initialEventState]);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target as HTMLInputElement;
-    if (type === 'checkbox') {
-      const target = e.target as HTMLInputElement;
-      setEvent({ ...event, [name]: target.checked });
-    } else if (type === 'number') {
-      setEvent({ ...event, [name]: parseFloat(value) });
+    const { name, value, type } = e.target;
+    if (type === "checkbox") {
+      setEvent({ ...event, [name]: (e.target as HTMLInputElement).checked });
+    } else if (type === "number") {
+      if (name === "available_quantity") {
+        setEvent({
+          ...event,
+          ticket_type: { ...event.ticket_type!, available_quantity: parseInt(value) || 0 },
+        });
+      } else {
+        setEvent({ ...event, [name]: parseFloat(value) });
+      }
     } else if (name === "status") {
       setPendingStatus(value);
       setShowStatusModal(true);
+    } else if (name === "ticket_type_name") {
+      setEvent({
+        ...event,
+        ticket_type: { ...event.ticket_type!, name: value },
+      });
     } else {
       setEvent({ ...event, [name]: value });
     }
   };
 
-  const confirmStatusChange = async () => {
-    if (!pendingStatus) return;
+  const handleFileChange = (file: File | null) => {
+    setEvent({ ...event, image_file: file });
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => setImagePreview(reader.result as string);
+      reader.readAsDataURL(file);
+      setIsImageRemoved(false);
+    } else {
+      setImagePreview(null);
+      setIsImageRemoved(true);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  };
 
-    setEvent((prev) => ({ ...prev, status: pendingStatus }));
+  const handleInputFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] || null;
+    handleFileChange(file);
+  };
+
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) handleFileChange(file);
+  };
+
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => setIsDragging(false);
+
+  const handleAreaClick = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFreeRegistrationChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setEvent({
+      ...event,
+      ticket_type: { ...event.ticket_type!, free_registration: e.target.checked },
+    });
+  };
+
+  const confirmStatusChange = () => {
+    if (pendingStatus) setEvent({ ...event, status: pendingStatus });
     setShowStatusModal(false);
     setPendingStatus(null);
   };
@@ -175,6 +228,7 @@ const EditEventContent: React.FC = () => {
     setError("");
     setSuccess("");
     setIsLoading(true);
+
     const token = localStorage.getItem("admin_token");
     if (!token) {
       setError("Не авторизован");
@@ -182,57 +236,72 @@ const EditEventContent: React.FC = () => {
       return;
     }
 
-    const startDateTime = event.start_date && event.start_time
-      ? new Date(`${event.start_date}T${event.start_time}:00Z`)
-      : new Date(event.start_date);
+    if (!event.title) {
+      setError("Поле 'Название мероприятия' обязательно");
+      setIsLoading(false);
+      return;
+    }
+    if (!event.start_date) {
+      setError("Поле 'Дата начала' обязательно");
+      setIsLoading(false);
+      return;
+    }
+    if (event.price === undefined || event.price === null) {
+      setError("Поле 'Цена' обязательно");
+      setIsLoading(false);
+      return;
+    }
+    if (!event.ticket_type?.available_quantity || event.ticket_type.available_quantity <= 0) {
+      setError("Укажите количество доступных мест (больше 0)");
+      setIsLoading(false);
+      return;
+    }
+
+    const startDateTime = new Date(`${event.start_date}T${event.start_time || "00:00"}:00Z`);
     const endDateTime = event.end_date && event.end_time
       ? new Date(`${event.end_date}T${event.end_time}:00Z`)
-      : event.end_date ? new Date(event.end_date) : null;
+      : event.end_date ? new Date(`${event.end_date}T00:00:00Z`) : null;
 
-    const eventData = {
-      ...event,
-      start_date: startDateTime.toISOString(),
-      end_date: endDateTime ? endDateTime.toISOString() : null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const formData = new FormData();
+    formData.append("title", event.title);
+    formData.append("description", event.description || "");
+    formData.append("start_date", startDateTime.toISOString());
+    if (endDateTime) formData.append("end_date", endDateTime.toISOString());
+    if (event.location) formData.append("location", event.location);
+    formData.append("price", String(event.price));
+    formData.append("published", String(event.published));
+    formData.append("created_at", new Date().toISOString());
+    formData.append("updated_at", new Date().toISOString());
+    formData.append("status", event.status || "draft");
+    formData.append("ticket_type_name", event.ticket_type?.name || "standart");
+    formData.append("ticket_type_available_quantity", String(event.ticket_type?.available_quantity || 0));
+    formData.append("ticket_type_free_registration", String(event.ticket_type?.free_registration || false));
+    if (event.image_file) {
+      formData.append("image_file", event.image_file);
+    }
+    formData.append("remove_image", String(isImageRemoved));
 
     try {
       const url = isCreating ? "/admin_edits" : `/admin_edits/${eventId}`;
       const method = isCreating ? "POST" : "PUT";
       const response = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(eventData),
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
+
       if (!response.ok) {
         const errorData = await response.json();
-        let errorMessage = "Ошибка сохранения мероприятия";
-        if (errorData.detail) {
-          if (typeof errorData.detail === "string") {
-            errorMessage = errorData.detail;
-          } else if (Array.isArray(errorData.detail)) {
-            errorMessage = errorData.detail.map((err: ValidationError) => {
-              if (err.msg && err.loc) {
-                return `${err.loc.join(".")}: ${err.msg}`;
-              }
-              return JSON.stringify(err);
-            }).join("; ");
-          } else {
-            errorMessage = JSON.stringify(errorData.detail);
-          }
-        }
+        const errorMessage = errorData.detail
+          ? Array.isArray(errorData.detail)
+            ? errorData.detail.map((err: ValidationError) => `${err.loc.join(".")}: ${err.msg}`).join("; ")
+            : errorData.detail
+          : "Ошибка сохранения мероприятия";
         throw new Error(errorMessage);
       }
-      // const responseData = await response.json();
+
       setSuccess(isCreating ? "Мероприятие успешно создано" : "Мероприятие успешно обновлено");
-      // Перенаправляем на /dashboard с флагом для перезагрузки
-      setTimeout(() => {
-        router.push("/dashboard?refresh=true");
-      }, 1500);
+      setTimeout(() => router.push("/dashboard?refresh=true"), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Произошла ошибка");
     } finally {
@@ -253,11 +322,7 @@ const EditEventContent: React.FC = () => {
       <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-3xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
             <h1 className="text-3xl font-bold mb-8 text-gray-800">
               {isCreating ? "Создание нового мероприятия" : "Редактирование мероприятия"}
             </h1>
@@ -283,132 +348,198 @@ const EditEventContent: React.FC = () => {
                 </motion.div>
               )}
               <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Секция: Основная информация */}
+                {/* Основная информация */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Основная информация</h2>
-                  <div>
-                    <label className="block text-gray-700 mb-2 font-medium">Название мероприятия</label>
+                  <InputField
+                    type="text"
+                    value={event.title}
+                    onChange={handleChange}
+                    placeholder="Введите название"
+                    icon={FaPen}
+                    name="title"
+                    required
+                  />
+                  <textarea
+                    value={event.description}
+                    onChange={handleChange}
+                    placeholder="Введите описание мероприятия"
+                    name="description"
+                    className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 resize-none shadow-sm hover:shadow-md"
+                    rows={5}
+                  />
+                </div>
+
+                {/* Даты и время */}
+                <div className="space-y-6">
+                  <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Даты и время</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <InputField
+                      type="date"
+                      value={event.start_date}
+                      onChange={handleChange}
+                      placeholder="Дата начала"
+                      icon={FaCalendar}
+                      name="start_date"
+                      required
+                    />
+                    <InputField
+                      type="time"
+                      value={event.start_time || ""}
+                      onChange={handleChange}
+                      placeholder="Время начала"
+                      icon={FaClock}
+                      name="start_time"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <InputField
+                      type="date"
+                      value={event.end_date || ""}
+                      onChange={handleChange}
+                      placeholder="Дата окончания"
+                      icon={FaCalendar}
+                      name="end_date"
+                    />
+                    <InputField
+                      type="time"
+                      value={event.end_time || ""}
+                      onChange={handleChange}
+                      placeholder="Время окончания"
+                      icon={FaClock}
+                      name="end_time"
+                    />
+                  </div>
+                </div>
+
+                {/* Местоположение и цена */}
+                <div className="space-y-6">
+                  <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Местоположение и цена</h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <InputField
                       type="text"
-                      value={event.title}
+                      value={event.location || ""}
                       onChange={handleChange}
-                      placeholder="Введите название"
-                      icon={FaPen}
-                      name="title"
+                      placeholder="Место проведения"
+                      icon={FaMapMarkerAlt}
+                      name="location"
+                    />
+                    <InputField
+                      type="number"
+                      value={event.price.toString()}
+                      onChange={handleChange}
+                      placeholder="Стоимость"
+                      icon={() => <span className="text-gray-500">₽</span>}
+                      name="price"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Регистрация на мероприятие */}
+                <div className="space-y-6">
+                  <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Регистрация на мероприятие</h2>
+                  <div>
+                    <label className="block text-gray-700 mb-2 font-medium">Количество мест</label>
+                    <InputField
+                      type="number"
+                      value={event.ticket_type?.available_quantity.toString() || "0"}
+                      onChange={handleChange}
+                      placeholder="Введите количество мест"
+                      icon={FaTicketAlt}
+                      name="available_quantity"
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-gray-700 mb-2 font-medium">Описание</label>
-                    <textarea
-                      value={event.description}
+                    <label className="block text-gray-700 mb-2 font-medium">Тип билетов</label>
+                    <select
+                      name="ticket_type_name"
+                      value={event.ticket_type?.name || "standart"}
                       onChange={handleChange}
-                      placeholder="Введите описание мероприятия"
-                      name="description"
-                      className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 resize-none shadow-sm hover:shadow-md"
-                      rows={5}
-                    />
+                      className="w-full p-3 pr-10 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 shadow-sm hover:shadow-md appearance-none"
+                    >
+                      <option value="free">Бесплатный</option>
+                      <option value="standart">Стандартный</option>
+                      <option value="vip">VIP</option>
+                      <option value="org">Организаторский</option>
+                    </select>
                   </div>
-                </div>
-
-                {/* Секция: Даты и время */}
-                <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Даты и время</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <label className="block text-gray-700 mb-2 font-medium">Дата начала</label>
-                      <InputField
-                        type="date"
-                        value={event.start_date}
-                        onChange={handleChange}
-                        placeholder="Дата начала"
-                        icon={FaCalendar}
-                        name="start_date"
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 mb-2 font-medium">Время начала</label>
-                      <InputField
-                        type="time"
-                        value={event.start_time || ""}
-                        onChange={handleChange}
-                        placeholder="Время начала"
-                        icon={FaClock}
-                        name="start_time"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-gray-700 mb-2 font-medium">Дата окончания</label>
-                      <InputField
-                        type="date"
-                        value={event.end_date || ""}
-                        onChange={handleChange}
-                        placeholder="Дата окончания"
-                        icon={FaCalendar}
-                        name="end_date"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 mb-2 font-medium">Время окончания</label>
-                      <InputField
-                        type="time"
-                        value={event.end_time || ""}
-                        onChange={handleChange}
-                        placeholder="Время окончания"
-                        icon={FaClock}
-                        name="end_time"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Секция: Местоположение и цена */}
-                <div className="space-y-6">
-                  <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Местоположение и цена</h2>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="block text-gray-700 mb-2 font-medium">Местоположение</label>
-                      <InputField
-                        type="text"
-                        value={event.location || ""}
-                        onChange={handleChange}
-                        placeholder="Место проведения"
-                        icon={FaMapMarkerAlt}
-                        name="location"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-gray-700 mb-2 font-medium">Цена (₽)</label>
-                      <div className="relative">
-                        <InputField
-                          type="number"
-                          value={event.price.toString()}
-                          onChange={handleChange}
-                          placeholder="Стоимость"
-                          icon={() => <span className="text-gray-500">₽</span>}
-                          name="price"
-                          required
+                      <label className="block text-gray-700 mb-2 font-medium">Бесплатная регистрация</label>
+                      <div className="relative inline-block w-12 h-6">
+                        <input
+                          type="checkbox"
+                          id="free_registration"
+                          name="free_registration"
+                          checked={event.ticket_type?.free_registration || false}
+                          onChange={handleFreeRegistrationChange}
+                          className="opacity-0 w-0 h-0"
                         />
+                        <label
+                          htmlFor="free_registration"
+                          className={`absolute cursor-pointer inset-0 rounded-full transition-all duration-300 ${
+                            event.ticket_type?.free_registration ? "bg-green-500" : "bg-gray-300"
+                          }`}
+                        >
+                          <span
+                            className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-all duration-300 ${
+                              event.ticket_type?.free_registration ? "transform translate-x-6" : ""
+                            }`}
+                          />
+                        </label>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Секция: Изображение и публикация */}
+                {/* Изображение и публикация */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Изображение и публикация</h2>
-                  <div>
-                    <label className="block text-gray-700 mb-2 font-medium">URL изображения</label>
-                    <InputField
-                      type="text"
-                      value={event.image_url || ""}
-                      onChange={handleChange}
-                      placeholder="URL изображения для мероприятия"
-                      icon={FaImage}
-                      name="image_url"
+                  <div
+                    onDrop={handleDrop}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onClick={handleAreaClick}
+                    className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-all duration-300 cursor-pointer ${
+                      isDragging ? "border-blue-500 bg-blue-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100"
+                    }`}
+                  >
+                    {imagePreview ? (
+                      <div className="relative">
+                        {/*eslint-disable-next-line @next/next/no-img-element*/}
+                        <img
+                          src={imagePreview}
+                          alt="Preview"
+                          className="w-full h-48 object-cover rounded-lg"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFileChange(null);
+                          }}
+                          className="absolute top-2 right-2 bg-red-500 text-white p-2 rounded-full hover:bg-red-600"
+                        >
+                          <FaTrash size={16} />
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <FaImage className="mx-auto text-gray-400 mb-2" size={32} />
+                        <p className="text-gray-600">
+                          Перетащите изображение сюда или кликните, чтобы выбрать файл
+                        </p>
+                        <p className="text-sm text-gray-500 mt-1">Поддерживаются форматы: JPG, PNG</p>
+                      </div>
+                    )}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleInputFileChange}
+                      className="hidden"
+                      ref={fileInputRef}
                     />
                   </div>
                   <div className="flex items-center justify-between">

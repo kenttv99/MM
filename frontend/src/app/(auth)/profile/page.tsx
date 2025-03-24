@@ -7,59 +7,57 @@ import Loading from "@/components/Loading";
 import { useAuth } from "@/contexts/AuthContext";
 
 const Profile = () => {
-  const { isAuth, isLoading, userData, checkAuth } = useAuth();
+  const { isAuth, isLoading, userData } = useAuth();
   const [loadingTimeout, setLoadingTimeout] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && !isAuth) router.push("/");
-    if (isAuth) checkAuth().catch(console.error);
-    
+    if (!isLoading) {
+      if (!isAuth) {
+        router.push("/");
+      }
+    }
+
     // Устанавливаем таймаут для показа сообщения о долгой загрузке
     const timer = setTimeout(() => {
-      if (isLoading || !userData) setLoadingTimeout(true);
+      if (isLoading || !userData) {
+        setLoadingTimeout(true);
+      }
     }, 5000);
 
     return () => clearTimeout(timer);
-  }, [isAuth, isLoading, userData, router, checkAuth]);
+  }, [isAuth, isLoading, userData, router]);
 
-  if (isLoading && !loadingTimeout) {
+  if (isLoading) {
     return (
       <div className="min-h-screen">
         <Loading />
-      </div>
-    );
-  }
-  
-  if (!userData) {
-    return (
-      <div className="container mx-auto px-4 py-10 mt-16">
-        {!loadingTimeout && <Loading />}
         {loadingTimeout && (
-          <div className="text-center mt-8 p-6 bg-orange-50 rounded-lg border border-orange-200 shadow-md z-50 relative">
-            <p className="text-orange-700 font-medium mb-2 text-lg">Загрузка данных занимает больше времени, чем обычно.</p>
-            <p className="text-gray-600 mb-6">Возможно, есть проблемы с соединением или сервером.</p>
-            <div className="flex justify-center space-x-4">
-              <button 
-                onClick={() => {
-                  setLoadingTimeout(false);
-                  checkAuth();
-                }}
-                className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
-              >
-                Попробовать снова
-              </button>
-              <button 
-                onClick={() => router.push("/")}
-                className="px-6 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors"
-              >
-                Вернуться на главную
-              </button>
+          <div className="container mx-auto px-4 py-10 mt-16">
+            <div className="text-center mt-8 p-6 bg-orange-50 rounded-lg border border-orange-200 shadow-md z-50 relative">
+              <p className="text-orange-700 font-medium mb-2 text-lg">
+                Загрузка данных занимает больше времени, чем обычно.
+              </p>
+              <p className="text-gray-600 mb-6">
+                Возможно, есть проблемы с соединением или сервером.
+              </p>
+              <div className="flex justify-center space-x-4">
+                <button
+                  onClick={() => router.push("/")}
+                  className="px-6 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors"
+                >
+                  Вернуться на главную
+                </button>
+              </div>
             </div>
           </div>
         )}
       </div>
     );
+  }
+
+  if (!userData) {
+    return null; // Данные не загружены, ничего не рендерим
   }
 
   return (

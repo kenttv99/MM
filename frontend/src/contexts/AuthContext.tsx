@@ -3,7 +3,6 @@
 
 import React, { createContext, useState, useEffect, useContext, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { ValidationError } from "next/dist/compiled/amphtml-validator";
 
 interface UserData {
   id: number;
@@ -30,8 +29,15 @@ const STORAGE_KEYS = {
   USER_DATA: "user_data",
 };
 
+// Интерфейс для результата декодирования JWT
+interface JwtPayload {
+  exp: number;
+  sub: string;
+  [key: string]: unknown; // Для дополнительных полей в токене
+}
+
 // Функция для декодирования JWT без проверки подписи
-function decodeJwt(token: string): { exp: number; sub: string; [key: string]: ValidationError } | null {
+function decodeJwt(token: string): JwtPayload | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;

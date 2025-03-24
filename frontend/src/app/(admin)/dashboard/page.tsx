@@ -1,11 +1,21 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
-import { useState, ChangeEvent, useEffect, useCallback, useRef } from "react";
+
+import { useState, ChangeEvent, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+
+// Дебаунсинг функция
+function debounce<F extends (arg: string) => void>(func: F, wait: number) {
+  let timeout: NodeJS.Timeout | null = null;
+  return (arg: string) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(arg), wait);
+  };
+}
 
 interface User {
   id: number;
@@ -22,12 +32,57 @@ interface Event {
   status: string;
 }
 
+// Общий хук для выполнения запросов
+async function fetchData<U>(
+  url: string,
+  token: string | null,
+  setData: React.Dispatch<React.SetStateAction<U[]>>,
+  setLoading: (value: boolean) => void,
+  setError: (value: string | null) => void
+) {
+  setLoading(true);
+  setError(null);
+  try {
+    if (!token) {
+      setError("Отсутствует токен авторизации");
+      return;
+    }
+
+    let authToken = token;
+    if (token.startsWith("Bearer ")) {
+      authToken = token.slice(7).trim();
+    }
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Accept": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
+      setData([] as U[]);
+      return;
+    }
+
+    const data = await response.json();
+    setData(Array.isArray(data) ? data : []);
+  } catch {
+    setError("Не удалось загрузить данные. Проверьте соединение с сервером.");
+    setData([] as U[]);
+  } finally {
+    setLoading(false);
+  }
+}
+
 export default function DashboardPage() {
   const [userSearch, setUserSearch] = useState("");
   const [eventSearch, setEventSearch] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState({ users: false, events: false });
   const [error, setError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<number | null>(null);
@@ -48,116 +103,54 @@ export default function DashboardPage() {
     }
   }, [isAdminAuth, authLoading, router]);
 
-  const fetchEvents = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem("admin_token");
-      if (!token) {
-        setError("Отсутствует токен авторизации");
-        return;
-      }
+  const fetchEvents = async (search: string) => {
+    const url = search.trim()
+      ? `/admin_edits/events?search=${encodeURIComponent(search)}`
+      : "/admin_edits/events";
+    await fetchData<Event>(url, localStorage.getItem("admin_token"), setEvents, (value) => setIsLoading((prev) => ({ ...prev, events: value })), setError);
+  };
 
-      let authToken = token;
-      if (token.startsWith("Bearer ")) {
-        authToken = token.slice(7).trim();
-      }
+  const fetchUsers = async (search: string) => {
+    const url = search.trim()
+      ? `/admin_edits/users?search=${encodeURIComponent(search)}`
+      : "/admin_edits/users";
+    await fetchData<User>(url, localStorage.getItem("admin_token"), setUsers, (value) => setIsLoading((prev) => ({ ...prev, users: value })), setError);
+  };
 
-      const url = eventSearch.trim()
-        ? `/admin_edits/events?search=${encodeURIComponent(eventSearch)}`
-        : "/admin_edits/events";
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          "Accept": "application/json",
-        },
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
-        setEvents([]);
-        return;
-      }
-      const data = await response.json();
-      console.log("Данные мероприятий с сервера:", data);
-      setEvents(Array.isArray(data) ? data : []);
-    } catch {
-      setError("Не удалось загрузить мероприятия. Проверьте соединение с сервером.");
-      setEvents([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [eventSearch]);
-
-  const fetchUsers = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const token = localStorage.getItem("admin_token");
-      if (!token) {
-        setError("Отсутствует токен авторизации");
-        return;
-      }
-
-      let authToken = token;
-      if (token.startsWith("Bearer ")) {
-        authToken = token.slice(7).trim();
-      }
-
-      const url = userSearch.trim()
-        ? `/admin_edits/users?search=${encodeURIComponent(userSearch)}`
-        : "/admin_edits/users";
-      const response = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          "Accept": "application/json",
-        },
-      });
-      if (!response.ok) {
-        const errorText = await response.text();
-        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
-        setUsers([]);
-      } else {
-        const data = await response.json();
-        console.log("Данные пользователей с сервера:", data);
-        setUsers(Array.isArray(data) ? data : []);
-      }
-    } catch {
-      setError("Не удалось выполнить поиск пользователей. Проверьте соединение с сервером.");
-      setUsers([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [userSearch]);
+  // Создаём дебаунсинговые версии функций
+  const debouncedFetchUsers = debounce(fetchUsers, 500);
+  const debouncedFetchEvents = debounce(fetchEvents, 500);
 
   useEffect(() => {
     if (!authLoading && isAdminAuth) {
       const shouldRefresh = searchParams.get("refresh") === "true";
       if (!hasFetchedEvents.current || shouldRefresh) {
         hasFetchedEvents.current = true;
-        fetchEvents();
+        fetchEvents(eventSearch);
       }
       if (!hasFetchedUsers.current || shouldRefresh) {
         hasFetchedUsers.current = true;
-        fetchUsers();
+        fetchUsers(userSearch);
       }
     }
-  }, [isAdminAuth, authLoading, fetchEvents, fetchUsers, searchParams]);
+  }, [isAdminAuth, authLoading, searchParams, eventSearch, userSearch]);
 
-  const handleUserSearch = () => {
+  const handleUserSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setUserSearch(e.target.value);
     hasFetchedUsers.current = false;
-    fetchUsers();
+    debouncedFetchUsers(e.target.value);
   };
 
-  const handleEventSearch = () => {
+  const handleEventSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
+    setEventSearch(e.target.value);
     hasFetchedEvents.current = false;
-    fetchEvents();
+    debouncedFetchEvents(e.target.value);
   };
 
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
 
-    setIsLoading(true);
+    setIsLoading((prev) => ({ ...prev, events: true }));
     setError(null);
     try {
       const token = localStorage.getItem("admin_token");
@@ -173,7 +166,7 @@ export default function DashboardPage() {
         authToken = token.slice(7).trim();
       }
 
-      const response = await fetch(`/admin_edits/events/${eventToDelete}`, {
+      const response = await fetch(`/admin_edits/${eventToDelete}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -196,7 +189,7 @@ export default function DashboardPage() {
       setShowDeleteModal(false);
       setEventToDelete(null);
     } finally {
-      setIsLoading(false);
+      setIsLoading((prev) => ({ ...prev, events: false }));
     }
   };
 
@@ -238,13 +231,12 @@ export default function DashboardPage() {
                 <InputField
                   type="text"
                   value={userSearch}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setUserSearch(e.target.value)}
+                  onChange={handleUserSearchChange}
                   placeholder="Поиск пользователей..."
                   icon={FaSearch}
-                  onBlur={handleUserSearch}
                 />
               </div>
-              {isLoading && users.length === 0 ? (
+              {isLoading.users ? (
                 <div className="text-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
                 </div>
@@ -293,13 +285,12 @@ export default function DashboardPage() {
                 <InputField
                   type="text"
                   value={eventSearch}
-                  onChange={(e: ChangeEvent<HTMLInputElement>) => setEventSearch(e.target.value)}
+                  onChange={handleEventSearchChange}
                   placeholder="Поиск мероприятий..."
                   icon={FaSearch}
-                  onBlur={handleEventSearch}
                 />
               </div>
-              {isLoading && events.length === 0 ? (
+              {isLoading.events ? (
                 <div className="text-center py-4">
                   <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
                 </div>
@@ -385,9 +376,9 @@ export default function DashboardPage() {
               <button
                 onClick={handleDeleteEvent}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
-                disabled={isLoading}
+                disabled={isLoading.events}
               >
-                {isLoading ? "Удаление..." : "Удалить"}
+                {isLoading.events ? "Удаление..." : "Удалить"}
               </button>
             </div>
           </div>

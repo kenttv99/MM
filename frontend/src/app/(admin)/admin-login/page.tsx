@@ -9,6 +9,14 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 
+
+
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
+
 export default function AdminLoginPage() {
   const router = useRouter();
   const { isAdminAuth, isLoading, checkAuth } = useAdminAuth();
@@ -17,10 +25,9 @@ export default function AdminLoginPage() {
     checkAuth();
   }, [checkAuth]);
 
-  // Перенаправление после успешной авторизации
   useEffect(() => {
     if (!isLoading && isAdminAuth) {
-      router.push("/admin-profile");
+      navigateTo(router, "/admin-profile");
     }
   }, [isAdminAuth, isLoading, router]);
 
@@ -48,9 +55,8 @@ export default function AdminLoginPage() {
     );
   }
 
-  // Если пользователь уже авторизован, не показываем форму
   if (isAdminAuth) {
-    return null; // Или можно показать сообщение, например: "Вы уже авторизованы, перенаправляем..."
+    return null;
   }
 
   return (

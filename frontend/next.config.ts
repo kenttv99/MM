@@ -3,23 +3,27 @@ const nextConfig = {
   async rewrites() {
     return [
       {
-        source: '/auth/:path*',
-        destination: 'http://localhost:8000/auth/:path*', // URL вашего FastAPI-сервера для пользователей
+        source: '/images/:path*', // Все запросы к /images/...
+        destination: 'http://localhost:8001/images/:path*', // Перенаправляем на FastAPI
       },
       {
-        source: '/admin/:path*',
-        destination: 'http://localhost:8001/admin/:path*', // Для аутентификации администраторов
+        source: '/admin/:path*', // Для API-роутов админа
+        destination: 'http://localhost:8001/admin/:path*',
       },
       {
-        source: '/admin_edits/:path*',
-        destination: 'http://localhost:8001/admin_edits/:path*', // Для действий администраторов
+        source: '/admin_edits/:path*', // Для редактирования
+        destination: 'http://localhost:8001/admin_edits/:path*',
       },
       {
-        source: '/events/:path*',
-        destination: 'http://localhost:8001/events/:path*', // Для публичных маршрутов мероприятий
+        source: '/events/:path*', // Для публичных мероприятий
+        destination: 'http://localhost:8001/events/:path*',
+      },
+      {
+        source: '/auth/:path*', // Для авторизации пользователей
+        destination: 'http://localhost:8000/auth/:path*', // server_user.py на 8000
       },
     ];
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;

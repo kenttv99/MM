@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import Loading from "@/components/Loading";
 import { useAuth } from "@/contexts/AuthContext";
 
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
+
 const Profile = () => {
   const { isAuth, isLoading, userData } = useAuth();
   const [loadingTimeout, setLoadingTimeout] = useState(false);
@@ -14,11 +20,10 @@ const Profile = () => {
   useEffect(() => {
     if (!isLoading) {
       if (!isAuth) {
-        router.push("/");
+        navigateTo(router, "/");
       }
     }
 
-    // Устанавливаем таймаут для показа сообщения о долгой загрузке
     const timer = setTimeout(() => {
       if (isLoading || !userData) {
         setLoadingTimeout(true);
@@ -43,7 +48,7 @@ const Profile = () => {
               </p>
               <div className="flex justify-center space-x-4">
                 <button
-                  onClick={() => router.push("/")}
+                  onClick={() => navigateTo(router, "/")}
                   className="px-6 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors"
                 >
                   Вернуться на главную
@@ -57,7 +62,7 @@ const Profile = () => {
   }
 
   if (!userData) {
-    return null; // Данные не загружены, ничего не рендерим
+    return null;
   }
 
   return (

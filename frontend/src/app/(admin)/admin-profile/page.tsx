@@ -7,6 +7,12 @@ import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
 
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
+
 interface AdminProfile {
   id: number;
   fio: string;
@@ -36,10 +42,7 @@ const AdminProfilePage: React.FC = () => {
         return;
       }
 
-      let authToken = token;
-      if (token.startsWith("Bearer ")) {
-        authToken = token.slice(7).trim();
-      }
+      const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
 
       const response = await fetch("/admin/me", {
         headers: {
@@ -68,7 +71,7 @@ const AdminProfilePage: React.FC = () => {
   useEffect(() => {
     if (!authLoading) {
       if (!isAdminAuth) {
-        router.push("/admin-login");
+        navigateTo(router, "/admin-login");
       } else {
         fetchAdminProfile();
       }
@@ -125,7 +128,7 @@ const AdminProfilePage: React.FC = () => {
                 Создавайте, редактируйте и управляйте мероприятиями на платформе.
               </p>
               <button
-                onClick={() => router.push("/dashboard")}
+                onClick={() => navigateTo(router, "/dashboard")}
                 className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors w-full"
               >
                 Перейти к мероприятиям

@@ -1,3 +1,4 @@
+// frontend/src/app/(admin)/edit-events/page.tsx
 "use client";
 
 import { useState, useEffect, ChangeEvent, FormEvent, useCallback, useMemo, Suspense, useRef } from "react";
@@ -8,6 +9,12 @@ import { FaPen, FaCalendar, FaMapMarkerAlt, FaImage, FaCheck, FaClock, FaTrash, 
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { motion, AnimatePresence } from "framer-motion";
+
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
 
 interface ValidationError {
   loc: (string | number)[];
@@ -84,11 +91,19 @@ const EditEventContent: React.FC = () => {
     try {
       const token = localStorage.getItem("admin_token");
       if (!token) throw new Error("Отсутствует токен авторизации");
+  
+      const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
+  
+      // Запрос данных мероприятия
       const response = await fetch(`/events/${id}`, {
-        headers: { Authorization: `Bearer ${token}`, "Accept": "application/json" },
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Accept": "application/json",
+        },
       });
       if (!response.ok) throw new Error(`Ошибка API: ${response.status}`);
       const data = await response.json();
+  
       const startDateTime = new Date(data.start_date);
       const endDateTime = data.end_date ? new Date(data.end_date) : null;
       setEvent({
@@ -99,11 +114,13 @@ const EditEventContent: React.FC = () => {
         end_time: endDateTime?.toTimeString().slice(0, 5) || "",
         ticket_type: data.ticket_type || initialEventState.ticket_type,
       });
-
-      // Загружаем изображение через fetch с авторизацией
+  
+      // Запрос изображения с авторизацией
       if (data.image_url) {
         const imageResponse = await fetch(data.image_url, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
         });
         if (imageResponse.ok) {
           const blob = await imageResponse.blob();
@@ -111,17 +128,17 @@ const EditEventContent: React.FC = () => {
           reader.onloadend = () => setImagePreview(reader.result as string);
           reader.readAsDataURL(blob);
         } else {
-          console.error("Failed to load image:", imageResponse.status);
-          setImagePreview(null);
+          console.warn(`Не удалось загрузить изображение: ${imageResponse.status}`);
+          setImagePreview(null); // Устанавливаем null, но не прерываем выполнение
         }
       } else {
         setImagePreview(null);
       }
-
+  
       setIsCreating(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
-      setTimeout(() => router.push("/dashboard"), 3000);
+      setTimeout(() => navigateTo(router, "/dashboard"), 3000);
     } finally {
       setIsLoading(false);
     }
@@ -129,8 +146,8 @@ const EditEventContent: React.FC = () => {
 
   useEffect(() => {
     if (!authLoading) {
-      if (!eventId && !isNew) router.push("/dashboard");
-      else if (!isAdminAuth) router.push("/admin-login");
+      if (!eventId && !isNew) navigateTo(router, "/dashboard");
+      else if (!isAdminAuth) navigateTo(router, "/admin-login");
       else if (isNew) {
         setIsCreating(true);
         setEvent(initialEventState);
@@ -301,7 +318,7 @@ const EditEventContent: React.FC = () => {
       }
 
       setSuccess(isCreating ? "Мероприятие успешно создано" : "Мероприятие успешно обновлено");
-      setTimeout(() => router.push("/dashboard?refresh=true"), 1500);
+      setTimeout(() => navigateTo(router, "/dashboard", { refresh: "true" }), 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Произошла ошибка");
     } finally {
@@ -589,7 +606,7 @@ const EditEventContent: React.FC = () => {
                 <div className="flex justify-between pt-6 border-t border-gray-100">
                   <button
                     type="button"
-                    onClick={() => router.push("/dashboard")}
+                    onClick={() => navigateTo(router, "/dashboard")}
                     className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-300"
                   >
                     Отмена

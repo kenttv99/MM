@@ -36,8 +36,8 @@ app.include_router(event_router, prefix="/events", tags=["Events"])
 app.include_router(admin_auth_router, prefix="/admin", tags=["Admin Authentication"])
 app.include_router(admin_edit_routers, prefix="/admin_edits", tags=["Admin Edits"])
 
-# Монтируем директорию media как статические файлы
-app.mount("/media", StaticFiles(directory="media"), name="media")
+# Монтируем директорию private_media как статические файлы
+app.mount("/images", StaticFiles(directory="private_media"), name="images")
 
 if __name__ == "__main__":
     uvicorn.run(

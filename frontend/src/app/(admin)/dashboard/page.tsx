@@ -8,6 +8,7 @@ import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icon
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
+
 // Дебаунсинг функция
 function debounce<F extends (arg: string) => void>(func: F, wait: number) {
   let timeout: NodeJS.Timeout | null = null;
@@ -48,10 +49,7 @@ async function fetchData<U>(
       return;
     }
 
-    let authToken = token;
-    if (token.startsWith("Bearer ")) {
-      authToken = token.slice(7).trim();
-    }
+    const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
 
     const response = await fetch(url, {
       headers: {
@@ -77,6 +75,13 @@ async function fetchData<U>(
   }
 }
 
+// Новая функция для управления навигацией
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
+
 export default function DashboardPage() {
   const [userSearch, setUserSearch] = useState("");
   const [eventSearch, setEventSearch] = useState("");
@@ -99,7 +104,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!authLoading && !isAdminAuth) {
-      router.push("/admin-login");
+      navigateTo(router, "/admin-login");
     }
   }, [isAdminAuth, authLoading, router]);
 
@@ -117,7 +122,6 @@ export default function DashboardPage() {
     await fetchData<User>(url, localStorage.getItem("admin_token"), setUsers, (value) => setIsLoading((prev) => ({ ...prev, users: value })), setError);
   };
 
-  // Создаём дебаунсинговые версии функций
   const debouncedFetchUsers = debounce(fetchUsers, 500);
   const debouncedFetchEvents = debounce(fetchEvents, 500);
 
@@ -161,10 +165,7 @@ export default function DashboardPage() {
         return;
       }
 
-      let authToken = token;
-      if (token.startsWith("Bearer ")) {
-        authToken = token.slice(7).trim();
-      }
+      const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
 
       const response = await fetch(`/admin_edits/${eventToDelete}`, {
         method: "DELETE",
@@ -209,7 +210,7 @@ export default function DashboardPage() {
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-3xl font-bold">Панель управления</h1>
             <button
-              onClick={() => router.push("/edit-events?new=true")}
+              onClick={() => navigateTo(router, "/edit-events", { new: "true" })}
               className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-600 transition-colors"
             >
               <FaPlus className="mr-2" />
@@ -259,7 +260,7 @@ export default function DashboardPage() {
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
                             <button
-                              onClick={() => router.push(`/edit-user?user_id=${user.id}`)}
+                              onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
                               className="text-blue-500 hover:text-blue-700"
                             >
                               Управлять
@@ -323,7 +324,7 @@ export default function DashboardPage() {
                           </td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm relative">
                             <button
-                              onClick={() => router.push(`/edit-events?event_id=${event.id}`)}
+                              onClick={() => navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
                               className="text-blue-500 hover:text-blue-700 inline-block"
                             >
                               Редактировать

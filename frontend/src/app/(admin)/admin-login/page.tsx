@@ -9,8 +9,6 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 
-
-
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -19,17 +17,15 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { isAdminAuth, isLoading, checkAuth } = useAdminAuth();
+  const { isLoading, checkAuth } = useAdminAuth();
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
-    if (!isLoading && isAdminAuth) {
-      navigateTo(router, "/admin-profile");
-    }
-  }, [isAdminAuth, isLoading, router]);
+    checkAuth().then(isAuthenticated => {
+      if (isAuthenticated) {
+        navigateTo(router, "/admin-profile");
+      }
+    }).catch(err => console.error("AdminLoginPage: checkAuth failed:", err));
+  }, [checkAuth, router]);
 
   const {
     formValues,
@@ -53,10 +49,6 @@ export default function AdminLoginPage() {
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
-  }
-
-  if (isAdminAuth) {
-    return null;
   }
 
   return (

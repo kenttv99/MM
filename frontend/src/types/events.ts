@@ -34,3 +34,5 @@ export interface TicketType {
     ticket_type_available_quantity: number;
     ticket_type_free_registration: boolean;
   }
+
+  export type EventStatus = "draft" | "registration_open" | "registration_closed" | "completed";

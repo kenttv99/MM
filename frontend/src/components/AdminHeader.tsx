@@ -2,7 +2,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+// import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Logo from "./Logo";
 import { FaSignOutAlt, FaBars, FaTimes, FaUser, FaTachometerAlt } from "react-icons/fa";
@@ -11,14 +11,8 @@ import { useAdminAuth } from "@/contexts/AdminAuthContext";
 const AdminHeader: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { push } = useRouter();
+  // const { push } = useRouter();
   const { adminData, logoutAdmin, isAdminAuth, isLoading } = useAdminAuth();
-
-  useEffect(() => {
-    if (!isLoading && !isAdminAuth) {
-      push("/admin-login");
-    }
-  }, [isAdminAuth, isLoading, push]);
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);

@@ -15,7 +15,7 @@ interface AdminAuthContextType {
   isAdminAuth: boolean;
   adminData: AdminData | null;
   isLoading: boolean;
-  checkAuth: () => void;
+  checkAuth: () => Promise<boolean>;
   logoutAdmin: () => void;
 }
 
@@ -26,30 +26,26 @@ const STORAGE_KEYS = {
   ADMIN_DATA: 'admin_data'
 };
 
-// Интерфейс для результата декодирования JWT
 interface JwtPayload {
   exp: number;
   sub: string;
-  [key: string]: unknown; // Для дополнительных полей в токене
+  [key: string]: unknown;
 }
 
-// Функция для декодирования JWT без проверки подписи
 function decodeJwt(token: string): JwtPayload | null {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
     const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
     return payload;
-  } catch (err) {
-    console.error("Ошибка при декодировании токена:", err);
+  } catch {
     return null;
   }
 }
 
-// Проверяем, истёк ли срок действия токена
 function isTokenExpired(token: string): boolean {
   const decoded = decodeJwt(token);
-  if (!decoded) return true;
+  if (!decoded || !decoded.exp) return true;
   const currentTime = Math.floor(Date.now() / 1000);
   return decoded.exp < currentTime;
 }
@@ -60,52 +56,41 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
 
-  const checkAuth = useCallback(() => {
+  const checkAuth = useCallback(async (): Promise<boolean> => {
     setIsLoading(true);
-
     const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
-    if (!token) {
+    const cachedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
+
+    if (!token || !cachedData) {
       setIsAdminAuth(false);
       setAdminData(null);
       setIsLoading(false);
-      return;
+      return false;
     }
 
     if (isTokenExpired(token)) {
-      console.log("Токен истёк");
       localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
       setIsAdminAuth(false);
       setAdminData(null);
       setIsLoading(false);
-      return;
+      return false;
     }
 
-    const decoded = decodeJwt(token);
-    const cachedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
-    console.log("Загруженные данные из localStorage (admin_data):", cachedData);
-
-    if (decoded && cachedData) {
-      try {
-        const parsedData: AdminData = JSON.parse(cachedData);
-        console.log("Распарсенные данные из localStorage:", parsedData);
-        setAdminData(parsedData);
-        setIsAdminAuth(true);
-      } catch (err) {
-        console.error("Ошибка при парсинге кэшированных данных:", err);
-        localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
-        localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-        setIsAdminAuth(false);
-        setAdminData(null);
-      }
-    } else {
+    try {
+      const parsedData: AdminData = JSON.parse(cachedData);
+      setAdminData(parsedData);
+      setIsAdminAuth(true);
+      setIsLoading(false);
+      return true;
+    } catch {
       localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
       setIsAdminAuth(false);
       setAdminData(null);
+      setIsLoading(false);
+      return false;
     }
-
-    setIsLoading(false);
   }, []);
 
   const logoutAdmin = useCallback(() => {
@@ -117,7 +102,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [router]);
 
   useEffect(() => {
-    checkAuth();
+    checkAuth().catch(err => console.error("Initial checkAuth failed:", err));
   }, [checkAuth]);
 
   const contextValue: AdminAuthContextType = {

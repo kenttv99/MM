@@ -29,7 +29,6 @@ const EditEventContent: React.FC = () => {
   const router = useRouter();
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
 
-  // Инициализация формы с начальными значениями
   const {
     formData,
     isLoading,
@@ -56,11 +55,10 @@ const EditEventContent: React.FC = () => {
       ticket_type_free_registration: false,
     },
     onSuccess: () => {
-      // Redirect after success
       setTimeout(() => navigateTo(router, "/dashboard", { refresh: "true" }), 1500);
     }
   });
-  
+
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
@@ -77,7 +75,6 @@ const EditEventContent: React.FC = () => {
     }
   }, [eventId, isNew, isAdminAuth, authLoading, router, loadEvent]);
 
-  // Обработчик падения файла
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
@@ -90,7 +87,6 @@ const EditEventContent: React.FC = () => {
     e.preventDefault();
   };
 
-  // Обработка клика на область загрузки файла
   const handleAreaClick = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
@@ -116,7 +112,6 @@ const EditEventContent: React.FC = () => {
               <SuccessDisplay message={success} className="mb-6" />
               
               <form onSubmit={handleSubmit} className="space-y-8">
-                {/* Основная информация */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Основная информация</h2>
                   <InputField
@@ -138,7 +133,6 @@ const EditEventContent: React.FC = () => {
                   />
                 </div>
 
-                {/* Даты и время */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Даты и время</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -180,7 +174,6 @@ const EditEventContent: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Местоположение и цена */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Местоположение и цена</h2>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -204,7 +197,6 @@ const EditEventContent: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Регистрация на мероприятие */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Регистрация на мероприятие</h2>
                   <div>
@@ -262,7 +254,6 @@ const EditEventContent: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Изображение и публикация */}
                 <div className="space-y-6">
                   <h2 className="text-xl font-semibold text-gray-800 border-b pb-2">Изображение и публикация</h2>
                   <div
@@ -277,7 +268,7 @@ const EditEventContent: React.FC = () => {
                       <div className="relative">
                         {/*eslint-disable-next-line @next/next/no-img-element*/}
                         <img
-                          src={imagePreview.startsWith('data:') ? imagePreview : `/admin_edits${imagePreview}`}
+                          src={imagePreview}
                           alt="Preview"
                           className="w-full h-48 object-cover rounded-lg"
                         />
@@ -355,7 +346,6 @@ const EditEventContent: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Кнопки управления */}
                 <div className="flex justify-between pt-6 border-t border-gray-100">
                   <button
                     type="button"

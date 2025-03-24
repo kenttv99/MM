@@ -48,26 +48,26 @@ export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AuthFo
       }
 
       const data = await response.json();
-      console.log("Server response on /admin/login:", data);
-
-      // Сохраняем токен
       localStorage.setItem("admin_token", data.access_token);
-      // Сохраняем данные администратора
       const adminData = {
         email: data.email,
         id: data.id,
-        fio: data.fio,
+        fio: data.fio || "Администратор",
       };
-      console.log("Saving to localStorage:", adminData);
       localStorage.setItem("admin_data", JSON.stringify(adminData));
       setIsSuccess(true);
 
-      // Обновляем контекст
-      await checkAuth();
-      // Перенаправляем после успешной авторизации
-      push(redirectTo);
+      const isAuthenticated = await checkAuth();
+      if (isAuthenticated) {
+        push(redirectTo);
+      } else {
+        setError("Не удалось подтвердить авторизацию после входа");
+        setIsSuccess(false);
+      }
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "Произошла ошибка");
+      setIsSuccess(false);
     } finally {
       setIsLoading(false);
     }

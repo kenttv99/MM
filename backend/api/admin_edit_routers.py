@@ -225,10 +225,11 @@ async def update_event(
     form_data: EventFormData = Depends(),
     image_file: Optional[UploadFile] = File(None),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    request: Request = None
+    request: Request = None,
+    db: AsyncSession = Depends(get_async_db)
 ):
     """Обновление мероприятия."""
-    async with get_async_db() as db:
+    async with db.begin():  # Явно начинаем транзакцию
         try:
             token = credentials.credentials
             current_admin = await get_current_admin(token, db)
@@ -236,8 +237,8 @@ async def update_event(
             # Подготовка данных с валидацией
             processed_data = await prepare_event_data(form_data)
             
-            # Находим мероприятие
-            event = await db.get(Event, event_id)
+            # Находим мероприятие с предварительной загрузкой tickets
+            event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
             if not event:
                 raise HTTPException(status_code=404, detail="Мероприятие не найдено")
             
@@ -262,7 +263,6 @@ async def update_event(
             event.status = form_data.status
             
             # Обновляем ticket_type
-            from sqlalchemy.future import select
             ticket_query = select(TicketType).where(TicketType.event_id == event_id)
             ticket = (await db.execute(ticket_query)).scalar_one_or_none()
             
@@ -282,13 +282,11 @@ async def update_event(
                 )
                 db.add(ticket)
             
-            await db.commit()
-            await db.refresh(event)
+            # Выполняем все операции перед коммитом
+            await db.flush()  # Сохраняем изменения в базе
+            await db.refresh(event)  # Обновляем объект event с уже загруженными tickets
             
-            # Логирование действия
-            await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
-            
-            # Формирование ответа
+            # Формируем ответ до commit, используя загруженные данные
             ticket_data = event.tickets[0] if event.tickets else ticket
             response_data = EventCreate(
                 id=event.id,
@@ -310,6 +308,12 @@ async def update_event(
                     free_registration=ticket_data.free_registration,
                 ) if ticket_data else None,
             )
+            
+            # Логируем активность до commit
+            await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
+            
+            await db.commit()  # Завершаем транзакцию
+            
             return response_data
         except ValueError as e:
             logger.error(f"Validation error in update_event: {str(e)}")
@@ -469,20 +473,6 @@ async def delete_event(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Не удалось удалить мероприятие"
         )
-
-# Маршрут для получения изображения
-@router.get("/images/{filename}")
-async def get_image(
-    filename: str,
-    db: AsyncSession = Depends(get_async_db),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)
-):
-    token = credentials.credentials
-    await get_current_admin(token, db)  # Проверка авторизации
-    file_path = os.path.join("private_media", filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Изображение не найдено")
-    return FileResponse(file_path)
 
 # Маршрут для получения данных пользователя
 @router.get("/users/{user_id}", response_model=UserResponse)

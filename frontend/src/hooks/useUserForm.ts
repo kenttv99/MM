@@ -1,6 +1,6 @@
 // frontend/src/hooks/useUserForm.ts
 import { useState, useCallback } from 'react';
-import { UserData, UserUpdateData, userApi } from '@/services/userService';
+import { UserData, fetchUser, updateUser } from '@/utils/userService';
 
 interface UseUserFormOptions {
   onSuccess?: (data: UserData) => void;
@@ -19,7 +19,7 @@ export const useUserForm = ({ onSuccess, onError }: UseUserFormOptions = {}) => 
     setError(null);
     
     try {
-      const data = await userApi.getUser(userId);
+      const data = await fetchUser(userId);
       setUserData(data);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки данных пользователя";
@@ -37,7 +37,7 @@ export const useUserForm = ({ onSuccess, onError }: UseUserFormOptions = {}) => 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
     
-    setUserData(prev => {
+    setUserData((prev: UserData | null) => {
       if (!prev) return prev;
       
       return {
@@ -57,7 +57,7 @@ export const useUserForm = ({ onSuccess, onError }: UseUserFormOptions = {}) => 
     setIsLoading(true);
     
     try {
-      const result = await userApi.updateUser(userData.id, userData);
+      const result = await updateUser(userData.id, userData);
       setSuccess("Пользователь успешно обновлён");
       setUserData(result);
       

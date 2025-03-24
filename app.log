@@ -45,3 +45,11 @@ You can install "python-multipart" with:
 
 pip install python-multipart
 
+2025-03-25 00:50:44,664 - root - ERROR - Error updating event 9: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+2025-03-25 00:51:05,289 - root - ERROR - Error updating event 9: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+2025-03-25 00:54:02,829 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
+2025-03-25 00:56:33,429 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
+2025-03-25 00:57:10,588 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
+2025-03-25 00:58:01,379 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
+2025-03-25 01:02:14,906 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
+2025-03-25 01:07:35,196 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.

@@ -23,20 +23,19 @@ interface AdminProfile {
 const AdminProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isProfileLoading, setIsProfileLoading] = useState<boolean>(true);
 
   const router = useRouter();
-  const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
-
-  useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+  const { isLoading: authLoading, checkAuth } = useAdminAuth();
 
   const fetchAdminProfile = useCallback(async () => {
+    setIsProfileLoading(true);
     setError(null);
     try {
       const token = localStorage.getItem("admin_token");
       if (!token) {
         setError("Отсутствует токен авторизации");
+        setIsProfileLoading(false);
         return;
       }
 
@@ -53,26 +52,37 @@ const AdminProfilePage: React.FC = () => {
         const errorText = await response.text();
         setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
         setProfile(null);
-        return;
+      } else {
+        const data = await response.json();
+        setProfile(data);
       }
-
-      const data = await response.json();
-      setProfile(data);
     } catch {
       setError("Не удалось загрузить профиль. Проверьте соединение с сервером.");
       setProfile(null);
+    } finally {
+      setIsProfileLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!isAdminAuth) {
-        navigateTo(router, "/admin-login");
+    const initialize = async () => {
+      const isAuthenticated = await checkAuth();
+      if (isAuthenticated) {
+        await fetchAdminProfile();
       } else {
-        fetchAdminProfile();
+        navigateTo(router, "/admin-login");
       }
-    }
-  }, [isAdminAuth, authLoading, router, fetchAdminProfile]);
+    };
+    initialize().catch(err => console.error("Profile initialization failed:", err));
+  }, [checkAuth, fetchAdminProfile, router]);
+
+  if (authLoading || isProfileLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

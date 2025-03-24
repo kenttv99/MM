@@ -227,6 +227,7 @@ export default function DashboardPage() {
                   onChange={handleUserSearchChange}
                   placeholder="Поиск пользователей..."
                   icon={FaSearch}
+                  name="userSearch"
                 />
               </div>
               {isLoading.users ? (
@@ -281,6 +282,7 @@ export default function DashboardPage() {
                   onChange={handleEventSearchChange}
                   placeholder="Поиск мероприятий..."
                   icon={FaSearch}
+                  name="eventSearch"
                 />
               </div>
               {isLoading.events ? (

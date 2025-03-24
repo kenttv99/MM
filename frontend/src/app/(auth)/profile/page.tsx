@@ -34,16 +34,16 @@ const Profile = () => {
         <div className="md:col-span-2 bg-white p-6 rounded-lg shadow">
           <div className="flex items-center space-x-4 mb-4">
             <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold">
-              {userData.fio ? userData.fio.charAt(0).toUpperCase() : userData.email.charAt(0).toUpperCase()}
+              {userData?.fio ? userData.fio.charAt(0).toUpperCase() : userData.email.charAt(0).toUpperCase()}
             </div>
             <div>
-              <h2 className="text-xl font-semibold">{userData.fio || "Не указано"}</h2>
-              <p className="text-gray-600">{userData.email || "Не указан"}</p>
+              <h2 className="text-xl font-semibold">{userData?.fio || "Не указано"}</h2>
+              <p className="text-gray-600">{userData?.email || "Не указан"}</p>
             </div>
           </div>
           <div className="space-y-2">
-            <p><strong>Telegram:</strong> {userData.telegram || "Не указан"}</p>
-            <p><strong>WhatsApp:</strong> {userData.whatsapp || "Не указан"}</p>
+            <p><strong>Telegram:</strong> {userData?.telegram || "Не указан"}</p>
+            <p><strong>WhatsApp:</strong> {userData?.whatsapp || "Не указан"}</p>
           </div>
         </div>
         <div className="bg-white p-6 rounded-lg shadow">

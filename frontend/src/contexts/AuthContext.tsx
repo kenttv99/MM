@@ -124,7 +124,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, [checkAuth]);
 
-  const contextValue = {
+  const contextValue: AuthContextType = {
     isAuth,
     userData,
     setIsAuth,

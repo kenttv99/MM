@@ -1,5 +1,5 @@
-// src/hooks/useAuthForm.ts
-import { useState, FormEvent, ChangeEvent } from 'react';
+// frontend/src/hooks/useAuthForm.tsx
+import { useState, ChangeEvent, FormEvent, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 
@@ -27,12 +27,12 @@ export const useAuthForm = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
-  const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormValues(prev => ({ ...prev, [name]: value }));
-  };
+  }, []);
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
@@ -82,7 +82,7 @@ export const useAuthForm = ({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [formValues, endpoint, isLogin, redirectTo, onSuccess, setIsAuth, checkAuth, router, initialValues]);
 
   return {
     formValues,

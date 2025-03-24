@@ -120,7 +120,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     checkAuth();
   }, [checkAuth]);
 
-  const contextValue = {
+  const contextValue: AdminAuthContextType = {
     isAdminAuth,
     adminData,
     isLoading,

@@ -1,5 +1,5 @@
-# backend/api/admin_edit_routers.py
-from fastapi import APIRouter, HTTPException, status, UploadFile, File, Form, Request, Depends
+# backend/api/admin_edit_routers.py (обновленная версия)
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
@@ -13,9 +13,10 @@ from datetime import datetime
 import os
 import uuid
 from typing import Optional
+import inspect
+from pydantic import BaseModel
 
 router = APIRouter()
-
 bearer_scheme = HTTPBearer()
 
 def make_naive(dt: datetime) -> datetime:
@@ -24,22 +25,117 @@ def make_naive(dt: datetime) -> datetime:
         return dt.replace(tzinfo=None)
     return dt
 
-# Маршрут для создания мероприятия
+# Вспомогательная функция для работы с Pydantic моделями и формами
+def form_body(cls):
+    """Декоратор для использования pydantic модели с form данными"""
+    cls.__signature__ = inspect.Signature(
+        parameters=[
+            inspect.Parameter(
+                name=field_name,
+                kind=inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                default=Form(...) if field.default is ... else Form(field.default),
+                annotation=field.annotation,
+            )
+            for field_name, field in cls.__fields__.items()
+        ],
+        return_annotation=cls,
+    )
+    return cls
+
+# Модель для обработки данных формы события
+@form_body
+class EventFormData(BaseModel):
+    title: str
+    description: Optional[str] = None
+    start_date: str
+    end_date: Optional[str] = None
+    location: Optional[str] = None
+    price: str
+    published: bool = False
+    created_at: str
+    updated_at: str
+    status: str = "draft"
+    ticket_type_name: str = "standart"
+    ticket_type_available_quantity: str
+    ticket_type_free_registration: str = "false"
+    remove_image: str = "false"
+    
+    class Config:
+        from_attributes = True
+
+# Обработка загрузки изображения
+async def process_image(image_file: Optional[UploadFile], remove_image: bool, old_image_url: Optional[str] = None) -> Optional[str]:
+    """Обработка загрузки или удаления изображения."""
+    # Если запрошено удаление и есть старое изображение
+    if remove_image and old_image_url:
+        file_path = old_image_url.replace("/images/", "private_media/")
+        if os.path.exists(file_path):
+            os.remove(file_path)
+        return None
+    
+    # Если загружено новое изображение
+    if image_file:
+        # Удаляем старое изображение, если оно есть
+        if old_image_url:
+            file_path = old_image_url.replace("/images/", "private_media/")
+            if os.path.exists(file_path):
+                os.remove(file_path)
+        
+        # Сохраняем новое изображение
+        file_extension = image_file.filename.split('.')[-1]
+        unique_filename = f"{uuid.uuid4()}.{file_extension}"
+        file_path = os.path.join("private_media", unique_filename)
+        
+        os.makedirs("private_media", exist_ok=True)
+        content = await image_file.read()
+        with open(file_path, "wb") as f:
+            f.write(content)
+            
+        return f"/images/{unique_filename}"
+    
+    # Если не было запрошено удаление и нет нового изображения, оставляем старое
+    return old_image_url
+
+# Функция для подготовки данных события
+async def prepare_event_data(form_data: EventFormData):
+    """Подготовка и валидация данных события."""
+    try:
+        # Валидация и преобразование данных
+        price_float = float(form_data.price)
+        available_quantity = int(form_data.ticket_type_available_quantity)
+        
+        if available_quantity <= 0:
+            raise HTTPException(status_code=422, detail="Количество мест должно быть больше 0")
+            
+        free_registration = form_data.ticket_type_free_registration.lower() == "true"
+        remove_image = form_data.remove_image.lower() == "true"
+        
+        # Парсинг дат
+        start_date_dt = make_naive(datetime.fromisoformat(form_data.start_date.replace("Z", "+00:00")))
+        end_date_dt = None
+        if form_data.end_date:
+            end_date_dt = make_naive(datetime.fromisoformat(form_data.end_date.replace("Z", "+00:00")))
+            
+        created_at_dt = make_naive(datetime.fromisoformat(form_data.created_at.replace("Z", "+00:00")))
+        updated_at_dt = make_naive(datetime.fromisoformat(form_data.updated_at.replace("Z", "+00:00")))
+        
+        return {
+            "price_float": price_float,
+            "available_quantity": available_quantity,
+            "free_registration": free_registration,
+            "remove_image": remove_image,
+            "start_date_dt": start_date_dt,
+            "end_date_dt": end_date_dt,
+            "created_at_dt": created_at_dt,
+            "updated_at_dt": updated_at_dt
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+# Маршрут для создания мероприятия (переработанный)
 @router.post("", response_model=EventCreate, status_code=status.HTTP_201_CREATED)
 async def create_event(
-    title: str = Form(...),
-    description: Optional[str] = Form(None),
-    start_date: str = Form(...),
-    end_date: Optional[str] = Form(None),
-    location: Optional[str] = Form(None),
-    price: str = Form(...),
-    published: bool = Form(False),
-    created_at: str = Form(...),
-    updated_at: str = Form(...),
-    status: str = Form("draft"),
-    ticket_type_name: str = Form("standart"),
-    ticket_type_available_quantity: str = Form(...),
-    ticket_type_free_registration: str = Form("false"),
+    form_data: EventFormData = Depends(),
     image_file: Optional[UploadFile] = File(None),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_async_db),
@@ -49,70 +145,47 @@ async def create_event(
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
-
-        # Валидация и преобразование данных
-        price_float = float(price)
-        available_quantity = int(ticket_type_available_quantity)
-        if available_quantity <= 0:
-            raise HTTPException(status_code=422, detail="Количество мест должно быть больше 0")
-        free_registration = ticket_type_free_registration.lower() == "true"
-
-        # Парсинг дат
-        start_date_dt = make_naive(datetime.fromisoformat(start_date.replace("Z", "+00:00")))
-        end_date_dt = (
-            make_naive(datetime.fromisoformat(end_date.replace("Z", "+00:00")))
-            if end_date
-            else None
-        )
-        created_at_dt = make_naive(datetime.fromisoformat(created_at.replace("Z", "+00:00")))
-        updated_at_dt = make_naive(datetime.fromisoformat(updated_at.replace("Z", "+00:00")))
-
+        
+        # Подготовка данных с валидацией
+        processed_data = await prepare_event_data(form_data)
+        
         # Обработка изображения
-        image_url = None
-        if image_file:
-            file_extension = image_file.filename.split('.')[-1]
-            unique_filename = f"{uuid.uuid4()}.{file_extension}"
-            file_path = os.path.join("private_media", unique_filename)
-            os.makedirs("private_media", exist_ok=True)
-            with open(file_path, "wb") as f:
-                content = await image_file.read()
-                f.write(content)
-            image_url = f"/images/{unique_filename}"
-
+        image_url = await process_image(image_file, processed_data["remove_image"])
+        
         # Создание мероприятия
         new_event = Event(
-            title=title,
-            description=description,
-            start_date=start_date_dt,
-            end_date=end_date_dt,
-            location=location,
+            title=form_data.title,
+            description=form_data.description,
+            start_date=processed_data["start_date_dt"],
+            end_date=processed_data["end_date_dt"],
+            location=form_data.location,
             image_url=image_url,
-            price=price_float,
-            published=published,
-            created_at=created_at_dt,
-            updated_at=updated_at_dt,
-            status=status,
+            price=processed_data["price_float"],
+            published=form_data.published,
+            created_at=processed_data["created_at_dt"],
+            updated_at=processed_data["updated_at_dt"],
+            status=form_data.status,
         )
         db.add(new_event)
         await db.flush()
-
+        
         # Создание ticket_type
         ticket = TicketType(
             event_id=new_event.id,
-            name=ticket_type_name,
-            price=price_float,
-            available_quantity=available_quantity,
-            free_registration=free_registration,
+            name=form_data.ticket_type_name,
+            price=processed_data["price_float"],
+            available_quantity=processed_data["available_quantity"],
+            free_registration=processed_data["free_registration"],
             sold_quantity=0,
         )
         db.add(ticket)
-
+        
         await db.commit()
         await db.refresh(new_event)
-
+        
         # Логирование действия
         await log_admin_activity(db, current_admin.id, request, action="create_event")
-
+        
         # Формирование ответа
         ticket_data = ticket
         response_data = EventCreate(
@@ -145,24 +218,11 @@ async def create_event(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Не удалось создать мероприятие: {str(e)}")
 
-# Маршрут для обновления мероприятия
+# Маршрут для обновления мероприятия (переработанный)
 @router.put("/{event_id}", response_model=EventCreate)
 async def update_event(
     event_id: int,
-    title: str = Form(...),
-    description: Optional[str] = Form(None),
-    start_date: str = Form(...),
-    end_date: Optional[str] = Form(None),
-    location: Optional[str] = Form(None),
-    price: str = Form(...),
-    published: bool = Form(False),
-    created_at: str = Form(...),
-    updated_at: str = Form(...),
-    status: str = Form("draft"),
-    ticket_type_name: str = Form("standart"),
-    ticket_type_available_quantity: str = Form(...),
-    ticket_type_free_registration: str = Form("false"),
-    remove_image: str = Form("false"),
+    form_data: EventFormData = Depends(),
     image_file: Optional[UploadFile] = File(None),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
@@ -172,87 +232,62 @@ async def update_event(
         try:
             token = credentials.credentials
             current_admin = await get_current_admin(token, db)
-
-            # Валидация и преобразование данных
-            price_float = float(price)
-            available_quantity = int(ticket_type_available_quantity)
-            if available_quantity <= 0:
-                raise HTTPException(status_code=422, detail="Количество мест должно быть больше 0")
-            free_registration = ticket_type_free_registration.lower() == "true"
-            remove_image_flag = remove_image.lower() == "true"
-
-            # Парсинг дат
-            start_date_dt = make_naive(datetime.fromisoformat(start_date.replace("Z", "+00:00")))
-            end_date_dt = (
-                make_naive(datetime.fromisoformat(end_date.replace("Z", "+00:00")))
-                if end_date
-                else None
-            )
-            created_at_dt = make_naive(datetime.fromisoformat(created_at.replace("Z", "+00:00")))
-            updated_at_dt = make_naive(datetime.fromisoformat(updated_at.replace("Z", "+00:00")))
-
+            
+            # Подготовка данных с валидацией
+            processed_data = await prepare_event_data(form_data)
+            
             # Находим мероприятие
             event = await db.get(Event, event_id)
             if not event:
                 raise HTTPException(status_code=404, detail="Мероприятие не найдено")
-
-            # Обновляем поля мероприятия
-            event.title = title
-            event.description = description
-            event.start_date = start_date_dt
-            event.end_date = end_date_dt
-            event.location = location
-            event.price = price_float
-            event.published = published
-            event.created_at = created_at_dt
-            event.updated_at = updated_at_dt
-            event.status = status
-
+            
             # Обработка изображения
-            if remove_image_flag and event.image_url:
-                file_path = event.image_url.replace("/images/", "private_media/")
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                event.image_url = None
-            elif image_file:
-                if event.image_url:
-                    file_path = event.image_url.replace("/images/", "private_media/")
-                    if os.path.exists(file_path):
-                        os.remove(file_path)
-                file_extension = image_file.filename.split('.')[-1]
-                unique_filename = f"{uuid.uuid4()}.{file_extension}"
-                file_path = os.path.join("private_media", unique_filename)
-                os.makedirs("private_media", exist_ok=True)
-                with open(file_path, "wb") as f:
-                    content = await image_file.read()
-                    f.write(content)
-                event.image_url = f"/images/{unique_filename}"
-
+            image_url = await process_image(
+                image_file, 
+                processed_data["remove_image"], 
+                event.image_url
+            )
+            
+            # Обновляем поля мероприятия
+            event.title = form_data.title
+            event.description = form_data.description
+            event.start_date = processed_data["start_date_dt"]
+            event.end_date = processed_data["end_date_dt"]
+            event.location = form_data.location
+            event.image_url = image_url
+            event.price = processed_data["price_float"]
+            event.published = form_data.published
+            event.created_at = processed_data["created_at_dt"]
+            event.updated_at = processed_data["updated_at_dt"]
+            event.status = form_data.status
+            
             # Обновляем ticket_type
+            from sqlalchemy.future import select
             ticket_query = select(TicketType).where(TicketType.event_id == event_id)
             ticket = (await db.execute(ticket_query)).scalar_one_or_none()
+            
             if ticket:
-                ticket.name = ticket_type_name
-                ticket.price = price_float
-                ticket.available_quantity = available_quantity
-                ticket.free_registration = free_registration
+                ticket.name = form_data.ticket_type_name
+                ticket.price = processed_data["price_float"]
+                ticket.available_quantity = processed_data["available_quantity"]
+                ticket.free_registration = processed_data["free_registration"]
             else:
                 ticket = TicketType(
                     event_id=event_id,
-                    name=ticket_type_name,
-                    price=price_float,
-                    available_quantity=available_quantity,
-                    free_registration=free_registration,
+                    name=form_data.ticket_type_name,
+                    price=processed_data["price_float"],
+                    available_quantity=processed_data["available_quantity"],
+                    free_registration=processed_data["free_registration"],
                     sold_quantity=0,
                 )
                 db.add(ticket)
-
+            
             await db.commit()
             await db.refresh(event)
-
+            
             # Логирование действия
             await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
-
+            
             # Формирование ответа
             ticket_data = event.tickets[0] if event.tickets else ticket
             response_data = EventCreate(

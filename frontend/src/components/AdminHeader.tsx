@@ -14,8 +14,6 @@ const AdminHeader: React.FC = () => {
   const { push } = useRouter();
   const { adminData, logoutAdmin, isAdminAuth, isLoading } = useAdminAuth();
 
-  console.log("AdminHeader adminData:", adminData);
-
   useEffect(() => {
     if (!isLoading && !isAdminAuth) {
       push("/admin-login");

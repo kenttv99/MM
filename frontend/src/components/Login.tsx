@@ -1,3 +1,4 @@
+// frontend/src/components/Login.tsx
 "use client";
 
 import React from "react";
@@ -7,9 +8,9 @@ import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
 
 interface LoginProps {
-  isOpen?: boolean; // Опционально для модального окна
-  onClose?: () => void; // Опционально для модального окна
-  isAdminLogin?: boolean; // Указывает, что это админская авторизация
+  isOpen?: boolean;
+  onClose?: () => void;
+  isAdminLogin?: boolean;
 }
 
 const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) => {
@@ -28,6 +29,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
     endpoint,
     redirectTo,
     isLogin: true,
+    onSuccess: () => {} // Добавляем пустую функцию onSuccess
   });
 
   // Если используется как страница, а не модалка
@@ -99,7 +101,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
         <div className="flex justify-end space-x-4">
           <ModalButton
             variant="secondary"
-            onClick={onClose}
+            onClick={() => onClose && onClose()}
             disabled={isLoading || isSuccess}
           >
             Закрыть

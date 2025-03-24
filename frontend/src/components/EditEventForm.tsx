@@ -1,6 +1,7 @@
+// frontend/src/components/EditEventForm.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import InputField from "./common/InputField";
 import { FaPencilAlt, FaTrash } from "react-icons/fa";
@@ -34,82 +35,98 @@ const EditEventForm = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!isAdminAuth) return;
-
-    const fetchEvents = async () => {
-      setLoading(true);
-      try {
-        const token = localStorage.getItem("admin_token");
-        const response = await fetch("/admin_edits/events", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Cache-Control": "no-store",
-          },
-        });
-        if (!response.ok) throw new Error("Не удалось загрузить мероприятия");
-        const data: EventData[] = await response.json();
-        setEvents(data);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Неизвестная ошибка");
-      } finally {
-        setLoading(false);
+  // Получение аутентифицированного запроса
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
+    const token = localStorage.getItem("admin_token");
+    if (!token) {
+      throw new Error("Не авторизован");
+    }
+    
+    return fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.headers as Record<string, string>)
       }
-    };
+    });
+  }, []);
 
-    fetchEvents();
-  }, [isAdminAuth]);
-
-  const updateEvent = async (eventId: number, updatedData: FormData) => {
+  const fetchEvents = useCallback(async () => {
+    if (!isAdminAuth) return;
+    
     setLoading(true);
     setError(null);
+    
     try {
-      const token = localStorage.getItem("admin_token");
-      const response = await fetch(`/admin_edits/${eventId}`, {
-        method: "PUT",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        body: updatedData,
-      });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Ошибка при обновлении");
-      }
-      const updatedEvent: EventData = await response.json();
-      setEvents((prev) =>
-        prev.map((e) => (e.id === eventId ? updatedEvent : e))
-      );
+      const response = await fetchWithAuth("/admin_edits/events");
+      if (!response.ok) throw new Error("Не удалось загрузить мероприятия");
+      const data = await response.json();
+      setEvents(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Неизвестная ошибка");
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdminAuth, fetchWithAuth]);
 
-  const handleFileChange = (eventId: number, file: File | null, remove = false) => {
-    const event = events.find((e) => e.id === eventId);
+  const updateEvent = useCallback(async (eventId: number, data: FormData) => {
+    setLoading(true);
+    setError(null);
+    
+    try {
+      const response = await fetchWithAuth(`/admin_edits/${eventId}`, {
+        method: "PUT",
+        body: data
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || "Ошибка при обновлении");
+      }
+      
+      const updatedEvent = await response.json();
+      setEvents(prev => prev.map(e => e.id === eventId ? updatedEvent : e));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Неизвестная ошибка");
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchWithAuth]);
+
+  const handleFileChange = useCallback(async (eventId: number, file: File | null, remove = false) => {
+    const event = events.find(e => e.id === eventId);
     if (!event) return;
-
+    
     const formData = new FormData();
-    formData.append("title", event.title);
-    formData.append("description", event.description || "");
-    formData.append("start_date", event.start_date);
-    formData.append("end_date", event.end_date || "");
-    formData.append("location", event.location || "");
-    formData.append("price", event.price.toString());
-    formData.append("published", event.published.toString());
-    formData.append("created_at", event.created_at);
-    formData.append("updated_at", event.updated_at);
-    formData.append("status", event.status);
-    formData.append("ticket_type_name", event.ticket_type?.name || "standart");
-    formData.append("ticket_type_available_quantity", event.ticket_type?.available_quantity.toString() || "0");
-    formData.append("ticket_type_free_registration", event.ticket_type?.free_registration.toString() || "false");
+    
+    // Добавление всех полей события в formData
+    Object.entries(event).forEach(([key, value]) => {
+      if (key !== "ticket_type" && key !== "image_url" && value !== undefined) {
+        formData.append(key, String(value));
+      }
+    });
+    
+    // Добавление данных о билете
+    if (event.ticket_type) {
+      formData.append("ticket_type_name", event.ticket_type.name);
+      formData.append("ticket_type_available_quantity", event.ticket_type.available_quantity.toString());
+      formData.append("ticket_type_free_registration", event.ticket_type.free_registration.toString());
+    }
+    
+    // Добавление флага удаления изображения и самого изображения
     formData.append("remove_image", remove.toString());
     if (file) formData.append("image_file", file);
+    
+    return updateEvent(eventId, formData);
+  }, [events, updateEvent]);
 
-    updateEvent(eventId, formData);
-  };
+  useEffect(() => {
+    if (isAdminAuth) {
+      fetchEvents();
+    }
+  }, [isAdminAuth, fetchEvents]);
 
   if (!isAdminAuth) {
     return <p className="text-red-500">Доступ только для администраторов</p>;
@@ -133,7 +150,7 @@ const EditEventForm = () => {
                 formData.append("title", e.target.value);
                 Object.entries(event).forEach(([key, value]) => {
                   if (key !== "title" && key !== "ticket_type" && value !== undefined) {
-                    formData.append(key, value.toString());
+                    formData.append(key, String(value));
                   }
                 });
                 if (event.ticket_type) {
@@ -156,7 +173,7 @@ const EditEventForm = () => {
                   formData.append("status", e.target.value);
                   Object.entries(event).forEach(([key, value]) => {
                     if (key !== "status" && key !== "ticket_type" && value !== undefined) {
-                      formData.append(key, value.toString());
+                      formData.append(key, String(value));
                     }
                   });
                   if (event.ticket_type) {
@@ -183,7 +200,10 @@ const EditEventForm = () => {
                     src={`/admin_edits${event.image_url}`}
                     alt="Обложка мероприятия"
                     className="w-32 h-32 object-cover rounded-lg mr-4"
-                    onError={(e) => (e.currentTarget.src = "/placeholder-image.jpg")}
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      target.src = "/placeholder-image.jpg";
+                    }}
                   />
                   <button
                     onClick={() => handleFileChange(event.id, null, true)}

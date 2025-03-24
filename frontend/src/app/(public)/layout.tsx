@@ -1,19 +1,20 @@
-// frontend/src/app/(public)/layout.tsx
 "use client";
 
 import Header from "@/components/Header";
+import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 
 export default function PublicLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Make sure there are no conditions preventing Header from rendering
   return (
     <>
       <Header />
       <main className="min-h-screen pt-16">
-        {children}
+        <PageTransitionWrapper>
+          {children}
+        </PageTransitionWrapper>
       </main>
     </>
   );

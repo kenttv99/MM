@@ -194,14 +194,6 @@ export default function DashboardPage() {
     }
   };
 
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
@@ -307,9 +299,9 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {events.map((event, index) => (
-                        <tr key={event.id ?? index} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
+                      {events.map((event) => (
+                        <tr key={event.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
                           <td className="px-4 py-2 whitespace-nowrap text-sm">
                             {event.status === "registration_open" ? (
@@ -355,8 +347,6 @@ export default function DashboardPage() {
           </div>
         </div>
       </main>
-
-      {/* Модальное окно для подтверждения удаления */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">

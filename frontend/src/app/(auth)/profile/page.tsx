@@ -1,9 +1,8 @@
 // frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Loading from "@/components/Loading";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
@@ -14,7 +13,6 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 
 const Profile = () => {
   const { isAuth, isLoading, userData } = useAuth();
-  const [loadingTimeout, setLoadingTimeout] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -23,43 +21,7 @@ const Profile = () => {
         navigateTo(router, "/");
       }
     }
-
-    const timer = setTimeout(() => {
-      if (isLoading || !userData) {
-        setLoadingTimeout(true);
-      }
-    }, 5000);
-
-    return () => clearTimeout(timer);
-  }, [isAuth, isLoading, userData, router]);
-
-  if (isLoading) {
-    return (
-      <div className="min-h-screen">
-        <Loading />
-        {loadingTimeout && (
-          <div className="container mx-auto px-4 py-10 mt-16">
-            <div className="text-center mt-8 p-6 bg-orange-50 rounded-lg border border-orange-200 shadow-md z-50 relative">
-              <p className="text-orange-700 font-medium mb-2 text-lg">
-                Загрузка данных занимает больше времени, чем обычно.
-              </p>
-              <p className="text-gray-600 mb-6">
-                Возможно, есть проблемы с соединением или сервером.
-              </p>
-              <div className="flex justify-center space-x-4">
-                <button
-                  onClick={() => navigateTo(router, "/")}
-                  className="px-6 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 transition-colors"
-                >
-                  Вернуться на главную
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
+  }, [isAuth, isLoading, router]);
 
   if (!userData) {
     return null;

@@ -1,11 +1,9 @@
 // frontend/src/app/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import Link from "next/link";
-import Loading from "@/components/Loading";
 import Footer from "@/components/Footer";
-import { motion } from "framer-motion";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
 import { IconType } from "react-icons";
 
@@ -34,14 +32,6 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, desc
 );
 
 const PublicHomePage: React.FC = () => {
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    // Убираем искусственную задержку и сразу проверяем состояние
-    setLoading(false);
-    document.body.style.overflow = "auto"; // Сбрасываем стиль overflow
-  }, []);
-
   const features: FeatureCardProps[] = [
     {
       href: "/registration",
@@ -68,21 +58,15 @@ const PublicHomePage: React.FC = () => {
 
   return (
     <>
-      {loading ? (
-        <Loading />
-      ) : (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-          <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 min-h-[calc(100vh-120px)]">
-            <h1 className="text-4xl font-bold text-center mb-12">MOSCOW MELLOWS</h1>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl w-full">
-              {features.map((feature, index) => (
-                <FeatureCard key={index} {...feature} />
-              ))}
-            </div>
-          </main>
-          <Footer />
-        </motion.div>
-      )}
+      <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 min-h-[calc(100vh-120px)]">
+        <h1 className="text-4xl font-bold text-center mb-12">MOSCOW MELLOWS</h1>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl w-full">
+          {features.map((feature, index) => (
+            <FeatureCard key={index} {...feature} />
+          ))}
+        </div>
+      </main>
+      <Footer />
     </>
   );
 };

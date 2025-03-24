@@ -2,16 +2,14 @@
 
 import { usePathname } from "next/navigation";
 import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
-import { ReactNode } from "react";
+import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 
-interface AdminLayoutProps {
-  children: ReactNode;
-}
-
-export default function AdminLayout({ children }: AdminLayoutProps) {
+export default function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const pathname = usePathname();
-
-  // Не показываем текст на странице /admin-login
   const isLoginPage = pathname === "/admin-login";
 
   return (
@@ -19,10 +17,12 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
       <div className="min-h-screen bg-gray-100">
         {!isLoginPage && (
           <p className="text-center text-red-500 py-4">
-            
+            {/* Можно оставить пустым или добавить уведомление */}
           </p>
         )}
-        {children}
+        <PageTransitionWrapper disableLoading={isLoginPage}>
+          {children}
+        </PageTransitionWrapper>
       </div>
     </AdminAuthProvider>
   );

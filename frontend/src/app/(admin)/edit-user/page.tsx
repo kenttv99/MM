@@ -1,14 +1,13 @@
 // frontend/src/app/(admin)/edit-user/page.tsx
 "use client";
 
-import { Suspense, useState, useEffect, ChangeEvent } from "react";
+import { useState, useEffect, ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaUser, FaEnvelope, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import { motion } from "framer-motion";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -38,7 +37,7 @@ async function fetchUserData(userId: string, token: string): Promise<UserData> {
   return response.json();
 }
 
-const EditUserContent: React.FC = () => {
+const EditUserPage: React.FC = () => {
   const searchParams = useSearchParams();
   const userId = searchParams.get("user_id");
   const router = useRouter();
@@ -123,12 +122,7 @@ const EditUserContent: React.FC = () => {
   if (isLoading || !user) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="min-h-screen bg-gray-50"
-    >
+    <div className="min-h-screen bg-gray-50">
       <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-3xl mx-auto">
@@ -241,20 +235,8 @@ const EditUserContent: React.FC = () => {
           </div>
         </div>
       </main>
-    </motion.div>
+    </div>
   );
 };
 
-export default function EditUserPage() {
-  return (
-    <Suspense
-      fallback={
-        <div className="min-h-screen flex items-center justify-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-        </div>
-      }
-    >
-      <EditUserContent />
-    </Suspense>
-  );
-}
+export default EditUserPage;

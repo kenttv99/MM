@@ -22,7 +22,6 @@ interface AdminProfile {
 
 const AdminProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<AdminProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const router = useRouter();
@@ -33,7 +32,6 @@ const AdminProfilePage: React.FC = () => {
   }, [checkAuth]);
 
   const fetchAdminProfile = useCallback(async () => {
-    setIsLoading(true);
     setError(null);
     try {
       const token = localStorage.getItem("admin_token");
@@ -63,8 +61,6 @@ const AdminProfilePage: React.FC = () => {
     } catch {
       setError("Не удалось загрузить профиль. Проверьте соединение с сервером.");
       setProfile(null);
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 
@@ -77,14 +73,6 @@ const AdminProfilePage: React.FC = () => {
       }
     }
   }, [isAdminAuth, authLoading, router, fetchAdminProfile]);
-
-  if (authLoading || isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">

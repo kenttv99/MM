@@ -1,7 +1,7 @@
 // frontend/src/contexts/AdminAuthContext.tsx
 "use client";
 
-import React, { createContext, useState, useEffect, useContext, useCallback } from "react";
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 
 interface AdminData {
@@ -55,6 +55,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
+  const hasCheckedAuth = useRef(false); // Добавляем флаг для отслеживания первого вызова
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     setIsLoading(true);
@@ -98,11 +99,14 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
     setIsAdminAuth(false);
     setAdminData(null);
-    router.push("/admin-login");
+    router.push("/admin-login", { scroll: false });
   }, [router]);
 
   useEffect(() => {
-    checkAuth().catch(err => console.error("Initial checkAuth failed:", err));
+    if (!hasCheckedAuth.current) { // Проверяем, был ли уже вызван checkAuth
+      hasCheckedAuth.current = true;
+      checkAuth().catch(err => console.error("Initial checkAuth failed:", err));
+    }
   }, [checkAuth]);
 
   const contextValue: AdminAuthContextType = {

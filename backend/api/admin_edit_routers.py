@@ -229,100 +229,97 @@ async def update_event(
     db: AsyncSession = Depends(get_async_db)
 ):
     """Обновление мероприятия."""
-    async with db.begin():  # Явно начинаем транзакцию
-        try:
-            token = credentials.credentials
-            current_admin = await get_current_admin(token, db)
-            
-            # Подготовка данных с валидацией
-            processed_data = await prepare_event_data(form_data)
-            
-            # Находим мероприятие с предварительной загрузкой tickets
-            event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
-            if not event:
-                raise HTTPException(status_code=404, detail="Мероприятие не найдено")
-            
-            # Обработка изображения
-            image_url = await process_image(
-                image_file, 
-                processed_data["remove_image"], 
-                event.image_url
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        
+        # Подготовка данных с валидацией
+        processed_data = await prepare_event_data(form_data)
+        
+        # Находим мероприятие с предварительной загрузкой tickets
+        event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
+        if not event:
+            raise HTTPException(status_code=404, detail="Мероприятие не найдено")
+        
+        # Обработка изображения
+        image_url = await process_image(
+            image_file, 
+            processed_data["remove_image"], 
+            event.image_url
+        )
+        
+        # Обновляем поля мероприятия
+        event.title = form_data.title
+        event.description = form_data.description
+        event.start_date = processed_data["start_date_dt"]
+        event.end_date = processed_data["end_date_dt"]
+        event.location = form_data.location
+        event.image_url = image_url
+        event.price = processed_data["price_float"]
+        event.published = form_data.published
+        event.created_at = processed_data["created_at_dt"]
+        event.updated_at = processed_data["updated_at_dt"]
+        event.status = form_data.status
+        
+        # Обновляем ticket_type
+        ticket_query = select(TicketType).where(TicketType.event_id == event_id)
+        ticket = (await db.execute(ticket_query)).scalar_one_or_none()
+        
+        if ticket:
+            ticket.name = form_data.ticket_type_name
+            ticket.price = processed_data["price_float"]
+            ticket.available_quantity = processed_data["available_quantity"]
+            ticket.free_registration = processed_data["free_registration"]
+        else:
+            ticket = TicketType(
+                event_id=event_id,
+                name=form_data.ticket_type_name,
+                price=processed_data["price_float"],
+                available_quantity=processed_data["available_quantity"],
+                free_registration=processed_data["free_registration"],
+                sold_quantity=0,
             )
-            
-            # Обновляем поля мероприятия
-            event.title = form_data.title
-            event.description = form_data.description
-            event.start_date = processed_data["start_date_dt"]
-            event.end_date = processed_data["end_date_dt"]
-            event.location = form_data.location
-            event.image_url = image_url
-            event.price = processed_data["price_float"]
-            event.published = form_data.published
-            event.created_at = processed_data["created_at_dt"]
-            event.updated_at = processed_data["updated_at_dt"]
-            event.status = form_data.status
-            
-            # Обновляем ticket_type
-            ticket_query = select(TicketType).where(TicketType.event_id == event_id)
-            ticket = (await db.execute(ticket_query)).scalar_one_or_none()
-            
-            if ticket:
-                ticket.name = form_data.ticket_type_name
-                ticket.price = processed_data["price_float"]
-                ticket.available_quantity = processed_data["available_quantity"]
-                ticket.free_registration = processed_data["free_registration"]
-            else:
-                ticket = TicketType(
-                    event_id=event_id,
-                    name=form_data.ticket_type_name,
-                    price=processed_data["price_float"],
-                    available_quantity=processed_data["available_quantity"],
-                    free_registration=processed_data["free_registration"],
-                    sold_quantity=0,
-                )
-                db.add(ticket)
-            
-            # Выполняем все операции перед коммитом
-            await db.flush()  # Сохраняем изменения в базе
-            await db.refresh(event)  # Обновляем объект event с уже загруженными tickets
-            
-            # Формируем ответ до commit, используя загруженные данные
-            ticket_data = event.tickets[0] if event.tickets else ticket
-            response_data = EventCreate(
-                id=event.id,
-                title=event.title,
-                description=event.description,
-                start_date=event.start_date,
-                end_date=event.end_date,
-                location=event.location,
-                image_url=event.image_url,
-                price=float(event.price),
-                published=event.published,
-                created_at=event.created_at,
-                updated_at=event.updated_at,
-                status=event.status,
-                ticket_type=TicketTypeCreate(
-                    name=ticket_data.name,
-                    price=float(ticket_data.price),
-                    available_quantity=ticket_data.available_quantity,
-                    free_registration=ticket_data.free_registration,
-                ) if ticket_data else None,
-            )
-            
-            # Логируем активность до commit
-            await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
-            
-            await db.commit()  # Завершаем транзакцию
-            
-            return response_data
-        except ValueError as e:
-            logger.error(f"Validation error in update_event: {str(e)}")
-            await db.rollback()
-            raise HTTPException(status_code=422, detail=str(e))
-        except Exception as e:
-            logger.error(f"Error updating event {event_id}: {str(e)}")
-            await db.rollback()
-            raise HTTPException(status_code=500, detail=f"Не удалось обновить мероприятие: {str(e)}")
+            db.add(ticket)
+        
+        # Выполняем все операции перед логированием
+        await db.flush()  # Сохраняем изменения в базе
+        await db.refresh(event)  # Обновляем объект event с уже загруженными tickets
+        
+        # Формируем ответ, используя загруженные данные
+        ticket_data = event.tickets[0] if event.tickets else ticket
+        response_data = EventCreate(
+            id=event.id,
+            title=event.title,
+            description=event.description,
+            start_date=event.start_date,
+            end_date=event.end_date,
+            location=event.location,
+            image_url=event.image_url,
+            price=float(event.price),
+            published=event.published,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
+            status=event.status,
+            ticket_type=TicketTypeCreate(
+                name=ticket_data.name,
+                price=float(ticket_data.price),
+                available_quantity=ticket_data.available_quantity,
+                free_registration=ticket_data.free_registration,
+            ) if ticket_data else None,
+        )
+        
+        # Логируем активность (это также выполнит commit)
+        await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
+        
+        return response_data
+    except ValueError as e:
+        logger.error(f"Validation error in update_event: {str(e)}")
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error updating event {event_id}: {str(e)}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Не удалось обновить мероприятие: {str(e)}")
 
 # Маршрут для получения списка мероприятий
 @router.get("/events", response_model=list[EventCreate])

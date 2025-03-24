@@ -11,7 +11,6 @@ export const useUserForm = ({ onSuccess, onError }: UseUserFormOptions = {}) => 
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
 
   // Загрузка данных пользователя
   const loadUser = useCallback(async (userId: string) => {
@@ -53,14 +52,10 @@ export const useUserForm = ({ onSuccess, onError }: UseUserFormOptions = {}) => 
     if (!userData) return;
     
     setError(null);
-    setSuccess(null);
     setIsLoading(true);
     
     try {
       const result = await updateUser(userData.id, userData);
-      setSuccess("Пользователь успешно обновлён");
-      setUserData(result);
-      
       if (onSuccess) {
         onSuccess(result);
       }
@@ -80,7 +75,6 @@ export const useUserForm = ({ onSuccess, onError }: UseUserFormOptions = {}) => 
     userData,
     isLoading,
     error,
-    success,
     loadUser,
     handleChange,
     handleSubmit

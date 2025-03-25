@@ -20,6 +20,7 @@ interface AuthContextType {
   checkAuth: () => void;
   isLoading: boolean;
   logout: () => void;
+  handleLoginSuccess: (token: string, user: UserData) => void; // Новый метод
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,14 +30,12 @@ const STORAGE_KEYS = {
   USER_DATA: "user_data",
 };
 
-// Интерфейс для результата декодирования JWT
 interface JwtPayload {
   exp: number;
   sub: string;
-  [key: string]: unknown; // Для дополнительных полей в токене
+  [key: string]: unknown;
 }
 
-// Функция для декодирования JWT без проверки подписи
 function decodeJwt(token: string): JwtPayload | null {
   try {
     const parts = token.split(".");
@@ -49,7 +48,6 @@ function decodeJwt(token: string): JwtPayload | null {
   }
 }
 
-// Проверяем, истёк ли срок действия токена
 function isTokenExpired(token: string): boolean {
   const decoded = decodeJwt(token);
   if (!decoded) return true;
@@ -65,7 +63,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const checkAuth = useCallback(() => {
     setIsLoading(true);
-
     let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
     if (!token) {
       setIsAuth(false);
@@ -112,11 +109,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
   }, []);
 
+  const handleLoginSuccess = useCallback((token: string, user: UserData) => {
+    localStorage.setItem(STORAGE_KEYS.TOKEN, token);
+    localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
+    setIsAuth(true);
+    setUserData(user);
+    window.dispatchEvent(new Event('auth-change'));
+    setIsLoading(false);
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER_DATA);
     setIsAuth(false);
     setUserData(null);
+    window.dispatchEvent(new Event('auth-change'));
     router.push("/");
   }, [router]);
 
@@ -131,6 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth,
     isLoading,
     logout,
+    handleLoginSuccess,
   };
 
   return (

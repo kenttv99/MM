@@ -41,7 +41,7 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_async_d
 @router.post("/login")
 @rate_limit("login")
 async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
-    """Авторизация пользователя с возвратом токена."""
+    """Авторизация пользователя с возвратом токена и данных пользователя."""
     db_user = await get_user_by_username(db, user.email)
     if not db_user or not pwd_context.verify(user.password, db_user.password_hash):
         await log_user_activity(db, db_user.id if db_user else None, request, action="login_failed")
@@ -57,7 +57,16 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
     )
     await log_user_activity(db, db_user.id, request, action="login")
     logger.info(f"User logged in successfully: {db_user.email}")
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "id": db_user.id,
+        "fio": db_user.fio,
+        "email": db_user.email,
+        "telegram": db_user.telegram,
+        "whatsapp": db_user.whatsapp,
+        "avatar_url": db_user.avatar_url
+    }
 
 @router.get("/me", response_model=UserResponse)
 @rate_limit("access_me")

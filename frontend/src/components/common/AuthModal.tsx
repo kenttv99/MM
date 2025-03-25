@@ -57,8 +57,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
   success,
   children 
 }) => {
-  if (!isOpen) return null;
-
+  // Only render when isOpen is true
   return (
     <AnimatePresence>
       {isOpen && (

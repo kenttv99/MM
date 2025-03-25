@@ -1,4 +1,4 @@
-// frontend/src/hooks/useAuthForm.tsx
+// frontend/src/hooks/useAuthForm.tsx (исправленный полный код)
 import { useState, ChangeEvent, FormEvent, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
@@ -21,7 +21,7 @@ export const useAuthForm = ({
   isLogin = false
 }: UseAuthFormProps) => {
   const router = useRouter();
-  const { setIsAuth, checkAuth } = useAuth();
+  const { handleLoginSuccess } = useAuth();
   const [formValues, setFormValues] = useState<AuthFormValues>(initialValues);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -49,11 +49,17 @@ export const useAuthForm = ({
         const data = await response.json();
         
         if (isLogin && data.access_token) {
-          localStorage.setItem('token', data.access_token);
-          setIsAuth(true);
+          const userData = {
+            id: data.id,
+            fio: data.fio || '',
+            email: data.email,
+            telegram: data.telegram || '',
+            whatsapp: data.whatsapp || '',
+            avatar_url: data.avatar_url || undefined
+          };
+          
+          handleLoginSuccess(data.access_token, userData);
           setIsSuccess(true);
-          await checkAuth();
-          window.dispatchEvent(new Event('auth-change'));
           
           if (redirectTo) {
             setTimeout(() => {
@@ -61,8 +67,8 @@ export const useAuthForm = ({
             }, 1000);
           }
         } else {
-          // Для регистрации или других типов форм
           setFormValues(initialValues);
+          setIsSuccess(true);
           if (onSuccess) onSuccess();
         }
       } else {
@@ -78,11 +84,10 @@ export const useAuthForm = ({
       }
     } catch (error) {
       setError(`Произошла ошибка: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
-      console.error('Form submission error:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [formValues, endpoint, isLogin, redirectTo, onSuccess, setIsAuth, checkAuth, router, initialValues]);
+  }, [formValues, endpoint, isLogin, redirectTo, onSuccess, handleLoginSuccess, router, initialValues]);
 
   return {
     formValues,

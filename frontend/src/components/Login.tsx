@@ -32,8 +32,8 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
     onSuccess: () => {} // Добавляем пустую функцию onSuccess
   });
 
-  // Если используется как страница, а не модалка
-  if (!isOpen || !onClose) {
+  // If using as a standalone component and not a modal
+  if (!isOpen && !onClose) {
     return (
       <div className="space-y-6">
         <form onSubmit={handleSubmit}>
@@ -70,11 +70,16 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
     );
   }
 
-  // Если используется как модалка
+  // Only render the modal if isOpen is true
+  if (!isOpen) {
+    return null;
+  }
+
+  // If using as a modal
   return (
     <AuthModal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={onClose!}
       title="Вход"
       error={error}
       success={isSuccess ? "Вход выполнен успешно!" : undefined}

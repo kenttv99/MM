@@ -14,7 +14,10 @@ router = APIRouter(
 async def get_events(db: AsyncSession = Depends(get_async_db)):
     try:
         result = await db.execute(
-            select(Event).where(Event.status != "draft").options(selectinload(Event.tickets))
+            select(Event)
+            .where(Event.status != "draft")  # Существующий фильтр
+            .where(Event.published == True)  # Новый фильтр
+            .options(selectinload(Event.tickets))
         )
         events = result.scalars().all()
         
@@ -47,8 +50,8 @@ async def get_event(
 ):
     try:
         db_event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
-        if not db_event:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+        if not db_event or not db_event.published:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found or not published")
         
         event_dict = db_event.__dict__
         if db_event.tickets and len(db_event.tickets) > 0:

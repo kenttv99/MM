@@ -1,12 +1,11 @@
-// frontend/src/app/event/[id]/page.tsx
+// frontend/src/app/(public)/event/[id]/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams} from "next/navigation";
+import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
-import Media from "@/components/Media";
 import { notFound } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -25,6 +24,7 @@ interface EventData {
     free_registration: boolean;
   };
   image_url?: string;
+  published: boolean;
 }
 
 export default function EventPage() {
@@ -43,9 +43,12 @@ export default function EventPage() {
           cache: "no-store",
         });
         if (!res.ok) {
-          throw new Error("Event not found");
+          throw new Error("Event not found or not published");
         }
-        const data = await res.json();
+        const data: EventData = await res.json();
+        if (!data.published) {
+          throw new Error("Event is not published");
+        }
         setEvent(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Произошла ошибка");
@@ -59,7 +62,6 @@ export default function EventPage() {
     }
   }, [id]);
 
-  // Добавляем слушатель события auth-change
   useEffect(() => {
     const handleAuthChange = () => {
       checkAuth();
@@ -89,51 +91,52 @@ export default function EventPage() {
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-grow">
-        {/* Обложка с затемнением и названием */}
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: "easeOut" }}
-          className="relative h-[400px] w-full"
+          className="relative h-[400px] w-full px-4 sm:px-6 lg:px-8 mt-16 mb-8"
         >
-          {event.image_url ? (
-            <Image
-              src={event.image_url}
-              alt={event.title}
-              fill
-              className="object-cover"
-              priority
-            />
-          ) : (
-            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-              <span className="text-gray-500 text-lg">Нет изображения</span>
+          <div className="relative h-full w-full rounded-xl overflow-hidden">
+            {event.image_url ? (
+              <Image
+                src={event.image_url}
+                alt={event.title}
+                fill
+                className="object-cover"
+                priority
+              />
+            ) : (
+              <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                <span className="text-gray-500 text-lg">Нет изображения</span>
+              </div>
+            )}
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+              <motion.h1
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.2, duration: 0.5 }}
+                className="text-4xl md:text-5xl font-bold text-white text-center px-4"
+              >
+                {event.title}
+              </motion.h1>
             </div>
-          )}
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-            <motion.h1
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ delay: 0.2, duration: 0.5 }}
-              className="text-4xl md:text-5xl font-bold text-white text-center px-4"
-            >
-              {event.title}
-            </motion.h1>
           </div>
         </motion.section>
 
-        {/* Основной контент */}
         <div className="container mx-auto px-4 py-12">
-          {/* Зона регистрации */}
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.5 }}
             className="mb-12"
           >
-            {event.status === "registration_open" && event.ticket_type && (
-              <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto">
+            {event.ticket_type && (
+              <div className={`bg-white p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto ${event.status !== "registration_open" ? "opacity-50 pointer-events-none" : ""}`}>
                 <h2 className="text-2xl font-semibold mb-4 text-gray-800 text-center">
-                  Регистрация открыта
+                  {event.status === "registration_open" ? "Регистрация открыта" : 
+                   event.status === "registration_closed" ? "Регистрация закрыта" :
+                   event.status === "completed" ? "Мероприятие завершено" : "Черновик"}
                 </h2>
                 <EventRegistration
                   eventId={event.id}
@@ -146,44 +149,21 @@ export default function EventPage() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.5, duration: 0.3 }}
-                    className="text-gray-600 mt-4 text-center"
+                    className="text-center mt-6 text-gray-700 font-medium bg-orange-50 py-3 px-6 rounded-full shadow-sm border border-orange-100 max-w-md mx-auto"
                   >
-                    Пожалуйста,{" "}
+                    Для регистрации на мероприятие{" "}
                     <button
                       onClick={handleLoginRedirect}
-                      className="text-blue-500 hover:text-blue-600 font-medium underline transition-colors duration-200"
+                      className="text-orange-600 font-semibold hover:text-orange-700 underline transition-colors duration-200"
                     >
-                      авторизуйтесь
-                    </button>{" "}
-                    для регистрации.
+                      войдите в аккаунт
+                    </button>
                   </motion.p>
                 )}
               </div>
             )}
-
-            {event.status === "registration_closed" && (
-              <p className="text-gray-500 text-center text-lg">
-                Регистрация на мероприятие закрыта.
-              </p>
-            )}
-
-            {event.status === "completed" && (
-              <div className="max-w-2xl mx-auto">
-                <h2 className="text-2xl font-semibold mb-4 text-gray-800 text-center">
-                  Мероприятие завершено
-                </h2>
-                <Media />
-              </div>
-            )}
-
-            {event.status === "draft" && (
-              <p className="text-gray-500 text-center text-lg">
-                Мероприятие находится в черновике и недоступно для просмотра.
-              </p>
-            )}
           </motion.section>
 
-          {/* Описание */}
           {event.description && (
             <motion.section
               initial={{ opacity: 0, y: 20 }}
@@ -199,7 +179,6 @@ export default function EventPage() {
       </main>
       <Footer />
 
-      {/* Модальное окно для авторизации */}
       <AnimatePresence>
         {isLoginModalOpen && (
           <Login

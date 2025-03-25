@@ -6,6 +6,13 @@ import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
 
+interface TicketType {
+  name: string;
+  price: number;
+  available_quantity: number;
+  free_registration: boolean;
+}
+
 interface EventData {
   id: number;
   title: string;
@@ -14,6 +21,8 @@ interface EventData {
   start_date: string;
   end_date?: string;
   image_url?: string;
+  published: boolean;
+  ticket_type?: TicketType;
 }
 
 const EventsPage = () => {
@@ -39,7 +48,7 @@ const EventsPage = () => {
         }
 
         const data: EventData[] = await response.json();
-        setEvents(data); // Фильтрация draft уже выполнена на сервере
+        setEvents(data.filter(event => event.published));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Не удалось загрузить мероприятия");
       } finally {
@@ -107,7 +116,7 @@ const EventsPage = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => (
                 <Link href={`/event/${event.id}`} key={event.id}>
-                  <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden">
+                  <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden relative">
                     <div className="relative h-48">
                       {event.image_url ? (
                         <>
@@ -118,7 +127,7 @@ const EventsPage = () => {
                             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                             className="object-cover transition-transform duration-300 hover:scale-105"
                           />
-                          <div className="absolute inset-0 bg-black/40" /> {/* Затемнение обложки */}
+                          <div className="absolute inset-0 bg-black/40" />
                         </>
                       ) : (
                         <div className="w-full h-full bg-gray-200 flex items-center justify-center">
@@ -135,7 +144,7 @@ const EventsPage = () => {
                         {event.status === "completed" && "Завершено"}
                       </span>
                     </div>
-                    <div className="p-5">
+                    <div className="p-5 relative">
                       <h3 className="text-lg font-semibold text-gray-800 mb-2 line-clamp-2">
                         {event.title}
                       </h3>
@@ -150,6 +159,14 @@ const EventsPage = () => {
                           {formatDateTime(event.start_date, event.end_date)}
                         </span>
                       </div>
+                      {/* Обновляем отображение мест */}
+                      {event.ticket_type && (
+                        <span className="absolute bottom-2 right-2 bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-1 rounded-full">
+                          {event.status === "registration_open" && event.ticket_type.available_quantity > 0
+                            ? `Доступно мест: ${event.ticket_type.available_quantity}`
+                            : "Места распределены"}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </Link>

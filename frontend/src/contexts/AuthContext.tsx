@@ -2,6 +2,7 @@
 "use client";
 
 import React, { createContext, useState, useEffect, useContext, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 interface UserData {
   id: number;
@@ -58,6 +59,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuth, setIsAuth] = useState<boolean>(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const router = useRouter();
 
   const checkAuth = useCallback(() => {
     setIsLoading(true);
@@ -122,9 +124,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuth(false);
     setUserData(null);
     window.dispatchEvent(new Event('auth-change'));
-    // Удаляем перенаправление
-    // router.push("/");
-  }, []);
+    // Удаляем перенаправление только если текущий путь не /profile
+    if (window.location.pathname === "/profile") {
+      router.push("/");
+    }
+  }, [router]);
 
   useEffect(() => {
     checkAuth();

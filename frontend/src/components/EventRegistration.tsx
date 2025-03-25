@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
+import Login from "./Login";
 
 interface EventRegistrationProps {
   eventId: number;
@@ -22,11 +23,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 }) => {
   const { userData, isAuth } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRegistering, setIsRegistering] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
 
-  // Ограничиваем количество отображаемых мест (например, до 10)
   const maxVisibleSeats = 10;
   const seatsArray = Array.from(
     { length: Math.min(availableQuantity, maxVisibleSeats) },
@@ -34,11 +35,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   );
 
   const handleRegisterClick = () => {
-    if (!isAuth || !userData) {
-      setError("Пожалуйста, авторизуйтесь для регистрации на мероприятие.");
-      return;
+    if (isAuth && userData) {
+      setIsModalOpen(true);
+    } else {
+      setIsLoginModalOpen(true);
     }
-    setIsModalOpen(true);
   };
 
   const handleConfirmRegister = async () => {
@@ -80,7 +81,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       <div className="flex flex-col items-center">
         <div className="flex items-center justify-between w-full mb-4">
           <div className="flex items-center">
-            <FaTicketAlt className="text-blue-500 mr-2" />
+            <FaTicketAlt className="text-orange-500 mr-2" />
             <h3 className="text-lg font-semibold text-gray-800">
               Доступные места: {availableQuantity}
             </h3>
@@ -93,7 +94,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
               availableQuantity === 0 || isRegistering
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-blue-500 text-white hover:bg-blue-600"
+                : "bg-orange-500 text-white hover:bg-orange-600"
             }`}
           >
             {isRegistering ? "Регистрация..." : "Забронировать"}
@@ -114,8 +115,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   className={`w-8 h-8 rounded-md transition-all duration-200 ${
                     isRegistering
                       ? "bg-gray-200 cursor-not-allowed"
-                      : "bg-blue-100 hover:bg-blue-200"
-                  } flex items-center justify-center text-sm font-medium text-blue-600`}
+                      : "bg-orange-100 hover:bg-orange-200 text-orange-600"
+                  } flex items-center justify-center text-sm font-medium`}
                   title={`Место ${seat + 1}`}
                 >
                   {seat + 1}
@@ -165,6 +166,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           </div>
         </div>
       </AuthModal>
+
+      <Login
+        isOpen={isLoginModalOpen}
+        onClose={() => setIsLoginModalOpen(false)}
+      />
     </div>
   );
 };

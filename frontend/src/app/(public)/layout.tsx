@@ -1,3 +1,4 @@
+// frontend/src/app/(public)/layout.tsx
 "use client";
 
 import Header from "@/components/Header";

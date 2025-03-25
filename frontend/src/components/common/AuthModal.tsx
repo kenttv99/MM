@@ -67,7 +67,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
           animate={{ opacity: 1, backdropFilter: "blur(4px)" }}
           exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
-          className="fixed inset-0 bg-white/75 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" // Изменяем фон на более темный
           onClick={onClose}
         >
           <motion.div

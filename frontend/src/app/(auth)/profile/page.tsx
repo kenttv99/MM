@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface UserData {
@@ -13,9 +14,15 @@ interface UserData {
   avatar_url?: string;
 }
 
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
 
 const Profile = () => {
-  const { isAuth, isLoading: authLoading, userData: contextUserData, checkAuth } = useAuth();
+  const { isAuth, isLoading: authLoading, userData: contextUserData } = useAuth();
+  const router = useRouter();
   const [userData, setUserData] = useState<UserData | null>(contextUserData);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isFetching, setIsFetching] = useState(false);
@@ -46,34 +53,21 @@ const Profile = () => {
       setUserData(freshData);
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
-      setUserData(contextUserData);
+      setUserData(contextUserData); // Возвращаемся к данным из контекста при ошибке
     } finally {
       setIsFetching(false);
     }
   }, [contextUserData]);
 
   useEffect(() => {
-    const handleAuthChange = () => {
-      checkAuth();
-      if (!isAuth) {
-        setUserData(null); // Очищаем данные профиля при логауте
-      }
-    };
-
-    window.addEventListener("auth-change", handleAuthChange);
-    return () => window.removeEventListener("auth-change", handleAuthChange);
-  }, [checkAuth, isAuth]);
-
-  useEffect(() => {
     if (!authLoading) {
       if (!isAuth) {
-        // Не перенаправляем, просто очищаем данные
-        setUserData(null);
+        navigateTo(router, "/");
       } else {
         fetchUserProfile();
       }
     }
-  }, [isAuth, authLoading, fetchUserProfile]);
+  }, [isAuth, authLoading, router, fetchUserProfile]);
 
   if (authLoading || isFetching) {
     return (
@@ -81,14 +75,6 @@ const Profile = () => {
         <div className="flex items-center justify-center min-h-[200px]">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
         </div>
-      </div>
-    );
-  }
-
-  if (!isAuth) {
-    return (
-      <div className="container mx-auto px-4 py-10 mt-16">
-        <p className="text-gray-500 text-center">Пожалуйста, авторизуйтесь, чтобы просмотреть профиль.</p>
       </div>
     );
   }

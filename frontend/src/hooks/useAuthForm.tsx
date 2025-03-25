@@ -1,7 +1,6 @@
-// frontend/src/hooks/useAuthForm.tsx (исправленный полный код)
+// frontend/src/hooks/useAuthForm.tsx
 import { useState, ChangeEvent, FormEvent, useCallback } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { useRouter } from 'next/navigation';
 
 type AuthFormValues = Record<string, string>;
 
@@ -17,10 +16,8 @@ export const useAuthForm = ({
   initialValues,
   endpoint,
   onSuccess,
-  redirectTo,
   isLogin = false
 }: UseAuthFormProps) => {
-  const router = useRouter();
   const { handleLoginSuccess } = useAuth();
   const [formValues, setFormValues] = useState<AuthFormValues>(initialValues);
   const [error, setError] = useState('');
@@ -61,10 +58,9 @@ export const useAuthForm = ({
           handleLoginSuccess(data.access_token, userData);
           setIsSuccess(true);
           
-          if (redirectTo) {
-            setTimeout(() => {
-              router.push(redirectTo);
-            }, 1000);
+          // Вызываем onSuccess для закрытия модального окна
+          if (onSuccess) {
+            setTimeout(() => onSuccess(), 1000); // Задержка для отображения "Успешно!"
           }
         } else {
           setFormValues(initialValues);
@@ -87,7 +83,7 @@ export const useAuthForm = ({
     } finally {
       setIsLoading(false);
     }
-  }, [formValues, endpoint, isLogin, redirectTo, onSuccess, handleLoginSuccess, router, initialValues]);
+  }, [formValues, endpoint, isLogin, onSuccess, handleLoginSuccess, initialValues]);
 
   return {
     formValues,

@@ -8,8 +8,6 @@ import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icon
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
-
-// Дебаунсинг функция
 function debounce<F extends (arg: string) => void>(func: F, wait: number) {
   let timeout: NodeJS.Timeout | null = null;
   return (arg: string) => {
@@ -33,7 +31,6 @@ interface Event {
   status: string;
 }
 
-// Общий хук для выполнения запросов
 async function fetchData<U>(
   url: string,
   token: string | null,
@@ -45,37 +42,32 @@ async function fetchData<U>(
   setError(null);
   try {
     if (!token) {
-      setError("Отсутствует токен авторизации");
-      return;
+      throw new Error("Отсутствует токен авторизации");
     }
-
-    const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
 
     const response = await fetch(url, {
       headers: {
-        Authorization: `Bearer ${authToken}`,
+        Authorization: `Bearer ${token}`,
         "Accept": "application/json",
       },
+      cache: "no-store",
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
-      setData([] as U[]);
-      return;
+      throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
     setData(Array.isArray(data) ? data : []);
-  } catch {
-    setError("Не удалось загрузить данные. Проверьте соединение с сервером.");
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Не удалось загрузить данные");
     setData([] as U[]);
   } finally {
     setLoading(false);
   }
 }
 
-// Новая функция для управления навигацией
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -99,14 +91,14 @@ export default function DashboardPage() {
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
-
-  useEffect(() => {
-    if (!authLoading && !isAdminAuth) {
-      navigateTo(router, "/admin-login");
-    }
-  }, [isAdminAuth, authLoading, router]);
+    const initialize = async () => {
+      const isAuthenticated = await checkAuth();
+      if (!isAuthenticated && !authLoading) {
+        navigateTo(router, "/admin-login");
+      }
+    };
+    initialize();
+  }, [checkAuth, authLoading, router]);
 
   const fetchEvents = async (search: string) => {
     const url = search.trim()
@@ -159,40 +151,38 @@ export default function DashboardPage() {
     try {
       const token = localStorage.getItem("admin_token");
       if (!token) {
-        setError("Отсутствует токен авторизации");
-        setShowDeleteModal(false);
-        setEventToDelete(null);
-        return;
+        throw new Error("Отсутствует токен авторизации");
       }
-
-      const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
 
       const response = await fetch(`/admin_edits/${eventToDelete}`, {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${authToken}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        setError(`Ошибка API: ${response.status} ${response.statusText} - ${errorText}`);
-        setShowDeleteModal(false);
-        setEventToDelete(null);
-        return;
+        throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
       }
 
       setEvents(events.filter((event) => event.id !== eventToDelete));
-      setShowDeleteModal(false);
-      setEventToDelete(null);
-    } catch {
-      setError("Не удалось удалить мероприятие. Проверьте соединение с сервером.");
-      setShowDeleteModal(false);
-      setEventToDelete(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Не удалось удалить мероприятие");
     } finally {
       setIsLoading((prev) => ({ ...prev, events: false }));
+      setShowDeleteModal(false);
+      setEventToDelete(null);
     }
   };
+
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">

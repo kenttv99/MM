@@ -379,6 +379,7 @@ async def get_admin_events(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve events"
         )
+        
 
 # Маршрут для получения списка пользователей
 @router.get("/users", response_model=list[UserResponse])
@@ -548,4 +549,62 @@ async def update_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Не удалось обновить пользователя: {str(e)}"
+        )   
+            
+@router.get("/{event_id}", response_model=EventCreate)
+async def get_admin_event(
+    event_id: int,
+    db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    request: Request = None
+):
+    """Получение конкретного мероприятия для админа."""
+    try:
+        token = credentials.credentials
+        current_admin = await get_current_admin(token, db)
+        await log_admin_activity(db, current_admin.id, request, action=f"access_event_{event_id}")
+
+        query = select(Event).where(Event.id == event_id).options(selectinload(Event.tickets))
+        result = await db.execute(query)
+        event = result.scalar_one_or_none()
+
+        if not event:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Мероприятие не найдено"
+            )
+
+        event_dict = {
+            "id": event.id,
+            "title": event.title,
+            "description": event.description,
+            "start_date": event.start_date,
+            "end_date": event.end_date,
+            "location": event.location,
+            "image_url": event.image_url,
+            "price": float(event.price) if event.price is not None else 0.0,
+            "published": event.published,
+            "created_at": event.created_at,
+            "updated_at": event.updated_at,
+            "status": event.status
+        }
+        if event.tickets:
+            ticket = event.tickets[0]
+            event_dict["ticket_type"] = {
+                "name": ticket.name,
+                "price": float(ticket.price),
+                "available_quantity": ticket.available_quantity,
+                "free_registration": ticket.free_registration
+            }
+
+        logger.info(f"Admin {current_admin.email} accessed event {event_id}")
+        return EventCreate(**event_dict)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error retrieving event {event_id} for admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve event"
         )
+        

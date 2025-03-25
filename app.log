@@ -53,3 +53,4 @@ pip install python-multipart
 2025-03-25 00:58:01,379 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
 2025-03-25 01:02:14,906 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
 2025-03-25 01:07:35,196 - root - ERROR - Error updating event 9: Can't operate on closed transaction inside context manager.  Please complete the context manager before emitting further commands.
+2025-03-25 23:59:27,070 - root - ERROR - Error creating event: 422: Количество мест должно быть больше 0

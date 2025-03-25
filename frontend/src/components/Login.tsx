@@ -15,7 +15,6 @@ interface LoginProps {
 
 const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) => {
   const endpoint = isAdminLogin ? "/admin/login" : "/auth/login";
-  const redirectTo = isAdminLogin ? "/admin" : "/";
   
   const {
     formValues,
@@ -27,9 +26,8 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
   } = useAuthForm({
     initialValues: { email: "", password: "" },
     endpoint,
-    redirectTo,
     isLogin: true,
-    onSuccess: () => {} // Добавляем пустую функцию onSuccess
+    onSuccess: onClose // Закрываем модальное окно после успешной авторизации
   });
 
   // If using as a standalone component and not a modal
@@ -75,7 +73,6 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
     return null;
   }
 
-  // If using as a modal
   return (
     <AuthModal
       isOpen={isOpen}

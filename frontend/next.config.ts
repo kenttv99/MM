@@ -1,29 +1,35 @@
+// frontend/next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async rewrites() {
+    console.log("Applying rewrites...");
     return [
       {
-        source: '/images/:path*', // Все запросы к /images/...
-        destination: 'http://localhost:8001/images/:path*', // Перенаправляем на FastAPI
+        source: "/auth/:path*",
+        destination: "http://localhost:8000/auth/:path*",
       },
       {
-        source: '/admin/:path*', // Для API-роутов админа
-        destination: 'http://localhost:8001/admin/:path*',
+        source: "/v1/public/events/:path*",
+        destination: "http://localhost:8000/v1/public/events/:path*",
       },
       {
-        source: '/admin_edits/:path*', // Для редактирования
-        destination: 'http://localhost:8001/admin_edits/:path*',
+        source: "/register",
+        destination: "http://localhost:8000/register",
       },
       {
-        source: '/events/:path*', // Для публичных мероприятий
-        destination: 'http://localhost:8001/events/:path*',
+        source: "/admin/:path*",
+        destination: "http://localhost:8001/admin/:path*",
       },
       {
-        source: '/auth/:path*', // Для авторизации пользователей
-        destination: 'http://localhost:8000/auth/:path*', // server_user.py на 8000
+        source: "/admin_edits/:path*",
+        destination: "http://localhost:8001/admin_edits/:path*",
+      },
+      {
+        source: "/images/:path*",
+        destination: "http://localhost:8001/images/:path*",
       },
     ];
   },
 };
 
-export default nextConfig;
+module.exports = nextConfig;

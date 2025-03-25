@@ -2,7 +2,6 @@
 "use client";
 
 import React, { createContext, useState, useEffect, useContext, useCallback } from "react";
-import { useRouter } from "next/navigation";
 
 interface UserData {
   id: number;
@@ -20,7 +19,7 @@ interface AuthContextType {
   checkAuth: () => void;
   isLoading: boolean;
   logout: () => void;
-  handleLoginSuccess: (token: string, user: UserData) => void; // Новый метод
+  handleLoginSuccess: (token: string, user: UserData) => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -59,7 +58,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isAuth, setIsAuth] = useState<boolean>(false);
   const [userData, setUserData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const router = useRouter();
 
   const checkAuth = useCallback(() => {
     setIsLoading(true);
@@ -124,8 +122,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuth(false);
     setUserData(null);
     window.dispatchEvent(new Event('auth-change'));
-    router.push("/");
-  }, [router]);
+    // Удаляем перенаправление
+    // router.push("/");
+  }, []);
 
   useEffect(() => {
     checkAuth();

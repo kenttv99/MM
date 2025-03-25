@@ -94,7 +94,7 @@ export const fetchEvent = async (eventId: string): Promise<EventData> => {
     throw new Error("Не авторизован");
   }
 
-  const response = await fetch(`/events/${eventId}`, {
+  const response = await fetch(`/admin_edits/${eventId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "Accept": "application/json",

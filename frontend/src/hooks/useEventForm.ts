@@ -1,6 +1,6 @@
 // frontend/src/hooks/useEventForm.ts
 import { useState, useCallback } from 'react';
-import { EventFormData, EventData } from '@/types/events';
+import { EventFormData, EventData } from '@/types/events'; // Импортируем тип из types/events.ts
 import { createEvent, updateEvent, fetchEvent } from '@/utils/eventService';
 
 interface UseEventFormOptions {
@@ -110,11 +110,12 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         ...eventData,
         start_date: startDate.toISOString().split('T')[0],
         start_time: startDate.toTimeString().slice(0, 5),
-        end_date: endDate?.toISOString().split('T')[0],
-        end_time: endDate?.toTimeString().slice(0, 5),
+        end_date: endDate?.toISOString().split('T')[0] || "",
+        end_time: endDate?.toTimeString().slice(0, 5) || "",
         ticket_type_name: eventData.ticket_type?.name || "standart",
         ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
         ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
+        registrations_count: eventData.registrations_count || 0,
       });
       
       // Установка превью изображения

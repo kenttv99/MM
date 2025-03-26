@@ -96,14 +96,11 @@ export const fetchEvent = async (eventId: string): Promise<EventData> => {
 
   const response = await fetch(`/admin_edits/${eventId}`, {
     headers: {
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
       "Accept": "application/json",
     },
   });
-
-  if (!response.ok) {
-    throw new Error(`Ошибка API: ${response.status}`);
-  }
-
-  return response.json();
+  const data = await response.json();
+  data.registrations_count = data.registrations_count || 0; // Добавляем по умолчанию
+  return data;
 };

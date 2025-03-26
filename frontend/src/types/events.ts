@@ -20,6 +20,7 @@ export interface TicketType {
     updated_at: string;
     status: "draft" | "registration_open" | "registration_closed" | "completed";
     ticket_type?: TicketType;
+    registrations_count?: number;
   }
   
   export interface EventFormData extends Omit<EventData, "start_date" | "end_date" | "price"> {

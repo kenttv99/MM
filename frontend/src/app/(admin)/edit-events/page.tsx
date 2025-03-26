@@ -32,19 +32,15 @@ const TextEditor = ({
   placeholder?: string;
 }) => {
   const insertFormatting = (tag: string) => {
-    // Get the textarea element
     const textarea = document.querySelector('textarea[name="description"]') as HTMLTextAreaElement;
     if (!textarea) return;
     
-    // Get current selection
     const start = textarea.selectionStart;
     const end = textarea.selectionEnd;
     const selectedText = value.substring(start, end);
     
-    // Create formatted text
     let formattedText;
     if (tag === 'size') {
-      // Get the size input element
       const sizeInput = document.querySelector('input[name="fontSize"]') as HTMLInputElement;
       if (!sizeInput) return;
       const fontSize = sizeInput.value;
@@ -53,16 +49,13 @@ const TextEditor = ({
       formattedText = `<${tag}>${selectedText}</${tag}>`;
     }
     
-    // Insert at cursor position
     const newText = 
       value.substring(0, start) + 
       formattedText + 
       value.substring(end);
     
-    // Update text and maintain cursor position
     onChange(newText);
     
-    // Set focus back to textarea after state update
     setTimeout(() => {
       textarea.focus();
       const newCursorPos = start + formattedText.length;
@@ -177,6 +170,7 @@ const EditEventContent: React.FC = () => {
       ticket_type_name: "standart",
       ticket_type_available_quantity: 0,
       ticket_type_free_registration: false,
+      registrations_count: 0,
     },
     onSuccess: () => {
       setTimeout(() => navigateTo(router, "/dashboard", { refresh: "true" }), 1500);
@@ -217,7 +211,6 @@ const EditEventContent: React.FC = () => {
     }
   };
   
-  // Handle text editor changes
   const handleDescriptionChange = (content: string) => {
     setFieldValue("description", content);
   };
@@ -237,6 +230,25 @@ const EditEventContent: React.FC = () => {
             </h1>
             
             <div className="bg-white p-8 rounded-xl shadow-lg border border-gray-100">
+              {formData.id && (
+                <div className="mb-6">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-2">Статистика регистрации</h3>
+                  <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                    <div
+                      className="bg-blue-600 h-2.5 rounded-full"
+                      style={{
+                        width: `${formData.ticket_type_available_quantity > 0 
+                          ? (formData.registrations_count || 0) / formData.ticket_type_available_quantity * 100 
+                          : 0}%`
+                      }}
+                    ></div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Занято мест: {formData.registrations_count || 0} из {formData.ticket_type_available_quantity}  
+                    (Остаток: {formData.ticket_type_available_quantity - (formData.registrations_count || 0)})
+                  </p>
+                </div>
+              )}
               <ErrorDisplay error={error} className="mb-6" />
               <SuccessDisplay message={success} className="mb-6" />
               
@@ -252,8 +264,6 @@ const EditEventContent: React.FC = () => {
                     name="title"
                     required
                   />
-                  
-                  {/* Simple text editor component */}
                   <TextEditor 
                     value={formData.description || ""}
                     onChange={handleDescriptionChange}
@@ -366,14 +376,10 @@ const EditEventContent: React.FC = () => {
                         />
                         <label
                           htmlFor="ticket_type_free_registration"
-                          className={`absolute cursor-pointer inset-0 rounded-full transition-all duration-300 ${
-                            formData.ticket_type_free_registration ? "bg-green-500" : "bg-gray-300"
-                          }`}
+                          className={`absolute cursor-pointer inset-0 rounded-full transition-all duration-300 ${formData.ticket_type_free_registration ? "bg-green-500" : "bg-gray-300"}`}
                         >
                           <span
-                            className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-all duration-300 ${
-                              formData.ticket_type_free_registration ? "transform translate-x-6" : ""
-                            }`}
+                            className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-all duration-300 ${formData.ticket_type_free_registration ? "transform translate-x-6" : ""}`}
                           />
                         </label>
                       </div>
@@ -387,9 +393,7 @@ const EditEventContent: React.FC = () => {
                     onDrop={handleDrop}
                     onDragOver={handleDragOver}
                     onClick={handleAreaClick}
-                    className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-all duration-300 cursor-pointer ${
-                      isLoading ? "border-gray-300 bg-gray-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100"
-                    }`}
+                    className={`relative border-2 border-dashed rounded-lg p-6 text-center transition-all duration-300 cursor-pointer ${isLoading ? "border-gray-300 bg-gray-50" : "border-gray-300 bg-gray-50 hover:bg-gray-100"}`}
                   >
                     {imagePreview ? (
                       <div className="relative">
@@ -459,14 +463,10 @@ const EditEventContent: React.FC = () => {
                         />
                         <label
                           htmlFor="published"
-                          className={`absolute cursor-pointer inset-0 rounded-full transition-all duration-300 ${
-                            formData.published ? "bg-blue-500" : "bg-gray-300"
-                          }`}
+                          className={`absolute cursor-pointer inset-0 rounded-full transition-all duration-300 ${formData.published ? "bg-blue-500" : "bg-gray-300"}`}
                         >
                           <span
-                            className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-all duration-300 ${
-                              formData.published ? "transform translate-x-6" : ""
-                            }`}
+                            className={`absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition-all duration-300 ${formData.published ? "transform translate-x-6" : ""}`}
                           />
                         </label>
                       </div>

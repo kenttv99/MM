@@ -1,21 +1,14 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import { useState, ChangeEvent, useEffect, useRef } from "react";
+import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
-import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icons/fa";
+import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt, FaFilter, FaTimes } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
-
-function debounce<F extends (arg: string) => void>(func: F, wait: number) {
-  let timeout: NodeJS.Timeout | null = null;
-  return (arg: string) => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => func(arg), wait);
-  };
-}
+import { AnimatePresence, motion } from "framer-motion";
 
 interface User {
   id: number;
@@ -30,6 +23,10 @@ interface Event {
   location?: string;
   published: boolean;
   status: string;
+  registrations_count: number;
+  ticket_type?: {
+    available_quantity: number;
+  };
 }
 
 async function fetchData<U>(
@@ -37,14 +34,13 @@ async function fetchData<U>(
   token: string | null,
   setData: React.Dispatch<React.SetStateAction<U[]>>,
   setLoading: (value: boolean) => void,
-  setError: (value: string | null) => void
+  setError: (value: string | null) => void,
+  append: boolean = false
 ) {
   setLoading(true);
   setError(null);
   try {
-    if (!token) {
-      throw new Error("Отсутствует токен авторизации");
-    }
+    if (!token) throw new Error("Отсутствует токен авторизации");
 
     const response = await fetch(url, {
       headers: {
@@ -60,10 +56,14 @@ async function fetchData<U>(
     }
 
     const data = await response.json();
-    setData(Array.isArray(data) ? data : []);
+    if (append) {
+      setData((prev) => [...prev, ...(Array.isArray(data) ? data : [])]);
+    } else {
+      setData(Array.isArray(data) ? data : []);
+    }
   } catch (err) {
     setError(err instanceof Error ? err.message : "Не удалось загрузить данные");
-    setData([] as U[]);
+    setData(append ? (prev) => prev : []);
   } finally {
     setLoading(false);
   }
@@ -78,70 +78,116 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 export default function DashboardPage() {
   const [userSearch, setUserSearch] = useState("");
   const [eventSearch, setEventSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [isLoading, setIsLoading] = useState({ users: false, events: false });
   const [error, setError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<number | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const hasFetchedEvents = useRef(false);
   const hasFetchedUsers = useRef(false);
+  const observer = useRef<IntersectionObserver | null>(null);
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
+  const { isLoading: authLoading, checkAuth } = useAdminAuth();
+
+  const fetchEvents = useCallback(async (search: string, pageNum: number, append: boolean = false) => {
+    let url = `/admin_edits/events?page=${pageNum}&limit=10`;
+    const params = new URLSearchParams();
+    if (search.trim()) params.append("search", search);
+    if (startDate) params.append("start_date", startDate);
+    if (endDate) params.append("end_date", endDate);
+    if (statusFilter) params.append("status", statusFilter);
+    if (params.toString()) url += `&${params.toString()}`;
+
+    await fetchData<Event>(url, localStorage.getItem("admin_token"), setEvents,
+      (value) => setIsLoading((prev) => ({ ...prev, events: value })), setError, append);
+    hasFetchedEvents.current = true;
+
+    // Проверяем, есть ли ещё данные
+    const response = await fetch(url, {
+      headers: { Authorization: `Bearer ${localStorage.getItem("admin_token")}` },
+    });
+    const data = await response.json();
+    setHasMore(data.length === 10); // Если вернулось меньше 10, значит данных больше нет
+  }, [startDate, endDate, statusFilter]);
+
+  const fetchUsers = useCallback(async (search: string) => {
+    const url = search.trim()
+      ? `/admin_edits/users?search=${encodeURIComponent(search)}`
+      : "/admin_edits/users";
+    await fetchData<User>(url, localStorage.getItem("admin_token"), setUsers,
+      (value) => setIsLoading((prev) => ({ ...prev, users: value })), setError);
+    hasFetchedUsers.current = true;
+  }, []);
+
+  const debouncedFetchEvents = useCallback((search: string) => {
+    let timeout: NodeJS.Timeout | null = null;
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      setPage(1);
+      fetchEvents(search, 1);
+    }, 2000);
+  }, [fetchEvents]);
+
+  const debouncedFetchUsers = useCallback((search: string) => {
+    let timeout: NodeJS.Timeout | null = null;
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => fetchUsers(search), 2000);
+  }, [fetchUsers]);
 
   useEffect(() => {
     const initialize = async () => {
       const isAuthenticated = await checkAuth();
-      if (!isAuthenticated && !authLoading) {
-        navigateTo(router, "/admin-login");
+      if (!isAuthenticated && !authLoading) navigateTo(router, "/admin-login");
+      else {
+        const shouldRefresh = searchParams.get("refresh") === "true";
+        if (!hasFetchedEvents.current || shouldRefresh) {
+          fetchEvents("", 1);
+        }
+        if (!hasFetchedUsers.current || shouldRefresh) {
+          fetchUsers("");
+        }
       }
     };
     initialize();
-  }, [checkAuth, authLoading, router]);
+  }, [checkAuth, authLoading, router, searchParams, fetchEvents, fetchUsers]);
 
-  const fetchEvents = async (search: string) => {
-    const url = search.trim()
-      ? `/admin_edits/events?search=${encodeURIComponent(search)}`
-      : "/admin_edits/events";
-    await fetchData<Event>(url, localStorage.getItem("admin_token"), setEvents, (value) => setIsLoading((prev) => ({ ...prev, events: value })), setError);
-  };
+  const lastEventElementRef = useCallback((node: HTMLTableRowElement | null) => {
+    if (isLoading.events || !hasMore) return;
+    if (observer.current) observer.current.disconnect();
 
-  const fetchUsers = async (search: string) => {
-    const url = search.trim()
-      ? `/admin_edits/users?search=${encodeURIComponent(search)}`
-      : "/admin_edits/users";
-    await fetchData<User>(url, localStorage.getItem("admin_token"), setUsers, (value) => setIsLoading((prev) => ({ ...prev, users: value })), setError);
-  };
-
-  const debouncedFetchUsers = debounce(fetchUsers, 500);
-  const debouncedFetchEvents = debounce(fetchEvents, 500);
-
-  useEffect(() => {
-    if (!authLoading && isAdminAuth) {
-      const shouldRefresh = searchParams.get("refresh") === "true";
-      if (!hasFetchedEvents.current || shouldRefresh) {
-        hasFetchedEvents.current = true;
-        fetchEvents(eventSearch);
+    observer.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setPage((prev) => prev + 1);
+        fetchEvents(eventSearch, page + 1, true);
       }
-      if (!hasFetchedUsers.current || shouldRefresh) {
-        hasFetchedUsers.current = true;
-        fetchUsers(userSearch);
-      }
-    }
-  }, [isAdminAuth, authLoading, searchParams, eventSearch, userSearch]);
+    }, { threshold: 1.0 });
+
+    if (node) observer.current.observe(node);
+  }, [isLoading.events, hasMore, eventSearch, page, fetchEvents]);
 
   const handleUserSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
     setUserSearch(e.target.value);
-    hasFetchedUsers.current = false;
     debouncedFetchUsers(e.target.value);
   };
 
   const handleEventSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
     setEventSearch(e.target.value);
-    hasFetchedEvents.current = false;
     debouncedFetchEvents(e.target.value);
+  };
+
+  const handleEventFilterSubmit = () => {
+    setPage(1);
+    fetchEvents(eventSearch, 1);
+    setIsFilterOpen(false);
   };
 
   const handleDeleteEvent = async () => {
@@ -151,15 +197,11 @@ export default function DashboardPage() {
     setError(null);
     try {
       const token = localStorage.getItem("admin_token");
-      if (!token) {
-        throw new Error("Отсутствует токен авторизации");
-      }
+      if (!token) throw new Error("Отсутствует токен авторизации");
 
       const response = await apiFetch(`/admin_edits/${eventToDelete}`, {
         method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
@@ -186,131 +228,240 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-100">
+      <style jsx global>{`
+        /* Стилизация полос прокрутки */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(107, 114, 128, 0.5); /* gray-500 с прозрачностью */
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(107, 114, 128, 0.8); /* gray-500 темнее при hover */
+        }
+      `}</style>
       <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex justify-between items-center mb-8">
-            <h1 className="text-3xl font-bold">Панель управления</h1>
-            <button
-              onClick={() => navigateTo(router, "/edit-events", { new: "true" })}
-              className="bg-blue-500 text-white px-4 py-2 rounded-lg flex items-center hover:bg-blue-600 transition-colors"
-            >
-              <FaPlus className="mr-2" />
-              Новое мероприятие
-            </button>
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">Панель управления</h1>
+          <button
+            onClick={() => navigateTo(router, "/edit-events", { new: "true" })}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg"
+          >
+            <FaPlus className="mr-2" />
+            Новое мероприятие
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-8 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500 shadow-sm">
+            {error}
           </div>
-          {error && (
-            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500">
-              {error}
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Пользователи */}
+          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center">
+                <FaUsers className="text-blue-500 text-xl mr-3" />
+                <h2 className="text-xl font-semibold text-gray-800">Пользователи</h2>
+              </div>
             </div>
-          )}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <div className="flex items-center mb-6">
-                <FaUsers className="text-blue-500 text-xl mr-2" />
-                <h2 className="text-xl font-semibold">Пользователи</h2>
+            <div className="mb-6">
+              <InputField
+                type="text"
+                value={userSearch}
+                onChange={handleUserSearchChange}
+                placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
+                icon={FaSearch}
+                name="userSearch"
+              />
+            </div>
+            {isLoading.users ? (
+              <div className="text-center py-6">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
               </div>
-              <div className="mb-6">
-                <InputField
-                  type="text"
-                  value={userSearch}
-                  onChange={handleUserSearchChange}
-                  placeholder="Поиск пользователей..."
-                  icon={FaSearch}
-                  name="userSearch"
-                />
-              </div>
-              {isLoading.users ? (
-                <div className="text-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                </div>
-              ) : users.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead>
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+            ) : users.length > 0 ? (
+              <div className="max-h-[400px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {users.map((user) => (
+                      <tr key={user.id} className="hover:bg-gray-50 transition-colors duration-150">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.fio}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <button
+                            onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
+                            className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200"
+                          >
+                            Управлять
+                          </button>
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {users.map((user) => (
-                        <tr key={user.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.fio}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm">
-                            <button
-                              onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
-                              className="text-blue-500 hover:text-blue-700"
-                            >
-                              Управлять
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center py-4">
-                  {userSearch.trim() ? "Пользователи не найдены" : "Нет доступных пользователей"}
-                </p>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-6">
+                {userSearch.trim() ? "Пользователи не найдены" : "Нет доступных пользователей"}
+              </p>
+            )}
+          </div>
+
+          {/* Мероприятия */}
+          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center">
+                <FaCalendarAlt className="text-blue-500 text-x1 mr-3" />
+                <h2 className="text-xl font-semibold text-gray-800">Мероприятия</h2>
+              </div>
+              <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 shadow-sm"
+              >
+                <FaFilter className="mr-2" />
+                Фильтры
+              </button>
+            </div>
+            <div className="mb-6">
+              <InputField
+                type="text"
+                value={eventSearch}
+                onChange={handleEventSearchChange}
+                placeholder="Поиск по названию..."
+                icon={FaSearch}
+                name="eventSearch"
+              />
+            </div>
+
+            {/* Выпадающая панель фильтров */}
+            <AnimatePresence>
+              {isFilterOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="mb-6 p-4 bg-gray-50 rounded-lg shadow-inner border border-gray-200"
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-medium text-gray-800">Фильтры</h3>
+                    <button onClick={() => setIsFilterOpen(false)} className="text-gray-500 hover:text-gray-700">
+                      <FaTimes size={16} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InputField
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      placeholder="Дата начала"
+                      icon={FaCalendarAlt}
+                      name="startDate"
+                    />
+                    <InputField
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      placeholder="Дата окончания"
+                      icon={FaCalendarAlt}
+                      name="endDate"
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hover:shadow-md transition-all duration-300"
+                    >
+                      <option value="">Все статусы</option>
+                      <option value="draft">Черновик</option>
+                      <option value="registration_open">Регистрация открыта</option>
+                      <option value="registration_closed">Регистрация закрыта</option>
+                      <option value="completed">Завершено</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleEventFilterSubmit}
+                    className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg"
+                  >
+                    Применить фильтры
+                  </button>
+                </motion.div>
               )}
-            </div>
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <div className="flex items-center mb-6">
-                <FaCalendarAlt className="text-blue-500 text-xl mr-2" />
-                <h2 className="text-xl font-semibold">Мероприятия</h2>
+            </AnimatePresence>
+
+            {isLoading.events && events.length === 0 ? (
+              <div className="text-center py-6">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
               </div>
-              <div className="mb-6">
-                <InputField
-                  type="text"
-                  value={eventSearch}
-                  onChange={handleEventSearchChange}
-                  placeholder="Поиск мероприятий..."
-                  icon={FaSearch}
-                  name="eventSearch"
-                />
-              </div>
-              {isLoading.events ? (
-                <div className="text-center py-4">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-                </div>
-              ) : events.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead>
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {events.map((event) => (
-                        <tr key={event.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm">
+            ) : events.length > 0 ? (
+              <div className="max-h-[400px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {events.map((event, index) => {
+                      const registrationsCount = event.registrations_count || 0;
+                      const availableQuantity = event.ticket_type?.available_quantity || 0;
+                      const fillPercentage = availableQuantity > 0 ? (registrationsCount / availableQuantity) * 100 : 0;
+
+                      return (
+                        <tr
+                          key={event.id}
+                          ref={index === events.length - 1 ? lastEventElementRef : null}
+                          className="hover:bg-gray-50 transition-colors duration-150"
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.id}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
                             {event.status === "registration_open" ? (
-                              <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
                             ) : event.status === "registration_closed" ? (
-                              <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
                             ) : event.status === "completed" ? (
-                              <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-700">Завершено</span>
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
                             ) : (
-                              <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
                             )}
                           </td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm relative">
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <div className="w-32 bg-gray-200 rounded-full h-2.5">
+                              <div
+                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                style={{ width: `${fillPercentage}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-2">{registrationsCount} / {availableQuantity}</p>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <button
                               onClick={() => navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
-                              className="text-blue-500 hover:text-blue-700 inline-block"
+                              className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
                             >
                               Редактировать
                             </button>
@@ -320,30 +471,39 @@ export default function DashboardPage() {
                                   setEventToDelete(event.id);
                                   setShowDeleteModal(true);
                                 }}
-                                className="absolute right-4 top-1/2 transform -translate-y-1/2 text-red-500 hover:text-red-700"
+                                className="text-red-500 hover:text-red-600 transition-colors duration-200"
                               >
-                                <FaTrashAlt className="w-2.5 h-2.5" />
+                                <FaTrashAlt className="w-4 h-4" />
                               </button>
                             )}
                           </td>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center py-4">
-                  {eventSearch.trim() ? "Мероприятия не найдены" : "Нет доступных мероприятий"}
-                </p>
-              )}
-            </div>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {isLoading.events && events.length > 0 && (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-6">
+                {eventSearch.trim() || startDate || endDate || statusFilter
+                  ? "Мероприятия не найдены"
+                  : "Нет доступных мероприятий"}
+              </p>
+            )}
           </div>
         </div>
       </main>
+
+      {/* Модальное окно удаления */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
-            <h2 className="text-lg font-semibold mb-4">Подтверждение удаления</h2>
+          <div className="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Подтверждение удаления</h2>
             <p className="text-gray-600 mb-6">
               Вы уверены, что хотите удалить это мероприятие? Это действие нельзя отменить.
             </p>
@@ -353,13 +513,13 @@ export default function DashboardPage() {
                   setShowDeleteModal(false);
                   setEventToDelete(null);
                 }}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200"
               >
                 Отмена
               </button>
               <button
                 onClick={handleDeleteEvent}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-200"
                 disabled={isLoading.events}
               >
                 {isLoading.events ? "Удаление..." : "Удалить"}

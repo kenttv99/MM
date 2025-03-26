@@ -322,29 +322,41 @@ async def update_event(
         raise HTTPException(status_code=500, detail=f"Не удалось обновить мероприятие: {str(e)}")
 
 # Маршрут для получения списка мероприятий
+# backend/api/admin_edit_routers.py
 @router.get("/events", response_model=list[EventCreate])
 async def get_admin_events(
     search: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    status: str = None,
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Получение списка мероприятий для админа (с возможностью поиска)."""
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
         await log_admin_activity(db, current_admin.id, request, action="access_events")
 
-        query = select(Event).options(selectinload(Event.tickets))
+        query = select(Event).options(
+            selectinload(Event.tickets),
+            selectinload(Event.registrations)
+        )
         if search:
-            search_pattern = f"%{search}%"
-            query = query.where(Event.title.ilike(search_pattern))
+            query = query.where(Event.title.ilike(f"%{search}%"))
+        if start_date:
+            query = query.where(Event.start_date >= start_date)
+        if end_date:
+            query = query.where(Event.start_date <= end_date)
+        if status:
+            query = query.where(Event.status == status)
 
         result = await db.execute(query)
         events = result.scalars().all()
 
         event_responses = []
         for event in events:
+            registrations_count = len(event.registrations)
             event_dict = {
                 "id": event.id,
                 "title": event.title,
@@ -357,7 +369,8 @@ async def get_admin_events(
                 "published": event.published,
                 "created_at": event.created_at,
                 "updated_at": event.updated_at,
-                "status": event.status
+                "status": event.status,
+                "registrations_count": registrations_count
             }
             if event.tickets:
                 ticket = event.tickets[0]
@@ -389,7 +402,6 @@ async def get_admin_users(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Получение списка пользователей для админа (с возможностью поиска)."""
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
@@ -399,7 +411,10 @@ async def get_admin_users(
         if search:
             search_pattern = f"%{search}%"
             query = query.where(
-                (User.fio.ilike(search_pattern)) | (User.email.ilike(search_pattern))
+                (User.fio.ilike(search_pattern)) |
+                (User.email.ilike(search_pattern)) |
+                (User.telegram.ilike(search_pattern)) |
+                (User.whatsapp.ilike(search_pattern))
             )
 
         result = await db.execute(query)

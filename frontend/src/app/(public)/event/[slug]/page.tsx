@@ -1,8 +1,8 @@
-// frontend/src/app/(public)/event/[id]/page.tsx
+// frontend/src/app/(public)/event/[slug]/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import Login from "@/components/Login";
+import { apiFetch } from "@/utils/api";
 
 interface EventData {
   id: number;
@@ -27,19 +28,48 @@ interface EventData {
   published: boolean;
 }
 
+const generateSlug = (title: string, id: number): string => {
+  if (!title || title.trim() === "") {
+    return `event-${id}`;
+  }
+  const translitMap: { [key: string]: string } = {
+    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
+    й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
+    у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
+    ю: "yu", я: "ya", " ": "-"
+  };
+  const slugifiedTitle = title
+    .toLowerCase()
+    .split("")
+    .map((char) => translitMap[char] || char)
+    .join("")
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slugifiedTitle ? `${slugifiedTitle}-${id}` : `event-${id}`;
+};
+
+const extractIdFromSlug = (slug: string): string => {
+  const parts = slug.split("-");
+  return parts[parts.length - 1];
+};
+
 export default function EventPage() {
-  const { id } = useParams<{ id: string }>();
+  const { slug } = useParams<{ slug: string }>();
+  const router = useRouter();
   const [event, setEvent] = useState<EventData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const { isAuth, checkAuth } = useAuth();
+  const [hasRedirected, setHasRedirected] = useState(false); // Флаг для предотвращения циклического перенаправления
 
   useEffect(() => {
     const fetchEvent = async () => {
       setIsLoading(true);
+      const eventId = extractIdFromSlug(slug);
       try {
-        const res = await fetch(`/v1/public/events/${id}`, {
+        const res = await apiFetch(`/v1/public/events/${eventId}`, {
           cache: "no-store",
         });
         if (!res.ok) {
@@ -50,6 +80,14 @@ export default function EventPage() {
           throw new Error("Event is not published");
         }
         setEvent(data);
+
+        // Проверяем, нужно ли перенаправить на правильный slug
+        const correctSlug = generateSlug(data.title, data.id);
+        if (slug !== correctSlug && !hasRedirected) {
+          
+          setHasRedirected(true);
+          router.replace(`/event/${correctSlug}`, { scroll: false });
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "Произошла ошибка");
       } finally {
@@ -57,10 +95,10 @@ export default function EventPage() {
       }
     };
 
-    if (id) {
+    if (slug) {
       fetchEvent();
     }
-  }, [id]);
+  }, [slug, router, hasRedirected]);
 
   useEffect(() => {
     const handleAuthChange = () => {

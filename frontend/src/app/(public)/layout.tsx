@@ -1,8 +1,8 @@
-// frontend/src/app/(public)/layout.tsx
 "use client";
 
 import Header from "@/components/Header";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
+import Breadcrumbs from "@/components/Breadcrumbs";
 
 export default function PublicLayout({
   children,
@@ -13,9 +13,8 @@ export default function PublicLayout({
     <>
       <Header />
       <main className="min-h-screen pt-16">
-        <PageTransitionWrapper>
-          {children}
-        </PageTransitionWrapper>
+        <Breadcrumbs />
+        <PageTransitionWrapper>{children}</PageTransitionWrapper>
       </main>
     </>
   );

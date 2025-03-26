@@ -7,6 +7,7 @@ import InputField from "@/components/common/InputField";
 import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { apiFetch } from "@/utils/api";
 
 function debounce<F extends (arg: string) => void>(func: F, wait: number) {
   let timeout: NodeJS.Timeout | null = null;
@@ -154,7 +155,7 @@ export default function DashboardPage() {
         throw new Error("Отсутствует токен авторизации");
       }
 
-      const response = await fetch(`/admin_edits/${eventToDelete}`, {
+      const response = await apiFetch(`/admin_edits/${eventToDelete}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,

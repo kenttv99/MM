@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { apiFetch } from "@/utils/api";
 
 interface UserData {
   id: number;
@@ -37,7 +38,7 @@ const Profile = () => {
         throw new Error("Токен авторизации отсутствует");
       }
 
-      const response = await fetch("/auth/me", {
+      const response = await apiFetch("/auth/me", {
         headers: {
           Authorization: `Bearer ${token}`,
           "Accept": "application/json",

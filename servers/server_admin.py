@@ -1,14 +1,22 @@
 # servers/server_admin.py
-from fastapi import FastAPI
+from datetime import timedelta
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from backend.api.admin_auth_routers import router as admin_auth_router
 from backend.api.admin_edit_routers import router as admin_edit_routers 
-from backend.config.auth import get_user_or_ip_key
+from backend.config.auth import create_access_token, get_current_admin, get_user_or_ip_key
 from backend.config.rate_limiter import limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from backend.config.logging_config import logger
 import uvicorn
-from fastapi.staticfiles import StaticFiles  # Добавляем импорт
+from datetime import datetime, timedelta  # Добавлен импорт для datetime и timedelta
+from authlib.jose import jwt  # Добавлен импорт для jwt
+from constants import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY  # Добавлен импорт для SECRET_KEY
+from fastapi.staticfiles import StaticFiles
+
+from backend.database.user_db import AsyncSessionLocal, get_async_db
+from constants import ACCESS_TOKEN_EXPIRE_MINUTES  # Добавляем импорт
 
 app = FastAPI(
     title="Event Management API",
@@ -24,6 +32,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.middleware("http")
+async def refresh_token_middleware(request: Request, call_next):
+    response = await call_next(request)
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header.split(" ")[1]
+        # Создаем сессию вручную
+        db = AsyncSessionLocal()
+        try:
+            payload = jwt.decode(token, SECRET_KEY)
+            exp = payload.get("exp")
+            current_time = datetime.utcnow().timestamp()
+            # Обновляем токен, только если осталось менее 5 минут
+            if exp - current_time < 300:  # 300 секунд = 5 минут
+                user = await get_current_admin(token, db)  # Исправлено на get_current_user
+                new_token = await create_access_token(
+                    data={"sub": user.email},
+                    session=db,
+                    expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+                )
+                response.headers["X-Refresh-Token"] = new_token
+        except Exception as e:
+            logger.error(f"Error in token refresh middleware: {str(e)}")
+            # Если токен недействителен, ничего не добавляем
+            pass
+        finally:
+            # Закрываем сессию вручную
+            await db.close()
+    
+    return response
 
 # Настройка rate limiting
 app.state.limiter = limiter

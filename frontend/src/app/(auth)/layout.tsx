@@ -2,6 +2,7 @@
 
 import Header from "@/components/Header";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
+import Breadcrumbs from "@/components/Breadcrumbs";
 
 export default function AuthLayout({
   children,
@@ -12,9 +13,8 @@ export default function AuthLayout({
     <>
       <Header />
       <main className="min-h-screen pt-16">
-        <PageTransitionWrapper>
-          {children}
-        </PageTransitionWrapper>
+        <Breadcrumbs />
+        <PageTransitionWrapper>{children}</PageTransitionWrapper>
       </main>
     </>
   );

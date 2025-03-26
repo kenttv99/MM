@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
+import { apiFetch } from "@/utils/api";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -41,7 +42,7 @@ const AdminProfilePage: React.FC = () => {
 
       const authToken = token.startsWith("Bearer ") ? token.slice(7).trim() : token;
 
-      const response = await fetch("/admin/me", {
+      const response = await apiFetch("/admin/me", {
         headers: {
           Authorization: `Bearer ${authToken}`,
           "Accept": "application/json",

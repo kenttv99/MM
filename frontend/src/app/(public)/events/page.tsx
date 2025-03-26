@@ -5,6 +5,7 @@ import React, { useState, useEffect } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
+import { apiFetch } from "@/utils/api";
 
 interface TicketType {
   name: string;
@@ -25,6 +26,28 @@ interface EventData {
   ticket_type?: TicketType;
 }
 
+const generateSlug = (title: string, id: number): string => {
+  if (!title || title.trim() === "") {
+    return `event-${id}`; // Защита от пустого title
+  }
+  // Транслитерация кириллических символов в латиницу
+  const translitMap: { [key: string]: string } = {
+    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
+    й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
+    у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
+    ю: "yu", я: "ya", " ": "-"
+  };
+  const slugifiedTitle = title
+    .toLowerCase()
+    .split("")
+    .map((char) => translitMap[char] || char)
+    .join("")
+    .replace(/[^a-z0-9-]+/g, "-") // Заменяем все неалфавитно-цифровые символы на "-"
+    .replace(/-+/g, "-") // Удаляем повторяющиеся дефисы
+    .replace(/^-+|-+$/g, ""); // Удаляем дефисы в начале и конце
+  return slugifiedTitle ? `${slugifiedTitle}-${id}` : `event-${id}`;
+};
+
 const EventsPage = () => {
   const [events, setEvents] = useState<EventData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -35,7 +58,7 @@ const EventsPage = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch("/v1/public/events", {
+        const response = await apiFetch("/v1/public/events", {
           headers: {
             "Accept": "application/json",
           },
@@ -48,7 +71,13 @@ const EventsPage = () => {
         }
 
         const data: EventData[] = await response.json();
-        setEvents(data.filter(event => event.published));
+        
+        data.forEach((event) => {
+          const slug = generateSlug(event.title, event.id);
+          localStorage.setItem(`event-slug-${event.id}`, slug);
+          localStorage.setItem(`event-title-${event.id}`, event.title);
+        });
+        setEvents(data.filter((event) => event.published));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Не удалось загрузить мероприятия");
       } finally {
@@ -115,7 +144,7 @@ const EventsPage = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {events.map((event) => (
-                <Link href={`/event/${event.id}`} key={event.id}>
+                <Link href={`/event/${generateSlug(event.title, event.id)}`} key={event.id}>
                   <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden relative">
                     <div className="relative h-48">
                       {event.image_url ? (
@@ -159,7 +188,6 @@ const EventsPage = () => {
                           {formatDateTime(event.start_date, event.end_date)}
                         </span>
                       </div>
-                      {/* Обновляем отображение мест */}
                       {event.ticket_type && (
                         <span className="absolute bottom-2 right-2 bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-1 rounded-full">
                           {event.status === "registration_open" && event.ticket_type.available_quantity > 0

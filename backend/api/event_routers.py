@@ -9,6 +9,13 @@ router = APIRouter(
     tags=["Events"]
 )
 
+def extract_id_from_slug(slug: str) -> int:
+    parts = slug.split("-")
+    event_id = parts[-1]
+    if not event_id.isdigit():
+        raise HTTPException(status_code=404, detail="Invalid event slug")
+    return int(event_id)
+
 # Маршрут для получения списка мероприятий (без авторизации)
 @router.get("", response_model=list[EventCreate])
 async def get_events(db: AsyncSession = Depends(get_async_db)):
@@ -44,12 +51,18 @@ async def get_events(db: AsyncSession = Depends(get_async_db)):
 
 @router.get("/{event_id}", response_model=EventCreate)
 async def get_event(
-    event_id: int,
+    event_id: str,  # Изменяем тип на str, чтобы принимать как slug, так и ID
     db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ):
     try:
-        db_event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
+        # Проверяем, является ли event_id числом или slug
+        if event_id.isdigit():
+            actual_event_id = int(event_id)
+        else:
+            actual_event_id = extract_id_from_slug(event_id)
+
+        db_event = await db.get(Event, actual_event_id, options=[selectinload(Event.tickets)])
         if not db_event or not db_event.published:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found or not published")
         
@@ -62,12 +75,13 @@ async def get_event(
                 available_quantity=ticket.available_quantity,
                 free_registration=ticket.free_registration
             ).model_dump()
-            logger.info(f"Event {event_id} retrieved with {ticket.available_quantity - ticket.sold_quantity} available tickets")
         
-        logger.info(f"Public request for event {event_id}")
+        logger.info(f"Public request for event {actual_event_id}")
         return EventCreate(**event_dict)
     except HTTPException as e:
         raise e
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid event ID or slug format")
     except Exception as e:
         logger.error(f"Error retrieving event {event_id}: {str(e)}")
         raise HTTPException(

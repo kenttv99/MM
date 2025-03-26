@@ -7,7 +7,7 @@ from passlib.context import CryptContext
 from typing import Optional
 from authlib.jose import jwt
 from authlib.jose.errors import JoseError
-from datetime import timedelta
+from datetime import datetime, timedelta
 from fastapi import HTTPException, Request, status
 from backend.config.logging_config import logger
 from constants import SECRET_KEY, ALGORITHM
@@ -61,26 +61,30 @@ async def create_access_token(data: dict, session: AsyncSession, expires_delta: 
     return encoded_jwt
 
 async def get_current_user(token: str, session: AsyncSession) -> User:
-    """Проверка токена и получение текущего пользователя."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # Декодируем токен с помощью authlib
         payload = jwt.decode(token, SECRET_KEY)
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
+        
+        exp = payload.get("exp")
+        current_time = datetime.utcnow().timestamp()
+        if exp < current_time:
+            raise credentials_exception
+        
+        user = await get_user_by_username(session, email)
+        if user is None:
+            raise credentials_exception
+        
+        return user  # Возвращаем только пользователя
     except JoseError as e:
         logger.error(f"JWT decode error: {str(e)}")
         raise credentials_exception
-    
-    user = await get_user_by_username(session, email)
-    if user is None:
-        raise credentials_exception
-    return user
 
 async def create_admin(session: AsyncSession, fio: str, email: str, password: str) -> Admin:
     """Создание нового администратора с хэшированием пароля."""
@@ -107,31 +111,33 @@ async def get_admin_by_username(session: AsyncSession, email: str) -> Optional[A
     return result.scalars().first()
 
 async def get_current_admin(token: str, session: AsyncSession) -> Admin:
-    """Проверка токена и получение текущего администратора."""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        # Декодируем токен с помощью authlib
         payload = jwt.decode(token, SECRET_KEY)
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
+        
+        exp = payload.get("exp")
+        current_time = datetime.utcnow().timestamp()
+        if exp < current_time:
+            raise credentials_exception
+        
+        admin = await get_admin_by_username(session, email)
+        if admin is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized as an admin"
+            )
+        
+        return admin  # Возвращаем только администратора
     except JoseError as e:
         logger.error(f"JWT decode error: {str(e)}")
         raise credentials_exception
-    
-    # Получаем администратора по email
-    result = await session.execute(select(Admin).where(Admin.email == email))
-    admin = result.scalars().first()
-    if admin is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized as an admin"
-        )
-    return admin
 
 async def log_user_activity(
     db: AsyncSession,

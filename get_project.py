@@ -116,7 +116,7 @@ def write_project_content(project_root, output_file_base):
     print(f"Файлов после фильтрации: {len(filtered_files)}")
     
     # Параметры для разделения
-    LINES_PER_FILE = 2000
+    LINES_PER_FILE = 1900
     file_counter = 1
     line_counter = 0
     output_file = f"{output_file_base[:-4]}_{file_counter}.txt"  # Убираем .txt и добавляем номер
@@ -183,11 +183,11 @@ def write_project_content(project_root, output_file_base):
     # Закрываем последний файл
     out.close()
     print(f"Содержимое проекта сохранено в файлах: {output_file_base[:-4]}_1.txt и последующих")
+    print(f"Содержимое проекта сохранено с разделением по {LINES_PER_FILE} строк")
 
 # Запуск скрипта
 if __name__ == "__main__":
     try:
         write_project_content(PROJECT_ROOT, OUTPUT_FILE)
-        print(f"Содержимое проекта сохранено с разделением по 2000 строк")
     except Exception as e:
         print(f"Произошла ошибка: {e}")

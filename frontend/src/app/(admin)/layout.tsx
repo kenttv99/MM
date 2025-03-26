@@ -3,7 +3,7 @@
 import { usePathname } from "next/navigation";
 import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
-import Breadcrumbs from "@/components/Breadcrumbs";
+// import Breadcrumbs from "@/components/Breadcrumbs";
 
 export default function AdminLayout({
   children,
@@ -21,7 +21,7 @@ export default function AdminLayout({
             {/* Можно оставить пустым или добавить уведомление */}
           </p>
         )}
-        <Breadcrumbs />
+        {/* <Breadcrumbs /> */}
         <PageTransitionWrapper disableLoading={isLoginPage}>
           {children}
         </PageTransitionWrapper>

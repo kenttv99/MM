@@ -13,6 +13,7 @@ import { useEventForm } from "@/hooks/useEventForm";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
 import { EventStatus } from "@/types/events";
+import Image from 'next/image'
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -25,6 +26,7 @@ const EditEventContent: React.FC = () => {
   const eventId = searchParams.get("event_id");
   const isNew = searchParams.get("new") === "true";
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   
   const router = useRouter();
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
@@ -38,7 +40,8 @@ const EditEventContent: React.FC = () => {
     handleChange,
     handleFileChange,
     handleSubmit,
-    loadEvent
+    loadEvent,
+    setFieldValue,
   } = useEventForm({
     initialValues: {
       title: "",
@@ -56,7 +59,7 @@ const EditEventContent: React.FC = () => {
     },
     onSuccess: () => {
       setTimeout(() => navigateTo(router, "/dashboard", { refresh: "true" }), 1500);
-    }
+    },
   });
 
   useEffect(() => {
@@ -75,6 +78,13 @@ const EditEventContent: React.FC = () => {
     }
   }, [eventId, isNew, isAdminAuth, authLoading, router, loadEvent]);
 
+  // Установка начального значения description
+  useEffect(() => {
+    if (editorRef.current && formData.description !== editorRef.current.innerHTML) {
+      editorRef.current.innerHTML = formData.description || "Введите описание мероприятия";
+    }
+  }, [formData.description]);
+
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
@@ -90,6 +100,164 @@ const EditEventContent: React.FC = () => {
   const handleAreaClick = () => {
     if (fileInputRef.current) {
       fileInputRef.current.click();
+    }
+  };
+
+  // Проверка, обернут ли текст в тег
+  const isWrappedInTag = (range: Range, tagName: string): boolean => {
+    const parent = range.commonAncestorContainer;
+    if (parent.nodeType === Node.ELEMENT_NODE) {
+      const elements = (parent as Element).getElementsByTagName(tagName);
+      for (let i = 0; i < elements.length; i++) {
+        if (range.intersectsNode(elements[i])) {
+          return true;
+        }
+      }
+    } else if (parent.nodeType === Node.TEXT_NODE) {
+      const parentElement = parent.parentElement;
+      return parentElement?.tagName.toLowerCase() === tagName;
+    }
+    return false;
+  };
+
+  // Удаление тега и восстановление текста
+  const unwrapTag = (range: Range, tagName: string) => {
+    const parent = range.commonAncestorContainer;
+    let targetElement: HTMLElement | null = null;
+  
+    if (parent.nodeType === Node.TEXT_NODE) {
+      const parentElement = parent.parentElement;
+      if (parentElement?.tagName.toLowerCase() === tagName) {
+        targetElement = parentElement;
+      }
+    } else if (parent.nodeType === Node.ELEMENT_NODE) {
+      const elements = (parent as Element).getElementsByTagName(tagName);
+      for (let i = 0; i < elements.length; i++) {
+        if (range.intersectsNode(elements[i])) {
+          targetElement = elements[i] as HTMLElement;
+          break;
+        }
+      }
+    }
+  
+    if (targetElement) {
+      const contents = document.createDocumentFragment();
+      while (targetElement.firstChild) {
+        contents.appendChild(targetElement.firstChild);
+      }
+      targetElement.replaceWith(contents);
+    }
+  };
+
+  // Функция для форматирования текста
+  const formatText = (style: 'bold' | 'italic' | 'underline' | 'strike') => {
+    if (!editorRef.current) return;
+
+    editorRef.current.focus();
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount) {
+      console.log("Нет выделения");
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (range.collapsed) {
+      console.log("Выделение пустое");
+      return;
+    }
+
+    let tagName: string;
+    let wrapper: HTMLElement;
+    switch (style) {
+      case 'bold':
+        tagName = 'strong';
+        wrapper = document.createElement('strong');
+        break;
+      case 'italic':
+        tagName = 'em';
+        wrapper = document.createElement('em');
+        break;
+      case 'underline':
+        tagName = 'u';
+        wrapper = document.createElement('u');
+        break;
+      case 'strike':
+        tagName = 's';
+        wrapper = document.createElement('s');
+        break;
+      default:
+        return;
+    }
+
+    try {
+      if (isWrappedInTag(range, tagName)) {
+        // Если текст уже обернут, убираем форматирование
+        unwrapTag(range, tagName);
+      } else {
+        // Применяем форматирование
+        const contents = range.cloneContents();
+        wrapper.appendChild(contents);
+        range.deleteContents();
+        range.insertNode(wrapper);
+
+        // Восстанавливаем выделение
+        selection.removeAllRanges();
+        const newRange = document.createRange();
+        newRange.selectNodeContents(wrapper);
+        selection.addRange(newRange);
+      }
+
+      // Обновляем description
+      updateDescription();
+    } catch (e) {
+      console.error('Ошибка при форматировании:', e);
+    }
+  };
+
+  // Функция для изменения размера шрифта
+  const changeFontSize = (size: string) => {
+    if (!size || !editorRef.current) return;
+
+    editorRef.current.focus();
+    const selection = window.getSelection();
+    if (!selection || !selection.rangeCount) {
+      console.log("Нет выделения");
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    if (range.collapsed) {
+      console.log("Выделение пустое");
+      return;
+    }
+
+    const span = document.createElement('span');
+    span.style.fontSize = size;
+
+    try {
+      const contents = range.cloneContents();
+      span.appendChild(contents);
+      range.deleteContents();
+      range.insertNode(span);
+
+      // Восстанавливаем выделение
+      selection.removeAllRanges();
+      const newRange = document.createRange();
+      newRange.selectNodeContents(span);
+      selection.addRange(newRange);
+
+      // Обновляем description
+      updateDescription();
+    } catch (e) {
+      console.error('Ошибка при изменении размера шрифта:', e);
+    }
+  };
+
+  // Обновление значения description при изменении текста в редакторе
+  const updateDescription = () => {
+    if (editorRef.current) {
+      const content = editorRef.current.innerHTML;
+      setFieldValue("description", content === "Введите описание мероприятия" ? "" : content);
     }
   };
 
@@ -123,14 +291,56 @@ const EditEventContent: React.FC = () => {
                     name="title"
                     required
                   />
-                  <textarea
-                    value={formData.description || ""}
-                    onChange={handleChange}
-                    placeholder="Введите описание мероприятия"
-                    name="description"
-                    className="w-full p-4 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-300 resize-none shadow-sm hover:shadow-md"
-                    rows={5}
-                  />
+                  <div className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex space-x-2 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => formatText('bold')}
+                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                    >
+                      Жирный
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => formatText('italic')}
+                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                    >
+                      Курсив
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => formatText('underline')}
+                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                    >
+                      Подчеркнутый
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => formatText('strike')}
+                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                    >
+                      Зачеркнутый
+                    </button>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Размер (px)"
+                      onChange={(e) => {
+                        const size = e.target.value;
+                        if (size) changeFontSize(`${size}px`);
+                      }}
+                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 w-24"
+                    />
+                  </div>
+                    <div
+                      ref={editorRef}
+                      contentEditable="true"
+                      onInput={updateDescription}
+                      onBlur={updateDescription}
+                      className="min-h-[200px] p-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-6">
@@ -266,10 +476,11 @@ const EditEventContent: React.FC = () => {
                   >
                     {imagePreview ? (
                       <div className="relative">
-                        {/*eslint-disable-next-line @next/next/no-img-element*/}
-                        <img
+                        <Image
                           src={imagePreview}
                           alt="Preview"
+                          width={600} // Задаем ширину
+                          height={400} // Задаем высоту
                           className="w-full h-48 object-cover rounded-lg"
                         />
                         <button

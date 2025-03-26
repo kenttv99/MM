@@ -1,12 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { usePathname } from "next/navigation";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
 import { apiFetch } from "@/utils/api";
-import { FaCalendarAlt } from "react-icons/fa";
+import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 
 interface TicketType {
   name: string;
@@ -28,25 +27,33 @@ interface EventData {
 }
 
 const generateSlug = (title: string, id: number): string => {
+  if (!title || title.trim() === "") {
+    return `event-${id}`;
+  }
+  
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
     й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
     ю: "yu", я: "ya", " ": "-"
   };
-  return (
-    title
-      .toLowerCase()
-      .split("")
-      .map((char) => translitMap[char] || char)
-      .join("")
-      .replace(/[^a-z0-9-]+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "") + `-${id}`
-  );
+  
+  const slugifiedTitle = title
+    .toLowerCase()
+    .split("")
+    .map((char) => translitMap[char] || char)
+    .join("")
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+    
+  return slugifiedTitle ? `${slugifiedTitle}-${id}` : `event-${id}`;
 };
 
+const ITEMS_PER_PAGE = 6;
+
 const EventsPage = () => {
+  // State hooks
   const [events, setEvents] = useState<EventData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,24 +61,80 @@ const EventsPage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
+  const [isFilterActive, setIsFilterActive] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  
+  // Refs
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
-  const pathname = usePathname();
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
+  const initialLoadComplete = useRef(false);
+  const currentFilters = useRef({ startDate: "", endDate: "" });
 
-  const ITEMS_PER_PAGE = 6;
+  // Format date for display in the UI (removing unused function)
 
+  // Format date for display in the UI
+  const formatDateForDisplay = (dateString: string) => {
+    try {
+      const options: Intl.DateTimeFormatOptions = { 
+        day: "numeric", 
+        month: "long", 
+        year: "numeric" 
+      };
+      return new Date(dateString).toLocaleDateString("ru-RU", options);
+    } catch {
+      return dateString;
+    }
+  };
+
+  // Group events by date for display
+  const groupEventsByDate = (events: EventData[]) => {
+    const grouped: { [key: string]: EventData[] } = {};
+    events.forEach((event) => {
+      const dateKey = formatDateForDisplay(event.start_date);
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push(event);
+    });
+    return grouped;
+  };
+
+  // Get status styles for event cards
+  const getStatusStyles = (status: EventData["status"]) => {
+    switch (status) {
+      case "registration_open": return "bg-green-500/80 text-white";
+      case "registration_closed": return "bg-red-500/80 text-white";
+      case "completed": return "bg-gray-500/80 text-white";
+      default: return "bg-gray-500/80 text-white";
+    }
+  };
+
+  // Handle calendar icon click
+  const handleCalendarClick = (ref: React.RefObject<HTMLInputElement | null>) => {
+    if (ref.current) {
+      ref.current.showPicker();
+    }
+  };
+
+  // Fetch events from the API
   const fetchEvents = useCallback(async (pageNum: number, reset: boolean = false) => {
     setIsLoading(true);
     setError(null);
+    
     try {
       const params = new URLSearchParams({
         page: pageNum.toString(),
         limit: ITEMS_PER_PAGE.toString(),
       });
-      if (startDate) params.append("start_date", startDate);
-      if (endDate) params.append("end_date", endDate);
+      
+      // Only add date filters if they're set
+      if (currentFilters.current.startDate) {
+        params.append("start_date", currentFilters.current.startDate);
+      }
+      
+      if (currentFilters.current.endDate) {
+        params.append("end_date", currentFilters.current.endDate);
+      }
 
       const response = await apiFetch(`/v1/public/events?${params.toString()}`, {
         headers: { "Accept": "application/json" },
@@ -87,106 +150,98 @@ const EventsPage = () => {
       const filteredData = data.filter((event) => event.published);
 
       setEvents((prev) => {
+        if (reset) {
+          return filteredData;
+        }
+        
+        // Ensure we don't add duplicate events
         const newEvents = filteredData.filter(
           (newEvent) => !prev.some((existing) => existing.id === newEvent.id)
         );
-        return reset ? filteredData : [...prev, ...newEvents];
+        
+        return [...prev, ...newEvents];
       });
+      
       setHasMore(filteredData.length === ITEMS_PER_PAGE);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось загрузить мероприятия");
     } finally {
       setIsLoading(false);
     }
-  }, [startDate, endDate]);
+  }, []);
 
-  // Первая загрузка при монтировании
+  // Apply filters
+  const applyFilters = () => {
+    // Store current filter values to prevent resets during re-renders
+    currentFilters.current = {
+      startDate: startDate,
+      endDate: endDate
+    };
+    
+    setIsFilterActive(startDate !== "" || endDate !== "");
+    setPage(1);
+    setEvents([]);
+    fetchEvents(1, true);
+    setIsFilterOpen(false);
+  };
+
+  // Reset filters
+  const resetFilters = () => {
+    setStartDate("");
+    setEndDate("");
+    currentFilters.current = { startDate: "", endDate: "" };
+    setIsFilterActive(false);
+    setPage(1);
+    setEvents([]);
+    fetchEvents(1, true);
+    setIsFilterOpen(false);
+  };
+
+  // Initial load effect
   useEffect(() => {
-    if (pathname === "/events") {
-      setEvents([]);
-      setPage(1);
-      setStartDate("");
-      setEndDate("");
+    if (!initialLoadComplete.current) {
+      initialLoadComplete.current = true;
       fetchEvents(1, true);
     }
-  }, [pathname, fetchEvents]);
+  }, [fetchEvents]);
 
-  // Реактивное обновление при изменении фильтров
-  useEffect(() => {
-    setEvents([]);
-    setPage(1);
-    fetchEvents(1, true);
-  }, [startDate, endDate, fetchEvents]);
-
-  // Бесконечная прокрутка
+  // Infinite scroll observer effect
   useEffect(() => {
     if (!hasMore || isLoading) return;
 
+    if (observerRef.current) {
+      observerRef.current.disconnect();
+    }
+
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting) {
+        if (entries[0].isIntersecting && hasMore && !isLoading) {
           setPage((prev) => prev + 1);
         }
       },
-      { threshold: 1.0 }
+      { threshold: 0.5 }
     );
 
     const currentLoadMore = loadMoreRef.current;
-    if (currentLoadMore) observerRef.current.observe(currentLoadMore);
+    if (currentLoadMore) {
+      observerRef.current.observe(currentLoadMore);
+    }
 
     return () => {
-      if (observerRef.current && currentLoadMore) observerRef.current.unobserve(currentLoadMore);
+      if (observerRef.current && currentLoadMore) {
+        observerRef.current.unobserve(currentLoadMore);
+      }
     };
   }, [hasMore, isLoading]);
 
-  // Загрузка следующей страницы
+  // Load next page effect
   useEffect(() => {
-    if (page > 1) fetchEvents(page);
-  }, [page, fetchEvents]);
-
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
-  };
-
-  const groupEventsByDate = (events: EventData[]) => {
-    const grouped: { [key: string]: EventData[] } = {};
-    events.forEach((event) => {
-      const dateKey = formatDate(event.start_date);
-      if (!grouped[dateKey]) grouped[dateKey] = [];
-      grouped[dateKey].push(event);
-    });
-    return grouped;
-  };
-
-  const getStatusStyles = (status: EventData["status"]) => {
-    switch (status) {
-      case "registration_open": return "bg-green-500/80 text-white";
-      case "registration_closed": return "bg-red-500/80 text-white";
-      case "completed": return "bg-gray-500/80 text-white";
-      default: return "bg-gray-500/80 text-white";
+    if (page > 1 && hasMore) {
+      fetchEvents(page);
     }
-  };
-
-  const handleCalendarClick = (ref: React.RefObject<HTMLInputElement | null>) => {
-    if (ref.current) {
-      ref.current.showPicker();
-    }
-  };
-
-  const handleDateChange = (setter: React.Dispatch<React.SetStateAction<string>>) => (e: React.ChangeEvent<HTMLInputElement>) => {
-    e.preventDefault(); // Предотвращаем возможную отправку формы
-    setter(e.target.value);
-  };
+  }, [page, fetchEvents, hasMore]);
 
   const groupedEvents = groupEventsByDate(events);
-
-  if (isLoading && page === 1) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -194,41 +249,128 @@ const EventsPage = () => {
         <div className="container mx-auto">
           <h1 className="text-3xl font-bold mb-8 text-center text-gray-800">Все мероприятия</h1>
 
-          <div className="mb-6 flex justify-end gap-4">
-            <div className="relative flex items-center gap-2 group">
-              <label className="text-sm text-gray-400 group-hover:text-gray-500 transition-colors duration-200 cursor-pointer">От:</label>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={handleDateChange(setStartDate)}
-                  placeholder="Выберите дату"
-                  className="p-1 pl-2 pr-8 text-sm text-gray-600 bg-transparent border border-gray-200 rounded-md focus:ring-1 focus:ring-orange-400 focus:border-orange-400 outline-none hover:border-gray-300 transition-all duration-200 w-40"
-                  ref={startDateInputRef}
-                />
-                <FaCalendarAlt
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-orange-500 transition-colors duration-200 cursor-pointer"
-                  onClick={() => handleCalendarClick(startDateInputRef)}
-                />
-              </div>
+          {/* Filter section */}
+          <div className="mb-6 relative">
+            <div className="flex justify-end">
+              <button 
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                  isFilterActive 
+                    ? "bg-orange-100 text-orange-700 hover:bg-orange-200" 
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                }`}
+              >
+                <FaFilter className={isFilterActive ? "text-orange-500" : "text-gray-500"} />
+                <span>Фильтры {isFilterActive ? "(активны)" : ""}</span>
+              </button>
             </div>
-            <div className="relative flex items-center gap-2 group">
-              <label className="text-sm text-gray-400 group-hover:text-gray-500 transition-colors duration-200 cursor-pointer">До:</label>
-              <div className="relative">
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={handleDateChange(setEndDate)}
-                  placeholder="Выберите дату"
-                  className="p-1 pl-2 pr-8 text-sm text-gray-600 bg-transparent border border-gray-200 rounded-md focus:ring-1 focus:ring-orange-400 focus:border-orange-400 outline-none hover:border-gray-300 transition-all duration-200 w-40"
-                  ref={endDateInputRef}
-                />
-                <FaCalendarAlt
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-orange-500 transition-colors duration-200 cursor-pointer"
-                  onClick={() => handleCalendarClick(endDateInputRef)}
-                />
+            
+            {isFilterOpen && (
+              <div className="absolute top-12 right-0 z-10 p-5 bg-white rounded-lg shadow-lg border border-gray-200 w-80 animate-fade-in">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="text-lg font-medium">Фильтр по датам</h3>
+                  <button 
+                    onClick={() => setIsFilterOpen(false)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <FaTimes size={16} />
+                  </button>
+                </div>
+                
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-600">От:</label>
+                    <div className="relative">
+                      <input
+                        type="date"
+                        value={startDate}
+                        onChange={(e) => setStartDate(e.target.value)}
+                        className="w-full p-2 pl-3 pr-9 text-sm text-gray-600 bg-white border border-gray-200 rounded-md focus:ring-1 focus:ring-orange-400 focus:border-orange-400 outline-none hover:border-gray-300 transition-all duration-200"
+                        ref={startDateInputRef}
+                      />
+                      <FaCalendarAlt
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 hover:text-orange-500 transition-colors duration-200 cursor-pointer"
+                        onClick={() => handleCalendarClick(startDateInputRef)}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="block text-sm text-gray-600">До:</label>
+                    <div className="relative">
+                      <input
+                        type="date"
+                        value={endDate}
+                        onChange={(e) => setEndDate(e.target.value)}
+                        className="w-full p-2 pl-3 pr-9 text-sm text-gray-600 bg-white border border-gray-200 rounded-md focus:ring-1 focus:ring-orange-400 focus:border-orange-400 outline-none hover:border-gray-300 transition-all duration-200"
+                        ref={endDateInputRef}
+                      />
+                      <FaCalendarAlt
+                        className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 hover:text-orange-500 transition-colors duration-200 cursor-pointer"
+                        onClick={() => handleCalendarClick(endDateInputRef)}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-between pt-4 border-t border-gray-100">
+                    <button
+                      onClick={resetFilters}
+                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200 text-sm flex items-center gap-1"
+                    >
+                      <FaTimes size={10} />
+                      Сбросить
+                    </button>
+                    <button
+                      onClick={applyFilters}
+                      className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 text-sm"
+                    >
+                      Применить
+                    </button>
+                  </div>
+                </div>
               </div>
-            </div>
+            )}
+            
+            {/* Active filters display */}
+            {isFilterActive && !isFilterOpen && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="text-sm text-gray-600 mr-2">Активные фильтры:</span>
+                {currentFilters.current.startDate && (
+                  <div className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs">
+                    <span>От: {formatDateForDisplay(currentFilters.current.startDate)}</span>
+                    <button
+                      onClick={() => {
+                        setStartDate("");
+                        applyFilters();
+                      }}
+                      className="ml-1 hover:text-orange-900"
+                    >
+                      <FaTimes size={10} />
+                    </button>
+                  </div>
+                )}
+                {currentFilters.current.endDate && (
+                  <div className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs">
+                    <span>До: {formatDateForDisplay(currentFilters.current.endDate)}</span>
+                    <button
+                      onClick={() => {
+                        setEndDate("");
+                        applyFilters();
+                      }}
+                      className="ml-1 hover:text-orange-900"
+                    >
+                      <FaTimes size={10} />
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={resetFilters}
+                  className="text-xs text-orange-600 hover:text-orange-800 hover:underline"
+                >
+                  Сбросить все
+                </button>
+              </div>
+            )}
           </div>
 
           {error && (
@@ -237,16 +379,41 @@ const EventsPage = () => {
             </div>
           )}
 
-          {events.length === 0 && !isLoading ? (
-            <p className="text-center text-gray-600">Нет доступных мероприятий</p>
+          {/* Loading state for initial page load */}
+          {isLoading && events.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mb-4"></div>
+              <p className="text-gray-600">Загрузка мероприятий...</p>
+            </div>
+          ) : events.length === 0 && !isLoading ? (
+            <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
+              <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+                <FaCalendarAlt className="text-orange-500 w-8 h-8" />
+              </div>
+              <h3 className="text-xl font-semibold mb-2 text-gray-800">Мероприятия не найдены</h3>
+              <p className="text-gray-600 text-center max-w-md mb-6">
+                {isFilterActive 
+                  ? "Не найдено мероприятий, соответствующих выбранным критериям. Попробуйте изменить фильтры."
+                  : "В настоящее время нет доступных мероприятий."}
+              </p>
+              {isFilterActive && (
+                <button
+                  onClick={resetFilters}
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                >
+                  Сбросить фильтры
+                </button>
+              )}
+            </div>
           ) : (
+            // Event groups by date
             Object.entries(groupedEvents).map(([date, eventsForDate]) => (
-              <div key={date} className="mb-8">
+              <div key={date} className="mb-8 animate-fade-in">
                 <h2 className="text-base font-medium text-gray-500 mb-3">{date}</h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                   {eventsForDate.map((event) => (
                     <Link href={`/event/${generateSlug(event.title, event.id)}`} key={event.id}>
-                      <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden relative">
+                      <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden relative h-full flex flex-col">
                         <div className="relative h-48">
                           {event.image_url ? (
                             <>
@@ -270,24 +437,26 @@ const EventsPage = () => {
                             {event.status === "completed" && "Завершено"}
                           </span>
                         </div>
-                        <div className="p-5 relative">
+                        <div className="p-5 flex-grow flex flex-col">
                           <h3 className="text-lg font-semibold text-gray-800 mb-2 line-clamp-2">{event.title}</h3>
-                          <p className="text-gray-600 text-sm mb-4 line-clamp-3">{event.description || "Описание отсутствует"}</p>
-                          <div className="text-gray-500 text-sm">
+                          <p className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow">
+                            {event.description || "Описание отсутствует"}
+                          </p>
+                          <div className="text-gray-500 text-sm mt-auto flex justify-between items-center">
                             <span className="flex items-center">
                               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                               </svg>
-                              {formatDate(event.start_date)}
+                              {formatDateForDisplay(event.start_date)}
                             </span>
+                            {event.ticket_type && (
+                              <span className="bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-1 rounded-full">
+                                {event.status === "registration_open" && event.ticket_type.available_quantity > 0
+                                  ? `Доступно мест: ${event.ticket_type.available_quantity}`
+                                  : "Места распределены"}
+                              </span>
+                            )}
                           </div>
-                          {event.ticket_type && (
-                            <span className="absolute bottom-2 right-2 bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-1 rounded-full">
-                              {event.status === "registration_open" && event.ticket_type.available_quantity > 0
-                                ? `Доступно мест: ${event.ticket_type.available_quantity}`
-                                : "Места распределены"}
-                            </span>
-                          )}
                         </div>
                       </div>
                     </Link>
@@ -297,15 +466,25 @@ const EventsPage = () => {
             ))
           )}
 
-          {hasMore && (
-            <div ref={loadMoreRef} className="flex justify-center py-8">
-              {isLoading && (
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          {/* Load more indicator */}
+          {hasMore && events.length > 0 && (
+            <div 
+              ref={loadMoreRef} 
+              className="flex justify-center py-8"
+            >
+              {isLoading ? (
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+              ) : (
+                <div className="h-8 w-8"></div> // Placeholder to maintain layout
               )}
             </div>
           )}
+          
+          {/* End of results message */}
           {!hasMore && events.length > 0 && (
-            <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>
+            <p className="text-center text-gray-600 py-8">
+              {events.length === 0 ? "Нет доступных мероприятий" : "Все мероприятия загружены"}
+            </p>
           )}
         </div>
       </main>

@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
+import FormattedDescription from "@/components/FormattedDescription"; // Import the new component
 import { notFound } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -62,7 +63,7 @@ export default function EventPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const { isAuth, checkAuth } = useAuth();
-  const [hasRedirected, setHasRedirected] = useState(false); // Флаг для предотвращения циклического перенаправления
+  const [hasRedirected, setHasRedirected] = useState(false);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -84,7 +85,6 @@ export default function EventPage() {
         // Проверяем, нужно ли перенаправить на правильный slug
         const correctSlug = generateSlug(data.title, data.id);
         if (slug !== correctSlug && !hasRedirected) {
-          
           setHasRedirected(true);
           router.replace(`/event/${correctSlug}`, { scroll: false });
         }
@@ -210,7 +210,12 @@ export default function EventPage() {
               className="max-w-3xl mx-auto"
             >
               <h2 className="text-2xl font-semibold mb-4 text-gray-800">Описание</h2>
-              <p className="text-gray-600 leading-relaxed">{event.description}</p>
+              
+              {/* Заменяем обычный параграф на компонент FormattedDescription */}
+              <FormattedDescription 
+                content={event.description} 
+                className="text-gray-600 leading-relaxed"
+              />
             </motion.section>
           )}
         </div>

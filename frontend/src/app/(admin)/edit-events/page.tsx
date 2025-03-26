@@ -13,7 +13,7 @@ import { useEventForm } from "@/hooks/useEventForm";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
 import { EventStatus } from "@/types/events";
-import Image from 'next/image'
+import Image from 'next/image';
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -21,12 +21,133 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
   router.push(url.pathname + url.search);
 };
 
+// Simple text editor component that uses textarea instead of contenteditable
+const TextEditor = ({ 
+  value, 
+  onChange, 
+  placeholder = "Введите описание мероприятия" 
+}: { 
+  value: string; 
+  onChange: (content: string) => void;
+  placeholder?: string;
+}) => {
+  const insertFormatting = (tag: string) => {
+    // Get the textarea element
+    const textarea = document.querySelector('textarea[name="description"]') as HTMLTextAreaElement;
+    if (!textarea) return;
+    
+    // Get current selection
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selectedText = value.substring(start, end);
+    
+    // Create formatted text
+    let formattedText;
+    if (tag === 'size') {
+      // Get the size input element
+      const sizeInput = document.querySelector('input[name="fontSize"]') as HTMLInputElement;
+      if (!sizeInput) return;
+      const fontSize = sizeInput.value;
+      formattedText = `<span style="font-size:${fontSize}px;">${selectedText}</span>`;
+    } else {
+      formattedText = `<${tag}>${selectedText}</${tag}>`;
+    }
+    
+    // Insert at cursor position
+    const newText = 
+      value.substring(0, start) + 
+      formattedText + 
+      value.substring(end);
+    
+    // Update text and maintain cursor position
+    onChange(newText);
+    
+    // Set focus back to textarea after state update
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + formattedText.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  return (
+    <div className="border border-gray-200 rounded-lg p-4">
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          type="button"
+          onClick={() => insertFormatting('b')}
+          className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+        >
+          Жирный
+        </button>
+        <button
+          type="button"
+          onClick={() => insertFormatting('i')}
+          className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+        >
+          Курсив
+        </button>
+        <button
+          type="button"
+          onClick={() => insertFormatting('u')}
+          className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+        >
+          Подчеркнутый
+        </button>
+        <button
+          type="button"
+          onClick={() => insertFormatting('s')}
+          className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+        >
+          Зачеркнутый
+        </button>
+        <div className="flex items-center">
+          <input
+            type="number"
+            name="fontSize"
+            min="8"
+            max="72"
+            defaultValue="16"
+            className="w-16 px-1 py-1 border border-gray-300 rounded mr-2"
+          />
+          <button
+            type="button"
+            onClick={() => insertFormatting('size')}
+            className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+          >
+            Размер (px)
+          </button>
+        </div>
+      </div>
+      
+      <textarea
+        name="description"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full min-h-[200px] p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        rows={10}
+      />
+      
+      <div className="mt-2 text-sm text-gray-500">
+        <p>Форматирование текста:</p>
+        <ul className="list-disc pl-5 mt-1">
+          <li>&lt;b&gt;текст&lt;/b&gt; - <b>жирный текст</b></li>
+          <li>&lt;i&gt;текст&lt;/i&gt; - <i>курсив</i></li>
+          <li>&lt;u&gt;текст&lt;/u&gt; - <u>подчеркнутый текст</u></li>
+          <li>&lt;s&gt;текст&lt;/s&gt; - <s>зачеркнутый текст</s></li>
+          <li>&lt;span style=&quot;font-size:20px;&quot;&gt;текст&lt;/span&gt; - <span style={{fontSize: '20px'}}>текст размером 20px</span></li>
+        </ul>
+      </div>
+    </div>
+  );
+};
+
 const EditEventContent: React.FC = () => {
   const searchParams = useSearchParams();
   const eventId = searchParams.get("event_id");
   const isNew = searchParams.get("new") === "true";
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const editorRef = useRef<HTMLDivElement>(null);
   
   const router = useRouter();
   const { isAdminAuth, isLoading: authLoading, checkAuth } = useAdminAuth();
@@ -78,13 +199,6 @@ const EditEventContent: React.FC = () => {
     }
   }, [eventId, isNew, isAdminAuth, authLoading, router, loadEvent]);
 
-  // Установка начального значения description
-  useEffect(() => {
-    if (editorRef.current && formData.description !== editorRef.current.innerHTML) {
-      editorRef.current.innerHTML = formData.description || "Введите описание мероприятия";
-    }
-  }, [formData.description]);
-
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const file = e.dataTransfer.files[0];
@@ -102,163 +216,10 @@ const EditEventContent: React.FC = () => {
       fileInputRef.current.click();
     }
   };
-
-  // Проверка, обернут ли текст в тег
-  const isWrappedInTag = (range: Range, tagName: string): boolean => {
-    const parent = range.commonAncestorContainer;
-    if (parent.nodeType === Node.ELEMENT_NODE) {
-      const elements = (parent as Element).getElementsByTagName(tagName);
-      for (let i = 0; i < elements.length; i++) {
-        if (range.intersectsNode(elements[i])) {
-          return true;
-        }
-      }
-    } else if (parent.nodeType === Node.TEXT_NODE) {
-      const parentElement = parent.parentElement;
-      return parentElement?.tagName.toLowerCase() === tagName;
-    }
-    return false;
-  };
-
-  // Удаление тега и восстановление текста
-  const unwrapTag = (range: Range, tagName: string) => {
-    const parent = range.commonAncestorContainer;
-    let targetElement: HTMLElement | null = null;
   
-    if (parent.nodeType === Node.TEXT_NODE) {
-      const parentElement = parent.parentElement;
-      if (parentElement?.tagName.toLowerCase() === tagName) {
-        targetElement = parentElement;
-      }
-    } else if (parent.nodeType === Node.ELEMENT_NODE) {
-      const elements = (parent as Element).getElementsByTagName(tagName);
-      for (let i = 0; i < elements.length; i++) {
-        if (range.intersectsNode(elements[i])) {
-          targetElement = elements[i] as HTMLElement;
-          break;
-        }
-      }
-    }
-  
-    if (targetElement) {
-      const contents = document.createDocumentFragment();
-      while (targetElement.firstChild) {
-        contents.appendChild(targetElement.firstChild);
-      }
-      targetElement.replaceWith(contents);
-    }
-  };
-
-  // Функция для форматирования текста
-  const formatText = (style: 'bold' | 'italic' | 'underline' | 'strike') => {
-    if (!editorRef.current) return;
-
-    editorRef.current.focus();
-    const selection = window.getSelection();
-    if (!selection || !selection.rangeCount) {
-      console.log("Нет выделения");
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    if (range.collapsed) {
-      console.log("Выделение пустое");
-      return;
-    }
-
-    let tagName: string;
-    let wrapper: HTMLElement;
-    switch (style) {
-      case 'bold':
-        tagName = 'strong';
-        wrapper = document.createElement('strong');
-        break;
-      case 'italic':
-        tagName = 'em';
-        wrapper = document.createElement('em');
-        break;
-      case 'underline':
-        tagName = 'u';
-        wrapper = document.createElement('u');
-        break;
-      case 'strike':
-        tagName = 's';
-        wrapper = document.createElement('s');
-        break;
-      default:
-        return;
-    }
-
-    try {
-      if (isWrappedInTag(range, tagName)) {
-        // Если текст уже обернут, убираем форматирование
-        unwrapTag(range, tagName);
-      } else {
-        // Применяем форматирование
-        const contents = range.cloneContents();
-        wrapper.appendChild(contents);
-        range.deleteContents();
-        range.insertNode(wrapper);
-
-        // Восстанавливаем выделение
-        selection.removeAllRanges();
-        const newRange = document.createRange();
-        newRange.selectNodeContents(wrapper);
-        selection.addRange(newRange);
-      }
-
-      // Обновляем description
-      updateDescription();
-    } catch (e) {
-      console.error('Ошибка при форматировании:', e);
-    }
-  };
-
-  // Функция для изменения размера шрифта
-  const changeFontSize = (size: string) => {
-    if (!size || !editorRef.current) return;
-
-    editorRef.current.focus();
-    const selection = window.getSelection();
-    if (!selection || !selection.rangeCount) {
-      console.log("Нет выделения");
-      return;
-    }
-
-    const range = selection.getRangeAt(0);
-    if (range.collapsed) {
-      console.log("Выделение пустое");
-      return;
-    }
-
-    const span = document.createElement('span');
-    span.style.fontSize = size;
-
-    try {
-      const contents = range.cloneContents();
-      span.appendChild(contents);
-      range.deleteContents();
-      range.insertNode(span);
-
-      // Восстанавливаем выделение
-      selection.removeAllRanges();
-      const newRange = document.createRange();
-      newRange.selectNodeContents(span);
-      selection.addRange(newRange);
-
-      // Обновляем description
-      updateDescription();
-    } catch (e) {
-      console.error('Ошибка при изменении размера шрифта:', e);
-    }
-  };
-
-  // Обновление значения description при изменении текста в редакторе
-  const updateDescription = () => {
-    if (editorRef.current) {
-      const content = editorRef.current.innerHTML;
-      setFieldValue("description", content === "Введите описание мероприятия" ? "" : content);
-    }
+  // Handle text editor changes
+  const handleDescriptionChange = (content: string) => {
+    setFieldValue("description", content);
   };
 
   return (
@@ -291,56 +252,12 @@ const EditEventContent: React.FC = () => {
                     name="title"
                     required
                   />
-                  <div className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex space-x-2 mb-2">
-                    <button
-                      type="button"
-                      onClick={() => formatText('bold')}
-                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                    >
-                      Жирный
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => formatText('italic')}
-                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                    >
-                      Курсив
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => formatText('underline')}
-                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                    >
-                      Подчеркнутый
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => formatText('strike')}
-                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
-                    >
-                      Зачеркнутый
-                    </button>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="Размер (px)"
-                      onChange={(e) => {
-                        const size = e.target.value;
-                        if (size) changeFontSize(`${size}px`);
-                      }}
-                      className="px-2 py-1 bg-gray-100 rounded hover:bg-gray-200 w-24"
-                    />
-                  </div>
-                    <div
-                      ref={editorRef}
-                      contentEditable="true"
-                      onInput={updateDescription}
-                      onBlur={updateDescription}
-                      className="min-h-[200px] p-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                  
+                  {/* Simple text editor component */}
+                  <TextEditor 
+                    value={formData.description || ""}
+                    onChange={handleDescriptionChange}
+                  />
                 </div>
 
                 <div className="space-y-6">
@@ -479,8 +396,8 @@ const EditEventContent: React.FC = () => {
                         <Image
                           src={imagePreview}
                           alt="Preview"
-                          width={600} // Задаем ширину
-                          height={400} // Задаем высоту
+                          width={600}
+                          height={400}
                           className="w-full h-48 object-cover rounded-lg"
                         />
                         <button

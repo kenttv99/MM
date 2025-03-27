@@ -13,7 +13,7 @@ import uvicorn
 from datetime import datetime, timedelta
 from authlib.jose import jwt
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY
-from backend.database.user_db import AsyncSessionLocal  # Используем AsyncSessionLocal напрямую
+from backend.database.user_db import AsyncSessionLocal
 
 app = FastAPI(
     title="User Authentication API",
@@ -29,16 +29,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Привязываем Limiter к приложению с кастомной функцией ключа
 app.state.limiter = limiter
 app.state.limiter.key_func = get_user_or_ip_key
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Middleware для обновления токена
 @app.middleware("http")
 async def refresh_token_middleware(request: Request, call_next):
     response = await call_next(request)
-    # Пропускаем публичные маршруты
     if request.url.path.startswith("/v1/public/"):
         return response
 
@@ -50,7 +47,7 @@ async def refresh_token_middleware(request: Request, call_next):
             payload = jwt.decode(token, SECRET_KEY)
             exp = payload.get("exp")
             current_time = datetime.utcnow().timestamp()
-            if exp - current_time < 300:  # 300 секунд = 5 минут
+            if exp - current_time < 300:
                 user = await get_current_user(token, db)
                 new_token = await create_access_token(
                     data={"sub": user.email},
@@ -64,7 +61,6 @@ async def refresh_token_middleware(request: Request, call_next):
             await db.close()
     return response
 
-# Подключение роутеров
 app.include_router(user_edit_routers, prefix="/user_edits", tags=["User Edits"])
 app.include_router(user_auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(event_router, prefix="/v1/public/events", tags=["Events"])

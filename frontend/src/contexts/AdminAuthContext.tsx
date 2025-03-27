@@ -1,8 +1,8 @@
 // frontend/src/contexts/AdminAuthContext.tsx
 "use client";
 
-import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import React, { createContext, useState, useEffect, useCallback, useRef } from "react";
 
 interface AdminData {
   id: number;
@@ -50,31 +50,29 @@ function isTokenExpired(token: string): boolean {
   return decoded.exp < currentTime;
 }
 
+// frontend/src/contexts/AdminAuthContext.tsx
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
   const [adminData, setAdminData] = useState<AdminData | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
-  const hasCheckedAuth = useRef(false); // Добавляем флаг для отслеживания первого вызова
+  const hasCheckedAuth = useRef(false);
+  const isChecking = useRef(false);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
+    if (isChecking.current) return false;
+    isChecking.current = true;
     setIsLoading(true);
     const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
     const cachedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
 
-    if (!token || !cachedData) {
-      setIsAdminAuth(false);
-      setAdminData(null);
-      setIsLoading(false);
-      return false;
-    }
-
-    if (isTokenExpired(token)) {
+    if (!token || !cachedData || isTokenExpired(token)) {
       localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
       setIsAdminAuth(false);
       setAdminData(null);
       setIsLoading(false);
+      isChecking.current = false;
       return false;
     }
 
@@ -83,6 +81,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setAdminData(parsedData);
       setIsAdminAuth(true);
       setIsLoading(false);
+      isChecking.current = false;
       return true;
     } catch {
       localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
@@ -90,6 +89,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       setIsAdminAuth(false);
       setAdminData(null);
       setIsLoading(false);
+      isChecking.current = false;
       return false;
     }
   }, []);
@@ -103,7 +103,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [router]);
 
   useEffect(() => {
-    if (!hasCheckedAuth.current) { // Проверяем, был ли уже вызван checkAuth
+    if (!hasCheckedAuth.current) {
       hasCheckedAuth.current = true;
       checkAuth().catch(err => console.error("Initial checkAuth failed:", err));
     }
@@ -114,7 +114,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     adminData,
     isLoading,
     checkAuth,
-    logoutAdmin,
+    logoutAdmin, // Явно добавляем logoutAdmin
   };
 
   return (
@@ -122,12 +122,4 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       {children}
     </AdminAuthContext.Provider>
   );
-};
-
-export const useAdminAuth = () => {
-  const context = useContext(AdminAuthContext);
-  if (!context) {
-    throw new Error("useAdminAuth must be used within an AdminAuthProvider");
-  }
-  return context;
 };

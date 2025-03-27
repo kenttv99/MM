@@ -17,18 +17,18 @@ INCLUDE_PATHS = [
     # "backend/",
     # "frontend/src/",
     # "servers/",
-    "backend/api"
+    "backend/api",
+    "frontend/src/contexts",
+    "frontend/src/components"
 ]
 
 # Конкретные файлы для включения (относительные пути)
 INCLUDE_FILES = [
-    # "constants.py",
+    "constants.py",
     # "README.md",
-    # "frontend/src/next.config.ts",
+    "frontend/src/next.config.ts",
     "servers/server_user.py",
     "frontend/src/app/(auth)/profile/page.tsx",
-    "frontend/src/components/common/AuthModal.tsx",
-    "frontend/src/components/common/InputField.tsx"
 ]
 
 # Исключенные файлы и папки
@@ -123,24 +123,17 @@ def write_project_content(project_root, output_file_base):
             with open(full_path, "r", encoding="utf-8") as f:
                 content = f.read()
                 content_lines = content.split('\n')
-                num_lines = len(content_lines) + 2
+                num_lines = len(content_lines) + 2  # Учитываем заголовок и разделитель
                 
-                while line_counter + num_lines > LINES_PER_FILE:
-                    lines_to_write = LINES_PER_FILE - line_counter
-                    if lines_to_write > 0:
-                        if lines_to_write >= 2:
-                            out.write(file_header)
-                            remaining_lines = lines_to_write - 1
-                            out.write('\n'.join(content_lines[:remaining_lines]) + '\n')
-                            content_lines = content_lines[remaining_lines:]
-                        out.write("================\n")
-                    
+                # Если текущий файл плюс новый контент превышает лимит
+                if line_counter + num_lines > LINES_PER_FILE:
                     out.close()
                     file_counter += 1
                     output_file = f"{output_file_base[:-4]}_{file_counter}.txt"
                     out = open(output_file, "w", encoding="utf-8")
                     line_counter = 0
                 
+                # Записываем весь файл целиком
                 out.write(file_header)
                 out.write(content + "\n")
                 out.write("================\n")
@@ -164,7 +157,8 @@ def write_project_content(project_root, output_file_base):
     
     out.close()
     print(f"Содержимое проекта сохранено в файлах: {output_file_base[:-4]}_1.txt и последующих")
-
+    
+    
 if __name__ == "__main__":
     try:
         write_project_content(PROJECT_ROOT, OUTPUT_FILE)

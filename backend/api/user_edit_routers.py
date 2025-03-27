@@ -8,6 +8,7 @@ from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import os
 import uuid
+from constants import USERS_AVATARS_DIR, BASE_DIR
 
 router = APIRouter()
 bearer_scheme = HTTPBearer()
@@ -18,7 +19,6 @@ async def get_user_profile(
     db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ) -> UserResponse:
-    """Получение данных текущего пользователя"""
     try:
         token = credentials.credentials
         current_user = await get_current_user(token, db)
@@ -41,7 +41,6 @@ async def update_user_profile(
     db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ) -> UserResponse:
-    """Обновление данных текущего пользователя"""
     try:
         token = credentials.credentials
         current_user = await get_current_user(token, db)
@@ -73,7 +72,6 @@ async def upload_user_avatar(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ) -> UserResponse:
-    """Загрузка аватарки пользователя"""
     try:
         token = credentials.credentials
         current_user = await get_current_user(token, db)
@@ -84,17 +82,23 @@ async def upload_user_avatar(
                 detail="Только изображения разрешены"
             )
 
-        avatar_dir = "private_media/users_avatars"
-        os.makedirs(avatar_dir, exist_ok=True)
+        os.makedirs(USERS_AVATARS_DIR, exist_ok=True)
 
+        # Удаляем старый аватар, если он существует
         if current_user.avatar_url:
-            old_file_path = current_user.avatar_url.replace("/images/users_avatars/", "private_media/users_avatars/")
+            old_file_path = os.path.join(BASE_DIR, current_user.avatar_url.lstrip("/"))
             if os.path.exists(old_file_path):
-                os.remove(old_file_path)
+                try:
+                    os.remove(old_file_path)
+                    logger.info(f"Удалён старый аватар: {old_file_path}")
+                except OSError as e:
+                    logger.warning(f"Не удалось удалить старый аватар {old_file_path}: {str(e)}")
+            current_user.avatar_url = None  # Очищаем старый URL сразу
 
+        # Загружаем новый аватар
         file_extension = file.filename.split('.')[-1]
         unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_path = os.path.join(avatar_dir, unique_filename)
+        file_path = os.path.join(USERS_AVATARS_DIR, unique_filename)
         
         content = await file.read()
         with open(file_path, "wb") as f:

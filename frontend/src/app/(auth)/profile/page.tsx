@@ -1,4 +1,3 @@
-// frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
@@ -7,11 +6,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import InputField from "@/components/common/InputField";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
-import { FaUser, FaTelegramPlane, FaWhatsapp, FaTrash, FaTimes } from "react-icons/fa";
+import { FaUser, FaTelegramPlane, FaWhatsapp, FaTrash, FaPencilAlt, FaTimes } from "react-icons/fa";
 import Image from "next/image";
 import { apiFetch } from "@/utils/api";
 import { ModalButton } from "@/components/common/AuthModal";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 interface UserData {
   id: number;
@@ -22,29 +21,38 @@ interface UserData {
   avatar_url?: string;
 }
 
-const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  router.push(url.pathname + url.search);
-};
+interface FormState {
+  fio: string;
+  telegram: string;
+  whatsapp: string;
+  avatarPreview: string | null;
+}
+
+interface ValidationErrors {
+  fio?: string;
+  telegram?: string;
+  whatsapp?: string;
+}
 
 const Profile: React.FC = () => {
-  const { isAuth, userData: contextUserData, isLoading: authLoading, checkAuth } = useAuth();
-  const [userData, setUserData] = useState<UserData | null>(contextUserData);
-  const [isEditing, setIsEditing] = useState(false);
+  const { isAuth, userData: contextUserData, isLoading: authLoading, updateUserData } = useAuth();
+  const [userData, setUserData] = useState<UserData | null>(null);
+  const [formState, setFormState] = useState<FormState>({ fio: "", telegram: "", whatsapp: "", avatarPreview: null });
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [isFetching, setIsFetching] = useState(false);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const router = useRouter();
 
+  const navigateTo = useCallback((path: string) => router.push(path), [router]);
+
   const fetchUserProfile = useCallback(async () => {
-    if (!isAuth || isFetching) {
-      return;
-    }
+    if (!isAuth || isFetching) return;
 
     setIsFetching(true);
     setFetchError(null);
@@ -53,81 +61,105 @@ const Profile: React.FC = () => {
       if (!token) throw new Error("Токен авторизации отсутствует");
 
       const response = await apiFetch("/user_edits/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Accept": "application/json",
-        },
+        headers: { Authorization: `Bearer ${token}`, "Accept": "application/json" },
       });
 
       if (!response.ok) {
-        const errorText = await response.text();
         if (response.status === 401) {
           localStorage.removeItem("token");
-          navigateTo(router, "/login");
+          navigateTo("/login");
           throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
         }
-        throw new Error(`Ошибка API: ${response.status} ${errorText}`);
+        throw new Error(`Ошибка API: ${await response.text()}`);
       }
 
       const freshData: UserData = await response.json();
       setUserData(freshData);
-      setAvatarPreview(freshData.avatar_url || null);
+      setFormState({
+        fio: freshData.fio || "",
+        telegram: freshData.telegram || "",
+        whatsapp: freshData.whatsapp || "",
+        avatarPreview: freshData.avatar_url || null,
+      });
+      updateUserData(freshData);
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
       setUserData(contextUserData);
     } finally {
       setIsFetching(false);
     }
-  }, [isAuth, contextUserData, router, isFetching]);
+  }, [isAuth, isFetching, contextUserData, navigateTo, updateUserData]);
 
   useEffect(() => {
     const initialize = async () => {
       if (!authLoading && !hasFetched.current) {
         hasFetched.current = true;
-        await checkAuth();
-        if (!isAuth) {
-          navigateTo(router, "/login");
-        } else {
-          fetchUserProfile();
-        }
+        if (!isAuth) navigateTo("/"); // Редирект на главную
+        else fetchUserProfile();
       }
     };
     initialize();
-  }, [authLoading, checkAuth, isAuth, router, fetchUserProfile]);
-
-  const handleEditToggle = () => {
-    setIsEditing((prev) => !prev);
-    setUpdateError(null);
-    setUpdateSuccess(null);
-    if (!isEditing && userData) {
-      setAvatarPreview(userData.avatar_url || null);
-    }
-  };
+  }, [authLoading, isAuth, fetchUserProfile, navigateTo]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setUserData((prev) => (prev ? { ...prev, [name]: value } : null));
+    let newValue = value;
+
+    const newErrors = { ...validationErrors };
+
+    if (name === "telegram") {
+      newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
+      if (!newValue) newErrors.telegram = "Telegram обязателен";
+      else if (!newValue.startsWith("@")) newErrors.telegram = "Telegram должен начинаться с @";
+      else delete newErrors.telegram;
+    }
+
+    if (name === "whatsapp") {
+      newValue = value.replace(/\D/g, "");
+      if (!newValue) newErrors.whatsapp = "WhatsApp обязателен";
+      else if (!/^\d+$/.test(newValue)) newErrors.whatsapp = "WhatsApp должен содержать только цифры";
+      else delete newErrors.whatsapp;
+    }
+
+    if (name === "fio") {
+      if (!value) newErrors.fio = "ФИО обязательно";
+      else delete newErrors.fio;
+    }
+
+    setFormState((prev) => ({ ...prev, [name]: newValue }));
+    setValidationErrors(newErrors);
   };
 
-  const handleFileChange = (file: File | null) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (file) {
+      setSelectedFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => setAvatarPreview(reader.result as string);
+      reader.onloadend = () => {
+        setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
+      };
       reader.readAsDataURL(file);
     } else {
-      setAvatarPreview(userData?.avatar_url || null);
+      setSelectedFile(null);
+      setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
     }
   };
 
-  const handleAvatarClick = () => {
-    if (isEditing && fileInputRef.current) {
-      fileInputRef.current.click();
-    }
-  };
+  const validateForm = useCallback((): boolean => {
+    const errors: ValidationErrors = {};
+    if (!formState.fio) errors.fio = "ФИО обязательно";
+    if (!formState.telegram) errors.telegram = "Telegram обязателен";
+    else if (!formState.telegram.startsWith("@")) errors.telegram = "Telegram должен начинаться с @";
+    if (!formState.whatsapp) errors.whatsapp = "WhatsApp обязателен";
+    else if (!/^\d+$/.test(formState.whatsapp)) errors.whatsapp = "WhatsApp должен содержать только цифры";
+
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [formState]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!userData) return;
+    if (!userData || !validateForm()) return;
 
     setIsFetching(true);
     setUpdateError(null);
@@ -139,51 +171,47 @@ const Profile: React.FC = () => {
 
       const profileResponse = await apiFetch("/user_edits/me", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          fio: userData.fio,
-          telegram: userData.telegram,
-          whatsapp: userData.whatsapp,
-        }),
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ fio: formState.fio, telegram: formState.telegram, whatsapp: formState.whatsapp }),
       });
 
       if (!profileResponse.ok) {
-        const errorText = await profileResponse.text();
         if (profileResponse.status === 401) {
           localStorage.removeItem("token");
-          navigateTo(router, "/login");
+          navigateTo("/login");
           throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
         }
-        throw new Error(`Ошибка обновления профиля: ${errorText}`);
+        throw new Error(`Ошибка обновления профиля: ${await profileResponse.text()}`);
       }
 
-      if (fileInputRef.current?.files?.[0]) {
+      let updatedUser: UserData = await profileResponse.json();
+      if (selectedFile) {
         const formData = new FormData();
-        formData.append("file", fileInputRef.current.files[0]);
+        formData.append("file", selectedFile);
+
         const avatarResponse = await apiFetch("/user_edits/upload-avatar", {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
+          headers: { Authorization: `Bearer ${token}` },
           body: formData,
         });
 
         if (!avatarResponse.ok) {
-          const errorText = await avatarResponse.text();
           if (avatarResponse.status === 401) {
             localStorage.removeItem("token");
-            navigateTo(router, "/login");
+            navigateTo("/login");
             throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
           }
-          throw new Error(`Ошибка загрузки аватарки: ${errorText}`);
+          throw new Error(`Ошибка загрузки аватарки: ${await avatarResponse.text()}`);
         }
+
+        const avatarData: UserData = await avatarResponse.json();
+        updatedUser = { ...updatedUser, avatar_url: avatarData.avatar_url };
+        setFormState((prev) => ({ ...prev, avatarPreview: avatarData.avatar_url ?? null }));
       }
 
+      updateUserData(updatedUser);
+      setUserData(updatedUser);
       setUpdateSuccess("Профиль успешно обновлен!");
-      await fetchUserProfile();
       setTimeout(() => setIsEditing(false), 1500);
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : "Не удалось обновить профиль");
@@ -195,13 +223,9 @@ const Profile: React.FC = () => {
   if (authLoading || isFetching) {
     return (
       <div className="container mx-auto px-4 py-10 mt-16">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1 }}
-          className="flex items-center justify-center min-h-[200px]"
-        >
+        <div className="flex items-center justify-center min-h-[200px]">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
-        </motion.div>
+        </div>
       </div>
     );
   }
@@ -209,274 +233,149 @@ const Profile: React.FC = () => {
   if (!userData) {
     return (
       <div className="container mx-auto px-4 py-10 mt-16">
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
-        >
-          <p className="text-red-500">Не удалось загрузить данные профиля</p>
-        </motion.div>
+        <p className="text-red-500">Не удалось загрузить данные профиля</p>
       </div>
     );
   }
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      className="container mx-auto px-4 py-10 mt-16 max-w-3xl"
-    >
-      <motion.h1
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
-        className="text-3xl font-bold mb-6"
-      >
-        Ваш профиль
-      </motion.h1>
-      <AnimatePresence>
-        {fetchError && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3 }}
-            className="mb-4"
-          >
-            <ErrorDisplay error={fetchError} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="container mx-auto px-4 py-10 mt-16 max-w-3xl">
+      <h1 className="text-3xl font-bold mb-6">Ваш профиль</h1>
+      {fetchError && <ErrorDisplay error={fetchError} />}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="md:col-span-2 bg-white p-4 rounded-lg shadow"
-        >
-          <div className="flex items-center justify-between mb-4">
+        <div className="md:col-span-2 bg-white p-6 rounded-lg shadow">
+          <div className="flex items-start justify-between mb-6">
             <div className="flex items-center space-x-4">
-              <motion.div
-                whileHover={isEditing ? { scale: 1.05 } : {}}
-                className="relative"
-              >
-                {avatarPreview ? (
+              <div className="relative">
+                {formState.avatarPreview ? (
                   <div
-                    className={`w-16 h-16 rounded-full overflow-hidden cursor-pointer ${isEditing ? "border-2 border-orange-500" : ""}`}
-                    onClick={handleAvatarClick}
+                    className={`w-16 h-16 rounded-full overflow-hidden ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
+                    onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                   >
                     <Image
-                      src={avatarPreview}
+                      src={formState.avatarPreview}
                       alt="Avatar"
                       width={64}
                       height={64}
                       className="w-16 h-16 rounded-full object-cover"
                     />
                     {isEditing && (
-                      <motion.button
-                        whileHover={{ scale: 1.1 }}
+                      <button
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleFileChange(null);
+                          setSelectedFile(null);
+                          setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
                           if (fileInputRef.current) fileInputRef.current.value = "";
                         }}
                         className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
                       >
                         <FaTrash size={12} />
-                      </motion.button>
+                      </button>
                     )}
                   </div>
                 ) : (
                   <div
-                    className={`w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold cursor-pointer ${isEditing ? "border-2 border-orange-500" : ""}`}
-                    onClick={handleAvatarClick}
+                    className={`w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
+                    onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                   >
-                    {userData.fio ? userData.fio.charAt(0).toUpperCase() : userData.email.charAt(0).toUpperCase()}
+                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : userData.email.charAt(0).toUpperCase()}
                   </div>
                 )}
                 <input
                   type="file"
                   accept="image/*"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) handleFileChange(file);
-                  }}
+                  onChange={handleFileChange}
                   className="hidden"
                   ref={fileInputRef}
                 />
-              </motion.div>
+              </div>
               <div>
-                <AnimatePresence mode="wait">
-                  {!isEditing ? (
-                    <motion.div
-                      key="view-mode"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <h2 className="text-lg font-semibold">{userData.fio || "Не указано"}</h2>
-                      <p className="text-gray-600">{userData.email || "Не указан"}</p>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="edit-mode"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
+                {!isEditing ? (
+                  <>
+                    <h2 className="text-lg font-semibold">{formState.fio || "Не указано"}</h2>
+                    <p className="text-gray-600">{userData.email || "Не указан"}</p>
+                  </>
+                ) : (
+                  <div className="space-y-2">
+                    <div>
                       <InputField
                         type="text"
-                        value={userData.fio || ""}
+                        value={formState.fio}
                         onChange={handleChange}
                         placeholder="ФИО"
                         icon={FaUser}
                         name="fio"
                         required
-                        className="w-full p-2 rounded-lg shadow-sm border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
+                    </div>
+                    <p className="text-gray-600 text-sm">{userData.email || "Не указан"}</p>
+                  </div>
+                )}
               </div>
             </div>
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={handleEditToggle}
-              className="flex items-center space-x-1 px-3 py-1 bg-transparent text-gray-500 border border-gray-300 rounded-full hover:bg-gray-100 transition"
+              onClick={() => setIsEditing((prev) => !prev)}
+              className="flex items-center justify-center w-8 h-8 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"
             >
-              {isEditing ? <FaTimes size={16} /> : <span>Редактировать</span>}
+              {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
             </motion.button>
           </div>
 
-          <AnimatePresence mode="wait">
-            {isEditing ? (
-              <motion.form
-                key="edit-form"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3 }}
-                onSubmit={handleSubmit}
-                className="space-y-3"
-              >
+          {!isEditing ? (
+            <div className="space-y-2">
+              <p><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
+              <p><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div>
                 <InputField
                   type="text"
-                  value={userData.telegram || ""}
+                  value={formState.telegram}
                   onChange={handleChange}
                   placeholder="Telegram"
                   icon={FaTelegramPlane}
                   name="telegram"
                   required
-                  className="w-full p-2 rounded-lg shadow-sm border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 />
+                {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
+              </div>
+              <div>
                 <InputField
                   type="text"
-                  value={userData.whatsapp || ""}
+                  value={formState.whatsapp}
                   onChange={handleChange}
                   placeholder="WhatsApp"
                   icon={FaWhatsapp}
                   name="whatsapp"
                   required
-                  className="w-full p-2 rounded-lg shadow-sm border border-gray-300 focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 />
-                <AnimatePresence>
-                  {updateError && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <ErrorDisplay error={updateError} />
-                    </motion.div>
-                  )}
-                  {updateSuccess && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <SuccessDisplay message={updateSuccess} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <ModalButton type="submit" disabled={isFetching}>
-                    {isFetching ? (
-                      <motion.div
-                        animate={{ rotate: 360 }}
-                        transition={{ repeat: Infinity, duration: 1 }}
-                        className="inline-block mr-2 h-5 w-5 border-b-2 border-white rounded-full"
-                      />
-                    ) : (
-                      "Сохранить"
-                    )}
-                  </ModalButton>
-                </motion.div>
-              </motion.form>
-            ) : (
-              <motion.div
-                key="view-details"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="space-y-2"
-              >
-                <p>
-                  <strong>Telegram:</strong> {userData.telegram || "Не указан"}
-                </p>
-                <p>
-                  <strong>WhatsApp:</strong> {userData.whatsapp || "Не указан"}
-                </p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-          className="bg-white p-4 rounded-lg shadow"
-        >
-          <motion.h3
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-            className="text-lg font-semibold mb-3"
-          >
-            Мои мероприятия
-          </motion.h3>
-          <motion.p
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.6 }}
-            className="text-gray-500 mb-3"
-          >
-            У вас пока нет зарегистрированных мероприятий.
-          </motion.p>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => navigateTo(router, "/events")}
-            className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5, delay: 0.7 }}
-          >
+                {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
+              </div>
+              {updateError && <ErrorDisplay error={updateError} />}
+              {updateSuccess && <SuccessDisplay message={updateSuccess} />}
+              <ModalButton type="submit" disabled={isFetching || Object.keys(validationErrors).length > 0}>
+                {isFetching ? (
+                  <div className="inline-block mr-2 h-5 w-5 animate-spin border-b-2 border-white rounded-full" />
+                ) : (
+                  "Сохранить"
+                )}
+              </ModalButton>
+            </form>
+          )}
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-semibold mb-3">Мои мероприятия</h3>
+          <p className="text-gray-500 mb-3">У вас пока нет зарегистрированных мероприятий.</p>
+          <ModalButton onClick={() => navigateTo("/events")}>
             Начать мероприятие
-          </motion.button>
-        </motion.div>
+          </ModalButton>
+        </div>
       </div>
-    </motion.div>
+    </div>
   );
 };
 

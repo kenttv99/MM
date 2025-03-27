@@ -4,6 +4,12 @@
 Модуль с константами проекта
 """
 
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PRIVATE_MEDIA_DIR = os.path.join(BASE_DIR, "private_media")
+USERS_AVATARS_DIR = os.path.join(PRIVATE_MEDIA_DIR, "users_avatars")
+
 # Используется в database/init_db.py и database/drop_db.py
 DATABASE_URL = "postgresql+asyncpg://postgres:assasin88@localhost:5432/moscow_mellows"
 

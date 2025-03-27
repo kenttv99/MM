@@ -3,12 +3,12 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import Logo from "./Logo";
 import Registration from "./Registration";
 import Login from "./Login";
 import { useAuth } from "@/contexts/AuthContext";
+import Image from "next/image";
 
 interface NavItem {
   href?: string;
@@ -16,8 +16,25 @@ interface NavItem {
   onClick?: () => void;
 }
 
+const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => (
+  avatarUrl ? (
+    <Image
+      src={avatarUrl}
+      alt="User Avatar"
+      width={40}
+      height={40}
+      className="w-10 h-10 rounded-full object-cover hover:opacity-90"
+      onError={(e) => (e.currentTarget.src = "/placeholder-avatar.jpg")}
+    />
+  ) : (
+    <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-xl font-bold hover:bg-orange-200">
+      {(fio || email).charAt(0).toUpperCase()}
+    </div>
+  )
+);
+
 const Header: React.FC = () => {
-  const { isAuth, logout, checkAuth } = useAuth();
+  const { isAuth, userData, logout, checkAuth } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
@@ -26,7 +43,7 @@ const Header: React.FC = () => {
   const notificationRef = useRef<HTMLDivElement>(null);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const router = useRouter();
+
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -79,7 +96,6 @@ const Header: React.FC = () => {
     logout();
     setIsNotificationsOpen(false);
     setIsMobileMenuOpen(false);
-    router.push("/");
   };
 
   const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
@@ -121,13 +137,9 @@ const Header: React.FC = () => {
 
           {/* Мобильное меню */}
           <div className="flex items-center md:hidden">
-            {isAuth && (
+            {isAuth && userData && (
               <Link href="/profile" className="mr-4 text-orange-500 hover:text-orange-600">
-                <div className="w-8 h-8 bg-orange-100 rounded-full flex items-center justify-center">
-                  <svg className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                  </svg>
-                </div>
+                <AvatarDisplay avatarUrl={userData.avatar_url} fio={userData.fio} email={userData.email} />
               </Link>
             )}
             <button onClick={toggleMobileMenu} className="text-gray-700 hover:text-orange-500">
@@ -183,7 +195,7 @@ const Header: React.FC = () => {
 
           {/* Десктопная навигация */}
           <div className="hidden md:flex items-center space-x-4">
-            {isAuth ? (
+            {isAuth && userData ? (
               <>
                 <Link href="/partner" className="text-orange-500 hover:text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50">
                   Стать партнером
@@ -219,15 +231,9 @@ const Header: React.FC = () => {
                     )}
                   </AnimatePresence>
                 </div>
-                
                 <Link href="/profile" className="text-orange-500 hover:text-orange-600">
-                  <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center hover:bg-orange-200">
-                    <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-                    </svg>
-                  </div>
+                  <AvatarDisplay avatarUrl={userData.avatar_url} fio={userData.fio} email={userData.email} />
                 </Link>
-                
                 <button 
                   onClick={handleLogout} 
                   className="text-orange-500 hover:text-orange-600 ml-2"
@@ -261,7 +267,7 @@ const Header: React.FC = () => {
           </div>
         </div>
       </header>
-
+      
       <Registration 
         isOpen={isRegistrationOpen} 
         onClose={() => setIsRegistrationOpen(false)} 

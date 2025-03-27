@@ -12,6 +12,7 @@ interface InputFieldProps {
   name?: string;
   disabled?: boolean;
   onBlur?: (e: FocusEvent<HTMLInputElement>) => void; // Добавляем новый проп
+  className?: string; // Добавляем className
 }
 
 const InputField: React.FC<InputFieldProps> = ({

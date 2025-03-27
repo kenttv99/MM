@@ -67,17 +67,3 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
         "whatsapp": db_user.whatsapp,
         "avatar_url": db_user.avatar_url
     }
-
-@router.get("/me", response_model=UserResponse)
-@rate_limit("access_me")
-async def read_users_me(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db: AsyncSession = Depends(get_async_db),
-    request: Request = None
-):
-    """Получение данных текущего пользователя (защищенный эндпоинт)."""
-    token = credentials.credentials
-    current_user = await get_current_user(token, db)
-    await log_user_activity(db, current_user.id, request, action="access_me")
-    logger.info(f"User accessed their profile: {current_user.email}")
-    return current_user

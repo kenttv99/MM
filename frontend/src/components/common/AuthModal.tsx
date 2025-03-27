@@ -11,6 +11,7 @@ interface ModalButtonProps {
   variant?: string;
   disabled?: boolean;
   children: ReactNode;
+  className?: string;
 }
 
 // Button component with animations

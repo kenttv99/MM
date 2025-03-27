@@ -9,6 +9,10 @@ const nextConfig = {
         destination: "http://localhost:8000/auth/:path*",
       },
       {
+        source: "/user_edits/:path*",
+        destination: "http://localhost:8000/user_edits/:path*",
+      },
+      {
         source: "/v1/public/events/:path*",
         destination: "http://localhost:8000/v1/public/events/:path*",
       },

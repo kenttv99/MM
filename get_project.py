@@ -18,8 +18,10 @@ INCLUDE_PATHS = [
     # "frontend/src/",
     # "servers/",
     "backend/api",
+    "backend/schemas_enums",
     "frontend/src/contexts",
-    "frontend/src/components"
+    "frontend/src/components",
+    "frontend/src/hooks"
 ]
 
 # Конкретные файлы для включения (относительные пути)
@@ -28,7 +30,9 @@ INCLUDE_FILES = [
     # "README.md",
     "frontend/src/next.config.ts",
     "servers/server_user.py",
-    "frontend/src/app/(auth)/profile/page.tsx",
+    "frontend/src/app/(admin)/dashboard/page.tsx",
+    "frontend/src/app/(admin)/layout.tsx",
+    "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки

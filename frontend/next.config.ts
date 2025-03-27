@@ -1,4 +1,3 @@
-// frontend/next.config.js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async rewrites() {
@@ -33,6 +32,16 @@ const nextConfig = {
         destination: "http://localhost:8001/images/:path*",
       },
     ];
+  },
+  images: {
+    remotePatterns: [
+      {
+        protocol: "http",
+        hostname: "localhost",
+        port: "8000", // Для сервера пользователей
+        pathname: "/images/users_avatars/**",
+      },
+    ],
   },
 };
 

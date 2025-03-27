@@ -1,8 +1,9 @@
 // frontend/src/contexts/AuthContext.tsx
 "use client";
 
-import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react"; // Добавлен useRef
+import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/utils/api";
 
 interface UserData {
   id: number;
@@ -21,7 +22,7 @@ interface AuthContextType {
   isLoading: boolean;
   logout: () => void;
   handleLoginSuccess: (token: string, user: UserData) => void;
-  updateUserData: (user: UserData) => void;
+  updateUserData: (user: UserData, silent?: boolean) => void; // Обновляем сигнатуру
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -44,7 +45,7 @@ function decodeJwt(token: string): JwtPayload | null {
     const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
     return payload;
   } catch (err) {
-    console.error("Ошибка при декодировании токена:", err);
+    console.error("Error decoding token:", err);
     return null;
   }
 }
@@ -63,11 +64,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const router = useRouter();
   const isChecking = useRef(false);
 
-  const checkAuth = useCallback(() => {
+  const checkAuth = useCallback(async () => {
     if (isChecking.current) return;
     isChecking.current = true;
     setIsLoading(true);
     let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
+  
     if (!token) {
       setIsAuth(false);
       setUserData(null);
@@ -75,7 +77,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isChecking.current = false;
       return;
     }
-
+  
     if (token.startsWith("Bearer ")) token = token.slice(7).trim();
     if (isTokenExpired(token)) {
       localStorage.removeItem(STORAGE_KEYS.TOKEN);
@@ -86,24 +88,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isChecking.current = false;
       return;
     }
-
+  
     const cachedData = localStorage.getItem(STORAGE_KEYS.USER_DATA);
+    let userDataFromCache = null;
+    const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+  
     if (cachedData) {
       try {
-        const parsedData = JSON.parse(cachedData);
-        setUserData(parsedData);
-        setIsAuth(true);
-      } catch {
-        localStorage.removeItem(STORAGE_KEYS.TOKEN);
-        localStorage.removeItem(STORAGE_KEYS.USER_DATA);
-        setIsAuth(false);
-        setUserData(null);
+        userDataFromCache = JSON.parse(cachedData);
+        // Нормализуем avatar_url только если он относительный
+        if (userDataFromCache.avatar_url && !userDataFromCache.avatar_url.startsWith('http')) {
+          userDataFromCache.avatar_url = userDataFromCache.avatar_url.startsWith('/')
+            ? `${baseUrl}${userDataFromCache.avatar_url}`
+            : `${baseUrl}/${userDataFromCache.avatar_url}`;
+        }
+      } catch (error) {
+        console.error("Failed to parse user data:", error);
       }
     }
+  
+    if (!userDataFromCache || !userDataFromCache.avatar_url) {
+      try {
+        const response = await apiFetch("/user_edits/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const freshData = await response.json();
+          // Преобразуем avatar_url в полный URL
+          if (freshData.avatar_url) {
+            freshData.avatar_url = freshData.avatar_url.startsWith('http')
+              ? freshData.avatar_url
+              : `${baseUrl}${freshData.avatar_url.startsWith('/') ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
+          }
+          setUserData(freshData);
+          setIsAuth(true);
+          localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(freshData));
+        } else {
+          throw new Error("Failed to fetch fresh user data");
+        }
+      } catch (error) {
+        console.error("Error fetching fresh user data:", error);
+        if (userDataFromCache) {
+          setUserData(userDataFromCache);
+          setIsAuth(true);
+        } else {
+          setIsAuth(false);
+          setUserData(null);
+        }
+      }
+    } else {
+      setUserData(userDataFromCache);
+      setIsAuth(true);
+    }
+  
     setIsLoading(false);
     isChecking.current = false;
   }, []);
 
+  // Define the handleLoginSuccess function
   const handleLoginSuccess = useCallback((token: string, user: UserData) => {
     localStorage.setItem(STORAGE_KEYS.TOKEN, token);
     localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
@@ -124,25 +166,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [router]);
 
-  const updateUserData = useCallback((user: UserData) => {
+  const updateUserData = useCallback((user: UserData, silent: boolean = false) => {
     setUserData(user);
     localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
-    window.dispatchEvent(new Event('auth-change'));
+    if (!silent) {
+      window.dispatchEvent(new Event('auth-change'));
+    }
   }, []);
 
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
 
-  const contextValue: AuthContextType = {
-    isAuth,
-    userData,
-    setIsAuth,
-    checkAuth,
-    isLoading,
-    logout,
-    handleLoginSuccess,
-    updateUserData,
+  // Create the context value with EXPLICIT initializers (not shorthand)
+  const contextValue = {
+    isAuth: isAuth,
+    userData: userData,
+    setIsAuth: setIsAuth,
+    checkAuth: checkAuth,
+    isLoading: isLoading,
+    logout: logout,
+    handleLoginSuccess: handleLoginSuccess,
+    updateUserData: (user: UserData, silent?: boolean) => updateUserData(user, silent),
   };
 
   return (

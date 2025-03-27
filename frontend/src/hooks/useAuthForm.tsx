@@ -55,12 +55,16 @@ export const useAuthForm = ({
             avatar_url: data.avatar_url || undefined
           };
           
+          // Normalize avatar_url format
+          if (userData.avatar_url && !userData.avatar_url.startsWith('/')) {
+            userData.avatar_url = `/${userData.avatar_url}`;
+          }
+          
           handleLoginSuccess(data.access_token, userData);
           setIsSuccess(true);
           
-          // Вызываем onSuccess для закрытия модального окна
           if (onSuccess) {
-            setTimeout(() => onSuccess(), 1000); // Задержка для отображения "Успешно!"
+            setTimeout(() => onSuccess(), 1000);
           }
         } else {
           setFormValues(initialValues);
@@ -78,8 +82,10 @@ export const useAuthForm = ({
         }
         setError(errorMessage);
       }
-    } catch (error) {
-      setError(`Произошла ошибка: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Неизвестная ошибка';
+      setError(`Произошла ошибка: ${errorMessage}`);
+      console.error("Auth form error:", err);
     } finally {
       setIsLoading(false);
     }

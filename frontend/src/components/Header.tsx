@@ -16,22 +16,38 @@ interface NavItem {
   onClick?: () => void;
 }
 
-const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => (
-  avatarUrl ? (
-    <Image
-      src={avatarUrl}
-      alt="User Avatar"
-      width={40}
-      height={40}
-      className="w-10 h-10 rounded-full object-cover hover:opacity-90"
-      onError={(e) => (e.currentTarget.src = "/placeholder-avatar.jpg")}
-    />
-  ) : (
+const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
+  const [imgError, setImgError] = useState(false);
+  
+  useEffect(() => {
+    setImgError(false);
+  }, [avatarUrl]);
+  
+  if (avatarUrl && !imgError) {
+    // Не добавляем слэш, так как URL уже должен быть абсолютным
+    const correctAvatarUrl = avatarUrl;
+    console.log("Avatar URL in Header:", correctAvatarUrl);
+    return (
+      <Image
+        src={correctAvatarUrl}
+        alt="User Avatar"
+        width={40}
+        height={40}
+        className="w-10 h-10 rounded-full object-cover hover:opacity-90"
+        onError={() => {
+          console.error("Failed to load avatar:", correctAvatarUrl);
+          setImgError(true);
+        }}
+      />
+    );
+  }
+  
+  return (
     <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-xl font-bold hover:bg-orange-200">
       {(fio || email).charAt(0).toUpperCase()}
     </div>
-  )
-);
+  );
+};
 
 const Header: React.FC = () => {
   const { isAuth, userData, logout, checkAuth } = useAuth();

@@ -43,7 +43,7 @@ const Profile: React.FC = () => {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
+  const [isFetching, setIsFetching] = useState(false); // Лоадер только для формы
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
@@ -65,15 +65,23 @@ const Profile: React.FC = () => {
       });
 
       if (!response.ok) {
+        const errorText = await response.text();
         if (response.status === 401) {
           localStorage.removeItem("token");
           navigateTo("/login");
           throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
         }
-        throw new Error(`Ошибка API: ${await response.text()}`);
+        throw new Error(`Ошибка API: ${errorText}`);
       }
 
       const freshData: UserData = await response.json();
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      if (freshData.avatar_url) {
+        freshData.avatar_url = freshData.avatar_url.startsWith('http')
+          ? freshData.avatar_url
+          : `${baseUrl}${freshData.avatar_url.startsWith('/') ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
+      }
+
       setUserData(freshData);
       setFormState({
         fio: freshData.fio || "",
@@ -81,7 +89,8 @@ const Profile: React.FC = () => {
         whatsapp: freshData.whatsapp || "",
         avatarPreview: freshData.avatar_url || null,
       });
-      updateUserData(freshData);
+      updateUserData(freshData, true); // Silent update
+      localStorage.setItem("user_data", JSON.stringify(freshData));
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
       setUserData(contextUserData);
@@ -94,12 +103,25 @@ const Profile: React.FC = () => {
     const initialize = async () => {
       if (!authLoading && !hasFetched.current) {
         hasFetched.current = true;
-        if (!isAuth) navigateTo("/"); // Редирект на главную
+        if (!isAuth) navigateTo("/");
         else fetchUserProfile();
       }
     };
     initialize();
   }, [authLoading, isAuth, fetchUserProfile, navigateTo]);
+
+  useEffect(() => {
+    if (userData && userData.avatar_url) {
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      const avatarUrl = userData.avatar_url.startsWith(baseUrl)
+        ? userData.avatar_url
+        : `${baseUrl}${userData.avatar_url.startsWith('/') ? userData.avatar_url : `/${userData.avatar_url}`}`;
+      setFormState(prev => ({
+        ...prev,
+        avatarPreview: avatarUrl
+      }));
+    }
+  }, [userData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -141,7 +163,16 @@ const Profile: React.FC = () => {
       reader.readAsDataURL(file);
     } else {
       setSelectedFile(null);
-      setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
+      const currentAvatarUrl = userData?.avatar_url || null;
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      setFormState((prev) => ({
+        ...prev,
+        avatarPreview: currentAvatarUrl
+          ? currentAvatarUrl.startsWith(baseUrl)
+            ? currentAvatarUrl
+            : `${baseUrl}${currentAvatarUrl.startsWith('/') ? currentAvatarUrl : `/${currentAvatarUrl}`}`
+          : null
+      }));
     }
   };
 
@@ -176,15 +207,23 @@ const Profile: React.FC = () => {
       });
 
       if (!profileResponse.ok) {
+        const errorText = await profileResponse.text();
         if (profileResponse.status === 401) {
           localStorage.removeItem("token");
           navigateTo("/login");
           throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
         }
-        throw new Error(`Ошибка обновления профиля: ${await profileResponse.text()}`);
+        throw new Error(`Ошибка обновления профиля: ${errorText}`);
       }
 
       let updatedUser: UserData = await profileResponse.json();
+      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+      if (updatedUser.avatar_url) {
+        updatedUser.avatar_url = updatedUser.avatar_url.startsWith('http')
+          ? updatedUser.avatar_url
+          : `${baseUrl}${updatedUser.avatar_url.startsWith('/') ? updatedUser.avatar_url : `/${updatedUser.avatar_url}`}`;
+      }
+
       if (selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
@@ -196,23 +235,43 @@ const Profile: React.FC = () => {
         });
 
         if (!avatarResponse.ok) {
-          if (avatarResponse.status === 401) {
-            localStorage.removeItem("token");
-            navigateTo("/login");
-            throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
-          }
-          throw new Error(`Ошибка загрузки аватарки: ${await avatarResponse.text()}`);
+          const errorText = await avatarResponse.text();
+          throw new Error(`Ошибка загрузки аватарки: ${errorText}`);
         }
 
         const avatarData: UserData = await avatarResponse.json();
-        updatedUser = { ...updatedUser, avatar_url: avatarData.avatar_url };
-        setFormState((prev) => ({ ...prev, avatarPreview: avatarData.avatar_url ?? null }));
+        updatedUser = {
+          ...updatedUser,
+          avatar_url: avatarData.avatar_url
+            ? avatarData.avatar_url.startsWith('http')
+              ? avatarData.avatar_url
+              : `${baseUrl}${avatarData.avatar_url.startsWith('/') ? avatarData.avatar_url : `/${avatarData.avatar_url}`}`
+            : undefined
+        };
       }
 
-      updateUserData(updatedUser);
+      // Обновляем локальное состояние формы
+      setFormState({
+        fio: updatedUser.fio || "",
+        telegram: updatedUser.telegram || "",
+        whatsapp: updatedUser.whatsapp || "",
+        avatarPreview: updatedUser.avatar_url || null,
+      });
       setUserData(updatedUser);
+
+      // Показываем уведомление
       setUpdateSuccess("Профиль успешно обновлен!");
-      setTimeout(() => setIsEditing(false), 1500);
+
+      // Сбрасываем файл и закрываем форму через 1.5 секунды
+      setTimeout(() => {
+        setSelectedFile(null);
+        setUpdateSuccess(null);
+        setIsEditing(false);
+      }, 1500);
+
+      // Обновляем контекст без события 'auth-change'
+      updateUserData(updatedUser, true);
+      localStorage.setItem("user_data", JSON.stringify(updatedUser));
     } catch (err) {
       setUpdateError(err instanceof Error ? err.message : "Не удалось обновить профиль");
     } finally {
@@ -220,7 +279,22 @@ const Profile: React.FC = () => {
     }
   };
 
-  if (authLoading || isFetching) {
+  const handleEditToggle = () => {
+    setIsEditing((prev) => !prev);
+    setUpdateSuccess(null);
+    setUpdateError(null);
+    if (!isEditing && userData) {
+      setFormState({
+        fio: userData.fio || "",
+        telegram: userData.telegram || "",
+        whatsapp: userData.whatsapp || "",
+        avatarPreview: userData.avatar_url || null,
+      });
+    }
+  };
+
+  // Показываем лоадер только при начальной загрузке страницы
+  if (authLoading) {
     return (
       <div className="container mx-auto px-4 py-10 mt-16">
         <div className="flex items-center justify-center min-h-[200px]">
@@ -230,20 +304,17 @@ const Profile: React.FC = () => {
     );
   }
 
-  if (!userData) {
-    return (
-      <div className="container mx-auto px-4 py-10 mt-16">
-        <p className="text-red-500">Не удалось загрузить данные профиля</p>
-      </div>
-    );
-  }
-
   return (
     <div className="container mx-auto px-4 py-10 mt-16 max-w-3xl">
       <h1 className="text-3xl font-bold mb-6">Ваш профиль</h1>
       {fetchError && <ErrorDisplay error={fetchError} />}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="md:col-span-2 bg-white p-6 rounded-lg shadow">
+        <motion.div
+          className="md:col-span-2 bg-white p-6 rounded-lg shadow"
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3 }}
+        >
           <div className="flex items-start justify-between mb-6">
             <div className="flex items-center space-x-4">
               <div className="relative">
@@ -258,11 +329,15 @@ const Profile: React.FC = () => {
                       width={64}
                       height={64}
                       className="w-16 h-16 rounded-full object-cover"
+                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                      onError={(e) => {
+                        console.error("Failed to load avatar:", formState.avatarPreview);
+                        setFormState(prev => ({ ...prev, avatarPreview: null }));
+                      }}
                     />
                     {isEditing && (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
+                        onClick={() => {
                           setSelectedFile(null);
                           setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
                           if (fileInputRef.current) fileInputRef.current.value = "";
@@ -278,7 +353,7 @@ const Profile: React.FC = () => {
                     className={`w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                   >
-                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : userData.email.charAt(0).toUpperCase()}
+                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : userData?.email.charAt(0).toUpperCase() || ""}
                   </div>
                 )}
                 <input
@@ -293,7 +368,7 @@ const Profile: React.FC = () => {
                 {!isEditing ? (
                   <>
                     <h2 className="text-lg font-semibold">{formState.fio || "Не указано"}</h2>
-                    <p className="text-gray-600">{userData.email || "Не указан"}</p>
+                    <p className="text-gray-600">{userData?.email || "Не указан"}</p>
                   </>
                 ) : (
                   <div className="space-y-2">
@@ -306,10 +381,11 @@ const Profile: React.FC = () => {
                         icon={FaUser}
                         name="fio"
                         required
+                        disabled={isFetching}
                       />
                       {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
                     </div>
-                    <p className="text-gray-600 text-sm">{userData.email || "Не указан"}</p>
+                    <p className="text-gray-600 text-sm">{userData?.email || "Не указан"}</p>
                   </div>
                 )}
               </div>
@@ -317,7 +393,7 @@ const Profile: React.FC = () => {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => setIsEditing((prev) => !prev)}
+              onClick={handleEditToggle}
               className="flex items-center justify-center w-8 h-8 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"
             >
               {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
@@ -330,7 +406,12 @@ const Profile: React.FC = () => {
               <p><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4 relative">
+              {isFetching && (
+                <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+                </div>
+              )}
               <div>
                 <InputField
                   type="text"
@@ -340,6 +421,7 @@ const Profile: React.FC = () => {
                   icon={FaTelegramPlane}
                   name="telegram"
                   required
+                  disabled={isFetching}
                 />
                 {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
               </div>
@@ -352,21 +434,21 @@ const Profile: React.FC = () => {
                   icon={FaWhatsapp}
                   name="whatsapp"
                   required
+                  disabled={isFetching}
                 />
                 {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
               </div>
               {updateError && <ErrorDisplay error={updateError} />}
               {updateSuccess && <SuccessDisplay message={updateSuccess} />}
-              <ModalButton type="submit" disabled={isFetching || Object.keys(validationErrors).length > 0}>
-                {isFetching ? (
-                  <div className="inline-block mr-2 h-5 w-5 animate-spin border-b-2 border-white rounded-full" />
-                ) : (
-                  "Сохранить"
-                )}
+              <ModalButton
+                type="submit"
+                disabled={isFetching || Object.keys(validationErrors).length > 0}
+              >
+                {isFetching ? "Сохранение..." : "Сохранить"}
               </ModalButton>
             </form>
           )}
-        </div>
+        </motion.div>
         <div className="bg-white p-6 rounded-lg shadow">
           <h3 className="text-lg font-semibold mb-3">Мои мероприятия</h3>
           <p className="text-gray-500 mb-3">У вас пока нет зарегистрированных мероприятий.</p>

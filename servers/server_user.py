@@ -1,6 +1,7 @@
 # servers/server_user.py
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from backend.api.user_auth_routers import router as user_auth_router
 from backend.api.event_routers import router as event_router
 from backend.api.user_edit_routers import router as user_edit_routers
@@ -33,6 +34,13 @@ app.state.limiter = limiter
 app.state.limiter.key_func = get_user_or_ip_key
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+app.mount("/images", StaticFiles(directory="private_media"), name="images")
+
+app.include_router(user_edit_routers, prefix="/user_edits", tags=["User Edits"])
+app.include_router(user_auth_router, prefix="/auth", tags=["Authentication"])
+app.include_router(event_router, prefix="/v1/public/events", tags=["Events"])
+
 @app.middleware("http")
 async def refresh_token_middleware(request: Request, call_next):
     response = await call_next(request)
@@ -60,10 +68,6 @@ async def refresh_token_middleware(request: Request, call_next):
         finally:
             await db.close()
     return response
-
-app.include_router(user_edit_routers, prefix="/user_edits", tags=["User Edits"])
-app.include_router(user_auth_router, prefix="/auth", tags=["Authentication"])
-app.include_router(event_router, prefix="/v1/public/events", tags=["Events"])
 
 if __name__ == "__main__":
     uvicorn.run(

@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { createContext, useState, useEffect, useCallback, useRef } from "react";
+import React, { createContext, useState, useEffect, useCallback, useRef, useContext } from "react";
 
 interface AdminData {
   id: number;
@@ -122,4 +122,12 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       {children}
     </AdminAuthContext.Provider>
   );
+};
+
+export const useAdminAuth = () => {
+  const context = useContext(AdminAuthContext);
+  if (!context) {
+    throw new Error('useAdminAuth must be used within an AdminAuthProvider');
+  }
+  return context;
 };

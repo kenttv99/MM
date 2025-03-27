@@ -42,12 +42,13 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     id: int
-    fio: str
-    email: EmailStr
-    telegram: str
-    whatsapp: str
-    is_blocked: bool  # Новое поле
-    is_partner: bool  # Новое поле
+    fio: Optional[str]
+    email: str
+    telegram: Optional[str]
+    whatsapp: Optional[str]
+    avatar_url: Optional[str] = None
+    is_blocked: bool = False
+    is_partner: bool = False
 
     class Config:
         from_attributes = True

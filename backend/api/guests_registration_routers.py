@@ -5,6 +5,8 @@ from backend.database.user_db import AsyncSession, Event, get_async_db, Registra
 from backend.config.auth import get_current_user
 from sqlalchemy.future import select
 
+from backend.schemas_enums.enums import EventStatus
+
 router = APIRouter(tags=["Registration"])
 
 @router.post("/register")
@@ -19,14 +21,16 @@ async def register_for_event(
     if not event_id or not user_id:
         raise HTTPException(status_code=400, detail="Event ID and User ID are required")
 
-    # Проверка статуса мероприятия
+    # Проверка статуса мероприятия и доступных мест
     event = await db.get(Event, event_id)
     if not event or event.status != "registration_open":
         raise HTTPException(status_code=400, detail="Registration is not open for this event")
 
-    # Проверка доступных билетов
     ticket = (await db.execute(select(TicketType).where(TicketType.event_id == event_id))).scalars().first()
     if not ticket or ticket.available_quantity <= ticket.sold_quantity:
+        # Обновляем статус мероприятия, если мест больше нет
+        event.status = EventStatus.registration_closed
+        await db.commit()
         raise HTTPException(status_code=400, detail="No available tickets")
 
     # Создание записи о регистрации
@@ -40,6 +44,10 @@ async def register_for_event(
     )
     db.add(registration)
     ticket.sold_quantity += 1
+    
+    # Проверка после увеличения sold_quantity
+    if ticket.available_quantity <= ticket.sold_quantity:
+        event.status = EventStatus.registration_closed
+    
     await db.commit()
-
     return {"message": "Successfully registered"}

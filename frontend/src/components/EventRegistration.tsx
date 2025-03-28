@@ -4,27 +4,39 @@
 import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import AuthModal, { ModalButton } from "./common/AuthModal";
-import { FaTicketAlt } from "react-icons/fa";
+import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-import Login from "./Login";
 
 interface EventRegistrationProps {
   eventId: number;
+  eventTitle: string;
+  eventDate: string;
+  eventTime: string;
+  eventLocation: string;
+  ticketType: string;
   availableQuantity: number;
   price: number;
   freeRegistration: boolean;
+  onBookingClick: () => void;
+  onLoginClick: () => void;
 }
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventId,
+  eventTitle,
+  eventDate,
+  eventTime,
+  eventLocation,
+  ticketType,
   availableQuantity,
   price,
   freeRegistration,
+  onBookingClick,
+  onLoginClick,
 }) => {
   const { userData, isAuth } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [isBooking, setIsBooking] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
 
@@ -34,16 +46,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     (_, index) => index
   );
 
-  const handleRegisterClick = () => {
-    if (isAuth && userData) {
-      setIsModalOpen(true);
-    } else {
-      setIsLoginModalOpen(true);
-    }
-  };
-
-  const handleConfirmRegister = async () => {
-    setIsRegistering(true);
+  const handleConfirmBooking = async () => {
+    setIsBooking(true);
     setError(undefined);
     setSuccess(undefined);
 
@@ -62,22 +66,35 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       });
 
       if (response.ok) {
-        setSuccess("Вы успешно зарегистрированы на мероприятие!");
+        setSuccess("Вы успешно забронировали билет!");
         setTimeout(() => setIsModalOpen(false), 1500);
       } else {
         const errorData = await response.json();
-        setError(errorData.detail || "Ошибка при регистрации.");
+        setError(errorData.detail || "Ошибка при бронировании.");
       }
     } catch (err) {
-      setError("Произошла ошибка при регистрации. Попробуйте позже.");
+      setError("Произошла ошибка при бронировании. Попробуйте позже.");
       console.error(err);
     } finally {
-      setIsRegistering(false);
+      setIsBooking(false);
     }
   };
 
+  const handleButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    console.log("Button clicked, isAuth:", isAuth);
+    if (isAuth && userData) {
+      console.log("Opening booking modal");
+      setIsModalOpen(true);
+    } else {
+      console.log("Triggering login modal");
+      onLoginClick();
+    }
+    onBookingClick();
+  };
+
   return (
-    <div className="mt-4">
+    <>
       <div className="flex flex-col items-center">
         <div className="flex items-center justify-between w-full mb-4">
           <div className="flex items-center">
@@ -89,19 +106,19 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={handleRegisterClick}
-            disabled={availableQuantity === 0 || isRegistering}
-            className={`px-4 py-2 rounded-lg font-medium transition-all duration-300 ${
-              availableQuantity === 0 || isRegistering
+            onClick={handleButtonClick}
+            disabled={availableQuantity === 0 || isBooking}
+            className={`px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md ${
+              availableQuantity === 0 || isBooking
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                : "bg-orange-500 text-white hover:bg-orange-600"
+                : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg"
             }`}
           >
-            {isRegistering ? "Регистрация..." : "Забронировать"}
+            {isBooking ? "Бронирование..." : "Забронировать"}
           </motion.button>
         </div>
         {availableQuantity > 0 ? (
-          <div className="flex flex-wrap gap-2 justify-center">
+          <div className="flex flex-wrap gap-2 justify-center mb-4">
             <AnimatePresence>
               {seatsArray.map((seat) => (
                 <motion.button
@@ -110,10 +127,10 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   animate={{ opacity: 1, scale: 1 }}
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.3, delay: seat * 0.05 }}
-                  onClick={handleRegisterClick}
-                  disabled={isRegistering}
+                  onClick={handleButtonClick}
+                  disabled={isBooking}
                   className={`w-8 h-8 rounded-md transition-all duration-200 ${
-                    isRegistering
+                    isBooking
                       ? "bg-gray-200 cursor-not-allowed"
                       : "bg-orange-100 hover:bg-orange-200 text-orange-600"
                   } flex items-center justify-center text-sm font-medium`}
@@ -130,48 +147,100 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             )}
           </div>
         ) : (
-          <p className="text-gray-500 text-center">Места закончились</p>
+          <p className="text-gray-500 text-center mb-4">Места закончились</p>
         )}
       </div>
 
       <AuthModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title="Подтверждение регистрации"
+        title="Бронирование билета"
         error={error}
         success={success}
       >
-        <div className="space-y-4">
-          <p className="text-gray-600">
-            Вы собираетесь зарегистрироваться на мероприятие.
-          </p>
-          <p className="text-gray-600">
-            Стоимость: {freeRegistration ? "Бесплатно" : `${price} ₽`}
-          </p>
+        <div className="space-y-6">
+          <motion.h3
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="text-xl font-semibold text-gray-800"
+          >
+            {eventTitle}
+          </motion.h3>
+          <div className="space-y-3 text-gray-600">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.1 }}
+              className="flex items-center"
+            >
+              <FaCalendarAlt className="text-orange-500 mr-2" />
+              <span>{eventDate}</span>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.2 }}
+              className="flex items-center"
+            >
+              <FaClock className="text-orange-500 mr-2" />
+              <span>{eventTime}</span>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.3 }}
+              className="flex items-center"
+            >
+              <FaMapMarkerAlt className="text-orange-500 mr-2" />
+              <span>{eventLocation}</span>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.4 }}
+              className="flex items-center"
+            >
+              <FaTicketAlt className="text-orange-500 mr-2" />
+              <span>{ticketType}</span>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.5 }}
+              className="flex items-center"
+            >
+              <FaRubleSign className="text-orange-500 mr-2" />
+              <span>{freeRegistration ? "Бесплатно" : `${price} ₽`}</span>
+            </motion.div>
+          </div>
+          <motion.p
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.6 }}
+            className="text-gray-600"
+          >
+            Вы собираетесь забронировать билет на это мероприятие.
+          </motion.p>
           <div className="flex justify-end space-x-4">
             <ModalButton
               variant="secondary"
               onClick={() => setIsModalOpen(false)}
-              disabled={isRegistering}
+              disabled={isBooking}
             >
               Отмена
             </ModalButton>
             <ModalButton
               variant="primary"
-              onClick={handleConfirmRegister}
-              disabled={isRegistering}
+              onClick={handleConfirmBooking}
+              disabled={isBooking}
             >
-              {isRegistering ? "Регистрация..." : "Подтвердить"}
+              {isBooking ? "Бронирование..." : "Подтвердить"}
             </ModalButton>
           </div>
         </div>
       </AuthModal>
-
-      <Login
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-      />
-    </div>
+    </>
   );
 };
 

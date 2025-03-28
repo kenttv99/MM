@@ -14,14 +14,16 @@ INCLUDE_EXTENSIONS = [
 
 # Разрешенные пути
 INCLUDE_PATHS = [
-    # "backend/",
+    "backend/",
     # "frontend/src/",
-    # "servers/",
+    "servers/",
     # "backend/api",
+    # "backend/database",
     # "backend/schemas_enums",
     # "frontend/src/contexts",
     "frontend/src/components",
-    "frontend/src/hooks"
+    "frontend/src/hooks",
+    "frontend/src/utils/"
 ]
 
 # Конкретные файлы для включения (относительные пути)
@@ -31,8 +33,8 @@ INCLUDE_FILES = [
     # "frontend/src/next.config.ts",
     # "frontend/src/app/(admin)/admin-profile/page.tsx",
     "frontend/src/app/(public)/event/[slug]/page.tsx",
-    "frontend/src/app/(public)/events/page.tsx",
-    "frontend/src/utils/api.ts"
+    # "frontend/src/app/(public)/events/page.tsx",
+    # "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки

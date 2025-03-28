@@ -1,32 +1,40 @@
 // frontend/src/app/(public)/event/[slug]/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
+import EventDetails from "@/components/EventDetails";
 import FormattedDescription from "@/components/FormattedDescription";
 import { notFound } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
-import Login from "@/components/Login";
-import { apiFetch, CustomError } from "@/utils/api"; // Импортируем CustomError
+import { apiFetch, CustomError } from "@/utils/api";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
+import Login from "@/components/Login";
+import Registration from "@/components/Registration";
+import AuthModal from "@/components/common/AuthModal";
 
 interface EventData {
   id: number;
   title: string;
   description?: string;
   status: "draft" | "registration_open" | "registration_closed" | "completed";
+  start_date: string;
+  end_date?: string;
+  location?: string;
+  image_url?: string;
   ticket_type?: {
     name: string;
     price: number;
     available_quantity: number;
     free_registration: boolean;
   };
-  image_url?: string;
   published: boolean;
 }
 
@@ -63,7 +71,8 @@ export default function EventPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasServerError, setHasServerError] = useState(false);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
 
@@ -73,7 +82,7 @@ export default function EventPage() {
       setError(null);
       setHasServerError(false);
       const eventId = extractIdFromSlug(slug);
-      
+
       try {
         const res = await apiFetch(`/v1/public/events/${eventId}`, {
           cache: "no-store",
@@ -118,7 +127,7 @@ export default function EventPage() {
             setError(err.message || "Произошла ошибка");
           }
         } else {
-          setHasServerError(true); // Неизвестные ошибки считаем серверными
+          setHasServerError(true);
         }
       } finally {
         setIsLoading(false);
@@ -134,7 +143,29 @@ export default function EventPage() {
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
 
-  const handleLoginRedirect = () => setIsLoginModalOpen(true);
+  const handleBookingClick = () => {
+    console.log("Booking click triggered in page.tsx");
+  };
+
+  const handleLoginClick = useCallback(() => {
+    console.log("Login click triggered, setting isModalOpen to true");
+    setIsRegisterMode(false);
+    setIsModalOpen(true);
+  }, []);
+
+  const handleModalClose = useCallback(() => {
+    console.log("Closing modal");
+    setIsModalOpen(false);
+    setIsRegisterMode(false);
+  }, []);
+
+  const toggleToLogin = useCallback(() => {
+    setIsRegisterMode(false);
+  }, []);
+
+  const toggleToRegister = useCallback(() => {
+    setIsRegisterMode(true);
+  }, []);
 
   if (hasServerError) {
     return <ErrorPlaceholder />;
@@ -143,7 +174,7 @@ export default function EventPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></ div>
       </div>
     );
   }
@@ -151,6 +182,20 @@ export default function EventPage() {
   if (error || !event) {
     return notFound();
   }
+
+  const eventDate = format(new Date(event.start_date), "d MMMM yyyy", { locale: ru });
+  const eventTime = format(new Date(event.start_date), "HH:mm", { locale: ru });
+  const availableQuantity = event.ticket_type?.available_quantity || 0;
+  const displayStatus =
+    event.status === "registration_open" && availableQuantity === 0
+      ? "Регистрация закрыта (мест нет)"
+      : event.status === "registration_open"
+      ? "Регистрация открыта"
+      : event.status === "registration_closed"
+      ? "Регистрация закрыта"
+      : event.status === "completed"
+      ? "Мероприятие завершено"
+      : "Черновик";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -190,6 +235,22 @@ export default function EventPage() {
         </motion.section>
 
         <div className="container mx-auto px-4 py-12">
+          {event.ticket_type && (
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.5 }}
+              className="mb-12"
+            >
+              <EventDetails
+                date={eventDate}
+                time={eventTime}
+                location={event.location || "Не указано"}
+                price={event.ticket_type.price}
+                freeRegistration={event.ticket_type.free_registration}
+              />
+            </motion.section>
+          )}
           <motion.section
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -197,17 +258,26 @@ export default function EventPage() {
             className="mb-12"
           >
             {event.ticket_type && (
-              <div className={`bg-white p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto ${event.status !== "registration_open" ? "opacity-50 pointer-events-none" : ""}`}>
+              <div
+                className={`bg-white p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto ${
+                  displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""
+                }`}
+              >
                 <h2 className="text-2xl font-semibold mb-4 text-gray-800 text-center">
-                  {event.status === "registration_open" ? "Регистрация открыта" : 
-                   event.status === "registration_closed" ? "Регистрация закрыта" :
-                   event.status === "completed" ? "Мероприятие завершено" : "Черновик"}
+                  {displayStatus}
                 </h2>
                 <EventRegistration
                   eventId={event.id}
-                  availableQuantity={event.ticket_type.available_quantity}
+                  eventTitle={event.title}
+                  eventDate={eventDate}
+                  eventTime={eventTime}
+                  eventLocation={event.location || "Не указано"}
+                  ticketType={event.ticket_type.name || "Стандартный"}
+                  availableQuantity={availableQuantity}
                   price={event.ticket_type.price}
                   freeRegistration={event.ticket_type.free_registration}
+                  onBookingClick={handleBookingClick}
+                  onLoginClick={handleLoginClick}
                 />
                 {!isAuth && (
                   <motion.p
@@ -216,9 +286,12 @@ export default function EventPage() {
                     transition={{ delay: 0.5, duration: 0.3 }}
                     className="text-center mt-6 text-gray-700 font-medium bg-orange-50 py-3 px-6 rounded-full shadow-sm border border-orange-100 max-w-md mx-auto"
                   >
-                    Для регистрации на мероприятие{" "}
+                    Для бронирования билета{" "}
                     <button
-                      onClick={handleLoginRedirect}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLoginClick();
+                      }}
                       className="text-orange-600 font-semibold hover:text-orange-700 underline transition-colors duration-200"
                     >
                       войдите в аккаунт
@@ -237,8 +310,8 @@ export default function EventPage() {
               className="max-w-3xl mx-auto"
             >
               <h2 className="text-2xl font-semibold mb-4 text-gray-800">Описание</h2>
-              <FormattedDescription 
-                content={event.description} 
+              <FormattedDescription
+                content={event.description}
                 className="text-gray-600 leading-relaxed"
               />
             </motion.section>
@@ -248,11 +321,26 @@ export default function EventPage() {
       <Footer />
 
       <AnimatePresence>
-        {isLoginModalOpen && (
-          <Login
-            isOpen={isLoginModalOpen}
-            onClose={() => setIsLoginModalOpen(false)}
-          />
+        {isModalOpen && (
+          <AuthModal
+            isOpen={isModalOpen}
+            onClose={handleModalClose}
+            title={isRegisterMode ? "Регистрация" : "Вход"}
+          >
+            {isRegisterMode ? (
+              <Registration
+                isOpen={isModalOpen}
+                onClose={handleModalClose}
+                toggleMode={toggleToLogin}
+              />
+            ) : (
+              <Login
+                isOpen={isModalOpen}
+                onClose={handleModalClose}
+                toggleMode={toggleToRegister}
+              />
+            )}
+          </AuthModal>
         )}
       </AnimatePresence>
     </div>

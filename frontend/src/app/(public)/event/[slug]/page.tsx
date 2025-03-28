@@ -13,6 +13,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import Login from "@/components/Login";
 import { apiFetch } from "@/utils/api";
+import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
+
+
 
 interface EventData {
   id: number;
@@ -61,6 +64,7 @@ export default function EventPage() {
   const [event, setEvent] = useState<EventData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasServerError, setHasServerError] = useState(false); // Добавляем состояние
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
@@ -69,62 +73,74 @@ export default function EventPage() {
     const fetchEvent = async () => {
       setIsLoading(true);
       setError(null);
+      setHasServerError(false);
       const eventId = extractIdFromSlug(slug);
       try {
         const res = await apiFetch(`/v1/public/events/${eventId}`, {
           cache: "no-store",
         });
-  
+
         if (!res.ok) {
           const errorText = await res.text();
           let errorMessage = "Произошла ошибка";
           try {
             const errorData = JSON.parse(errorText);
-            errorMessage = errorData.detail || "Произошла ошибка";
+            errorMessage = errorData.detail || errorMessage;
           } catch {
-            // Если не удалось распарсить JSON, оставляем общее сообщение
+            // Оставляем общее сообщение
           }
-          if (res.status === 429) {
+          if (res.status >= 500) {
+            setHasServerError(true);
+            return;
+          } else if (res.status === 429) {
             errorMessage = "Частые запросы. Попробуйте немного позже.";
           }
-          throw new Error(errorMessage);
+          setError(errorMessage);
+          return;
         }
-  
+
         const data: EventData = await res.json();
         if (!data.published) {
           throw new Error("Мероприятие не опубликовано");
         }
         setEvent(data);
-  
+
         const correctSlug = generateSlug(data.title, data.id);
         if (slug !== correctSlug && !hasRedirected) {
           setHasRedirected(true);
           router.replace(`/event/${correctSlug}`, { scroll: false });
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Произошла ошибка");
+      } catch (err: unknown) {
+        if (err instanceof Error) {
+          const hasCode = 'code' in err;
+          if (hasCode && (err as { code: string }).code === "ECONNREFUSED") {
+            setHasServerError(true);
+            return;
+          }
+          setError(err.message || "Произошла ошибка");
+        } else {
+          setError("Произошла ошибка");
+        }
       } finally {
         setIsLoading(false);
       }
     };
-  
-    if (slug) {
-      fetchEvent();
-    }
+
+    if (slug) fetchEvent();
   }, [slug, router, hasRedirected]);
 
   useEffect(() => {
-    const handleAuthChange = () => {
-      checkAuth();
-    };
-
+    const handleAuthChange = () => checkAuth();
     window.addEventListener("auth-change", handleAuthChange);
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
 
-  const handleLoginRedirect = () => {
-    setIsLoginModalOpen(true);
-  };
+  const handleLoginRedirect = () => setIsLoginModalOpen(true);
+
+  // Если есть серверная ошибка, рендерим ErrorPlaceholder
+  if (hasServerError) {
+    return <ErrorPlaceholder />;
+  }
 
   if (isLoading) {
     return (

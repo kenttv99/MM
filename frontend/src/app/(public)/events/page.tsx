@@ -1,4 +1,3 @@
-// frontend/src/app/(public)/events/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -7,6 +6,8 @@ import Image from "next/image";
 import Link from "next/link";
 import { apiFetch } from "@/utils/api";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
+import FormattedDescription from "@/components/FormattedDescription"; // Добавляем импорт
+import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 
 interface TicketType {
   name: string;
@@ -209,9 +210,10 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
         </div>
         <div className="p-5 flex-grow flex flex-col">
           <h3 className="text-lg font-semibold text-gray-800 mb-2 line-clamp-2">{event.title}</h3>
-          <p className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow">
-            {event.description || "Описание отсутствует"}
-          </p>
+          <FormattedDescription
+            content={event.description || "Описание отсутствует"}
+            className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow [&_*]:!text-sm [&_h1]:!text-sm [&_h2]:!text-sm [&_h3]:!text-sm [&_h4]:!text-sm [&_h5]:!text-sm [&_h6]:!text-sm"
+          />
           <div className="text-gray-500 text-sm mt-auto flex justify-between items-center">
             <span className="flex items-center">
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -237,6 +239,7 @@ const EventsPage = () => {
   const [events, setEvents] = useState<EventData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasServerError, setHasServerError] = useState(false); // Флаг для серверных ошибок
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [startDate, setStartDate] = useState("");
@@ -254,6 +257,7 @@ const EventsPage = () => {
   const fetchEvents = useCallback(async (pageNum: number, reset: boolean = false) => {
     setIsLoading(true);
     setError(null);
+    setHasServerError(false); // Сбрасываем флаг
     try {
       const params = new URLSearchParams({
         page: pageNum.toString(),
@@ -269,7 +273,7 @@ const EventsPage = () => {
         headers: { "Accept": "application/json" },
         cache: "no-store"
       });
-  
+
       if (!response.ok) {
         const errorText = await response.text();
         let errorMessage = "Не удалось загрузить мероприятия";
@@ -277,28 +281,39 @@ const EventsPage = () => {
           const errorData = JSON.parse(errorText);
           errorMessage = errorData.detail || errorMessage;
         } catch {
-          // Если не удалось распарсить JSON, оставляем общее сообщение
+          // Оставляем общее сообщение
         }
-        if (response.status === 429) {
+        if (response.status >= 500) {
+          setHasServerError(true); // Устанавливаем флаг для 500+
+          return;
+        } else if (response.status === 429) {
           errorMessage = "Частые запросы. Попробуйте немного позже.";
         }
-        throw new Error(errorMessage);
+        setError(errorMessage);
+        return;
       }
-  
+
       const data: EventData[] = await response.json();
       const filteredData = data.filter((event) => event.published);
       setEvents((prev) => {
-        if (reset) {
-          return filteredData;
-        }
+        if (reset) return filteredData;
         const newEvents = filteredData.filter(
           (newEvent) => !prev.some((existing) => existing.id === newEvent.id)
         );
         return [...prev, ...newEvents];
       });
       setHasMore(filteredData.length === ITEMS_PER_PAGE);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось загрузить мероприятия");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        const hasCode = 'code' in err;
+        if (hasCode && (err as { code: string }).code === "ECONNREFUSED") {
+          setHasServerError(true); // Устанавливаем флаг для ECONNREFUSED
+          return;
+        }
+        setError(err.message || "Не удалось загрузить мероприятия");
+      } else {
+        setError("Не удалось загрузить мероприятия");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -333,9 +348,7 @@ const EventsPage = () => {
 
   useEffect(() => {
     if (!hasMore || isLoading) return;
-    if (observerRef.current) {
-      observerRef.current.disconnect();
-    }
+    if (observerRef.current) observerRef.current.disconnect();
     observerRef.current = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !isLoading) {
@@ -345,23 +358,22 @@ const EventsPage = () => {
       { threshold: 0.5 }
     );
     const currentLoadMore = loadMoreRef.current;
-    if (currentLoadMore) {
-      observerRef.current.observe(currentLoadMore);
-    }
+    if (currentLoadMore) observerRef.current.observe(currentLoadMore);
     return () => {
-      if (observerRef.current && currentLoadMore) {
-        observerRef.current.unobserve(currentLoadMore);
-      }
+      if (observerRef.current && currentLoadMore) observerRef.current.unobserve(currentLoadMore);
     };
   }, [hasMore, isLoading]);
 
   useEffect(() => {
-    if (page > 1 && hasMore) {
-      fetchEvents(page);
-    }
+    if (page > 1 && hasMore) fetchEvents(page);
   }, [page, fetchEvents, hasMore]);
 
   const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
+  
+  // Если есть серверная ошибка, рендерим ErrorPlaceholder
+  if (hasServerError) {
+    return <ErrorPlaceholder />;
+  }
 
   return (
     <>

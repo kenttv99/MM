@@ -1,477 +1,621 @@
-// frontend/src/app/(auth)/profile/page.tsx
+// frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/contexts/AuthContext";
+import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
-import ErrorDisplay from "@/components/common/ErrorDisplay";
-import SuccessDisplay from "@/components/common/SuccessDisplay";
-import { FaUser, FaTelegramPlane, FaWhatsapp, FaTrash, FaPencilAlt, FaTimes, FaLock } from "react-icons/fa";
-import Image from "next/image";
+import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt, FaFilter, FaTimes } from "react-icons/fa";
+import AdminHeader from "@/components/AdminHeader";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
-import { ModalButton } from "@/components/common/AuthModal";
-import { motion } from "framer-motion";
-import ChangePasswordForm from "@/components/ChangePasswordForm";
+import { AnimatePresence, motion } from "framer-motion";
 
-interface UserData {
+interface User {
   id: number;
   fio: string;
   email: string;
-  telegram: string;
-  whatsapp: string;
-  avatar_url?: string;
 }
 
-interface FormState {
-  fio: string;
-  telegram: string;
-  whatsapp: string;
-  avatarPreview: string | null;
+interface Event {
+  id: number;
+  title: string;
+  start_date: string;
+  location?: string;
+  published: boolean;
+  status: string;
+  registrations_count: number;
+  ticket_type?: {
+    available_quantity: number;
+  };
 }
 
-interface ValidationErrors {
-  fio?: string;
-  telegram?: string;
-  whatsapp?: string;
+async function fetchData<U>(
+  url: string,
+  token: string | null,
+  setData: React.Dispatch<React.SetStateAction<U[]>>,
+  setLoading: (value: boolean) => void,
+  setError: (value: string | null) => void,
+  append: boolean = false
+) {
+  setLoading(true);
+  setError(null);
+  try {
+    if (!token) {
+      throw new Error("Отсутствует токен авторизации");
+    }
+    
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Accept": "application/json",
+      },
+      cache: "no-store",
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+    if (append) {
+      setData((prev) => [...prev, ...(Array.isArray(data) ? data : [])]);
+    } else {
+      setData(Array.isArray(data) ? data : []);
+    }
+  } catch (err) {
+    setError(err instanceof Error ? err.message : "Не удалось загрузить данные");
+    setData(append ? (prev) => prev : []);
+  } finally {
+    setLoading(false);
+  }
 }
 
-const Profile: React.FC = () => {
-  const { isAuth, userData: contextUserData, isLoading: authLoading, updateUserData } = useAuth();
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [formState, setFormState] = useState<FormState>({ fio: "", telegram: "", whatsapp: "", avatarPreview: null });
-  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
-  const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false); // Новое состояние для смены пароля
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const hasFetched = useRef(false);
+const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
+  const url = new URL(path, window.location.origin);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  router.push(url.pathname + url.search);
+};
+
+export default function DashboardPage() {
+  const [userSearch, setUserSearch] = useState("");
+  const [eventSearch, setEventSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [users, setUsers] = useState<User[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [isLoading, setIsLoading] = useState({ users: false, events: false });
+  const [error, setError] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [eventToDelete, setEventToDelete] = useState<number | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const hasFetchedEvents = useRef(false);
+  const hasFetchedUsers = useRef(false);
+  const observer = useRef<IntersectionObserver | null>(null);
+  
+  // Add useRef for debounce timeouts
+  const eventsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const usersTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const { isLoading: authLoading, checkAuth } = useAdminAuth();
 
-  const navigateTo = useCallback((path: string) => router.push(path), [router]);
+  // We need to update the fetch function to remove dependency on eventSearch
+  // since we're now passing the search term directly
+  const fetchEvents = useCallback(async (search: string, pageNum: number, append: boolean = false) => {
+    let url = `/admin_edits/events?page=${pageNum}&limit=10`;
+    const params = new URLSearchParams();
+    
+    // Add search parameter if not empty
+    if (search && search.trim()) {
+      params.append("search", search.trim());
+    }
+    
+    // Only add date filters if they're in proper format (YYYY-MM-DD)
+    // This helps prevent backend errors with date parsing
+    if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      params.append("start_date", startDate);
+    }
+    
+    if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
+      params.append("end_date", endDate);
+    }
+    
+    // Add status filter if present
+    if (statusFilter && statusFilter.trim()) {
+      params.append("status", statusFilter);
+    }
+    
+    // Append parameters to URL if any exist
+    if (params.toString()) {
+      url += `&${params.toString()}`;
+    }
 
-  const fetchUserProfile = useCallback(async () => {
-    if (!isAuth || isFetching) return;
+    console.log("Fetching events with URL:", url); // Debug log to trace API calls
 
-    setIsFetching(true);
-    setFetchError(null);
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Токен авторизации отсутствует");
+      // Fetch events data
+      await fetchData<Event>(
+        url, 
+        localStorage.getItem("admin_token"), 
+        setEvents,
+        (value) => setIsLoading((prev) => ({ ...prev, events: value })), 
+        setError, 
+        append
+      );
+      
+      // Mark that we've fetched events
+      hasFetchedEvents.current = true;
 
-      const response = await apiFetch("/user_edits/me", {
-        headers: { Authorization: `Bearer ${token}`, "Accept": "application/json" },
+      // Check if there are more events to load (for pagination)
+      // We'll skip this if we've already encountered an error
+      if (!error) {
+        try {
+          const response = await fetch(url, {
+            headers: { 
+              Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
+              "Accept": "application/json"
+            },
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setHasMore(Array.isArray(data) && data.length === 10);
+          } else {
+            // Handle non-OK responses
+            console.error("Error checking for more data:", response.status);
+            setHasMore(false);
+          }
+        } catch (err) {
+          console.error("Error checking for more data:", err);
+          setHasMore(false);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching events:", err);
+      // Even if there's an error, mark that we've attempted to fetch events
+      // This prevents infinite retries
+      hasFetchedEvents.current = true;
+    }
+  }, [startDate, endDate, statusFilter, error]);
+
+  const fetchUsers = useCallback(async (search: string) => {
+    const url = search.trim()
+      ? `/admin_edits/users?search=${encodeURIComponent(search)}`
+      : "/admin_edits/users";
+    await fetchData<User>(url, localStorage.getItem("admin_token"), setUsers,
+      (value) => setIsLoading((prev) => ({ ...prev, users: value })), setError);
+    hasFetchedUsers.current = true;
+  }, []);
+
+  // Fixed debounced functions with proper timeout clearing
+  // Remove the now-unused debounced functions since we've integrated them directly
+  // into the handleUserSearchChange and handleEventSearchChange functions
+
+  useEffect(() => {
+    const initialize = async () => {
+      const isAuthenticated = await checkAuth();
+      if (!isAuthenticated && !authLoading) navigateTo(router, "/admin-login");
+      else {
+        const shouldRefresh = searchParams.get("refresh") === "true";
+        if (!hasFetchedEvents.current || shouldRefresh) {
+          fetchEvents("", 1);
+        }
+        if (!hasFetchedUsers.current || shouldRefresh) {
+          fetchUsers("");
+        }
+      }
+    };
+    initialize();
+  }, [checkAuth, authLoading, router, searchParams, fetchEvents, fetchUsers]);
+
+  const lastEventElementRef = useCallback((node: HTMLTableRowElement | null) => {
+    if (isLoading.events || !hasMore) return;
+    if (observer.current) observer.current.disconnect();
+
+    observer.current = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setPage((prev) => prev + 1);
+        fetchEvents(eventSearch, page + 1, true);
+      }
+    }, { threshold: 1.0 });
+
+    if (node) observer.current.observe(node);
+  }, [isLoading.events, hasMore, eventSearch, page, fetchEvents]);
+
+  const handleUserSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const searchValue = e.target.value; // Capture the current input value
+    setUserSearch(searchValue); // Update state
+    
+    // Clear any existing timeout to prevent multiple requests
+    if (usersTimeoutRef.current) {
+      clearTimeout(usersTimeoutRef.current);
+      usersTimeoutRef.current = null;
+    }
+    
+    // Set a new timeout for the search request with the captured value
+    usersTimeoutRef.current = setTimeout(() => {
+      fetchUsers(searchValue);
+    }, 500);
+  };
+
+  const handleEventSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const searchValue = e.target.value; // Capture the current input value
+    setEventSearch(searchValue); // Update state
+    
+    // Clear any existing timeout to prevent multiple requests
+    if (eventsTimeoutRef.current) {
+      clearTimeout(eventsTimeoutRef.current);
+      eventsTimeoutRef.current = null;
+    }
+    
+    // Set a new timeout for the search request with the captured value
+    eventsTimeoutRef.current = setTimeout(() => {
+      setPage(1);
+      setEvents([]);
+      fetchEvents(searchValue, 1, false);
+    }, 500);
+  };
+
+  const handleEventFilterSubmit = () => {
+    // Reset everything in case of errors
+    setError(null);
+    setPage(1);
+    setEvents([]);
+    fetchEvents(eventSearch, 1);
+    setIsFilterOpen(false);
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!eventToDelete) return;
+
+    setIsLoading((prev) => ({ ...prev, events: true }));
+    setError(null);
+    try {
+      const token = localStorage.getItem("admin_token");
+      if (!token) throw new Error("Отсутствует токен авторизации");
+
+      const response = await apiFetch(`/admin_edits/${eventToDelete}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        if (response.status === 401) {
-          localStorage.removeItem("token");
-          navigateTo("/login");
-          throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
-        }
-        throw new Error(`Ошибка API: ${errorText}`);
+        throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
       }
 
-      const freshData: UserData = await response.json();
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      if (freshData.avatar_url) {
-        freshData.avatar_url = freshData.avatar_url.startsWith('http')
-          ? freshData.avatar_url
-          : `${baseUrl}${freshData.avatar_url.startsWith('/') ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
-      }
-
-      setUserData(freshData);
-      setFormState({
-        fio: freshData.fio || "",
-        telegram: freshData.telegram || "",
-        whatsapp: freshData.whatsapp || "",
-        avatarPreview: freshData.avatar_url || null,
-      });
-      updateUserData(freshData, true); // Silent update
-      localStorage.setItem("user_data", JSON.stringify(freshData));
+      setEvents(events.filter((event) => event.id !== eventToDelete));
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
-      setUserData(contextUserData);
+      setError(err instanceof Error ? err.message : "Не удалось удалить мероприятие");
     } finally {
-      setIsFetching(false);
+      setIsLoading((prev) => ({ ...prev, events: false }));
+      setShowDeleteModal(false);
+      setEventToDelete(null);
     }
-  }, [isAuth, isFetching, contextUserData, navigateTo, updateUserData]);
+  };
 
+  // Cleanup timeouts on unmount
   useEffect(() => {
-    const initialize = async () => {
-      if (!authLoading && !hasFetched.current) {
-        hasFetched.current = true;
-        if (!isAuth) navigateTo("/");
-        else fetchUserProfile();
-      }
+    return () => {
+      if (eventsTimeoutRef.current) clearTimeout(eventsTimeoutRef.current);
+      if (usersTimeoutRef.current) clearTimeout(usersTimeoutRef.current);
     };
-    initialize();
-  }, [authLoading, isAuth, fetchUserProfile, navigateTo]);
-
-  useEffect(() => {
-    if (userData && userData.avatar_url) {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const avatarUrl = userData.avatar_url.startsWith(baseUrl)
-        ? userData.avatar_url
-        : `${baseUrl}${userData.avatar_url.startsWith('/') ? userData.avatar_url : `/${userData.avatar_url}`}`;
-      setFormState(prev => ({
-        ...prev,
-        avatarPreview: avatarUrl
-      }));
-    }
-  }, [userData]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    let newValue = value;
-
-    const newErrors = { ...validationErrors };
-
-    if (name === "telegram") {
-      newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
-      if (!newValue) newErrors.telegram = "Telegram обязателен";
-      else if (!newValue.startsWith("@")) newErrors.telegram = "Telegram должен начинаться с @";
-      else delete newErrors.telegram;
-    }
-
-    if (name === "whatsapp") {
-      newValue = value.replace(/\D/g, "");
-      if (!newValue) newErrors.whatsapp = "WhatsApp обязателен";
-      else if (!/^\d+$/.test(newValue)) newErrors.whatsapp = "WhatsApp должен содержать только цифры";
-      else delete newErrors.whatsapp;
-    }
-
-    if (name === "fio") {
-      if (!value) newErrors.fio = "ФИО обязательно";
-      else delete newErrors.fio;
-    }
-
-    setFormState((prev) => ({ ...prev, [name]: newValue }));
-    setValidationErrors(newErrors);
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
-      };
-      reader.readAsDataURL(file);
-    } else {
-      setSelectedFile(null);
-      const currentAvatarUrl = userData?.avatar_url || null;
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      setFormState((prev) => ({
-        ...prev,
-        avatarPreview: currentAvatarUrl
-          ? currentAvatarUrl.startsWith(baseUrl)
-            ? currentAvatarUrl
-            : `${baseUrl}${currentAvatarUrl.startsWith('/') ? currentAvatarUrl : `/${currentAvatarUrl}`}`
-          : null
-      }));
-    }
-  };
-
-  const validateForm = useCallback((): boolean => {
-    const errors: ValidationErrors = {};
-    if (!formState.fio) errors.fio = "ФИО обязательно";
-    if (!formState.telegram) errors.telegram = "Telegram обязателен";
-    else if (!formState.telegram.startsWith("@")) errors.telegram = "Telegram должен начинаться с @";
-    if (!formState.whatsapp) errors.whatsapp = "WhatsApp обязателен";
-    else if (!/^\d+$/.test(formState.whatsapp)) errors.whatsapp = "WhatsApp должен содержать только цифры";
-
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
-  }, [formState]);
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!userData || !validateForm()) return;
-
-    setIsFetching(true);
-    setUpdateError(null);
-    setUpdateSuccess(null);
-
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Токен авторизации отсутствует");
-
-      const profileResponse = await apiFetch("/user_edits/me", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fio: formState.fio, telegram: formState.telegram, whatsapp: formState.whatsapp }),
-      });
-
-      if (!profileResponse.ok) {
-        const errorText = await profileResponse.text();
-        if (profileResponse.status === 401) {
-          localStorage.removeItem("token");
-          navigateTo("/login");
-          throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
-        }
-        throw new Error(`Ошибка обновления профиля: ${errorText}`);
-      }
-
-      let updatedUser: UserData = await profileResponse.json();
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      if (updatedUser.avatar_url) {
-        updatedUser.avatar_url = updatedUser.avatar_url.startsWith('http')
-          ? updatedUser.avatar_url
-          : `${baseUrl}${updatedUser.avatar_url.startsWith('/') ? updatedUser.avatar_url : `/${updatedUser.avatar_url}`}`;
-      }
-
-      if (selectedFile) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-
-        const avatarResponse = await apiFetch("/user_edits/upload-avatar", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
-
-        if (!avatarResponse.ok) {
-          const errorText = await avatarResponse.text();
-          throw new Error(`Ошибка загрузки аватарки: ${errorText}`);
-        }
-
-        const avatarData: UserData = await avatarResponse.json();
-        updatedUser = {
-          ...updatedUser,
-          avatar_url: avatarData.avatar_url
-            ? avatarData.avatar_url.startsWith('http')
-              ? avatarData.avatar_url
-              : `${baseUrl}${avatarData.avatar_url.startsWith('/') ? avatarData.avatar_url : `/${avatarData.avatar_url}`}`
-            : undefined
-        };
-      }
-
-      setFormState({
-        fio: updatedUser.fio || "",
-        telegram: updatedUser.telegram || "",
-        whatsapp: updatedUser.whatsapp || "",
-        avatarPreview: updatedUser.avatar_url || null,
-      });
-      setUserData(updatedUser);
-
-      setUpdateSuccess("Профиль успешно обновлен!");
-      setTimeout(() => {
-        setSelectedFile(null);
-        setUpdateSuccess(null);
-        setIsEditing(false);
-      }, 1500);
-
-      updateUserData(updatedUser, true);
-      localStorage.setItem("user_data", JSON.stringify(updatedUser));
-    } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : "Не удалось обновить профиль");
-    } finally {
-      setIsFetching(false);
-    }
-  };
-
-  const handleEditToggle = () => {
-    setIsEditing((prev) => !prev);
-    setUpdateSuccess(null);
-    setUpdateError(null);
-    if (!isEditing && userData) {
-      setFormState({
-        fio: userData.fio || "",
-        telegram: userData.telegram || "",
-        whatsapp: userData.whatsapp || "",
-        avatarPreview: userData.avatar_url || null,
-      });
-    }
-  };
+  }, []);
 
   if (authLoading) {
     return (
-      <div className="container mx-auto px-4 py-10 mt-16">
-        <div className="flex items-center justify-center min-h-[200px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
-        </div>
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-10 mt-16 max-w-3xl">
-      <h1 className="text-3xl font-bold mb-6">Ваш профиль</h1>
-      {fetchError && <ErrorDisplay error={fetchError} />}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <motion.div
-          className="md:col-span-2 bg-white p-6 rounded-lg shadow"
-          initial={{ opacity: 1 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
-        >
-          <div className="flex items-start justify-between mb-6">
-            <div className="flex items-center space-x-4">
-              <div className="relative">
-                {formState.avatarPreview ? (
-                  <div
-                    className={`w-16 h-16 rounded-full overflow-hidden ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
-                    onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
-                  >
-                    <Image
-                      src={formState.avatarPreview}
-                      alt="Avatar"
-                      width={64}
-                      height={64}
-                      className="w-16 h-16 rounded-full object-cover"
-                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                      onError={(e) => {
-                        console.error("Failed to load avatar:", formState.avatarPreview);
-                        setFormState(prev => ({ ...prev, avatarPreview: null }));
-                      }}
-                    />
-                    {isEditing && (
-                      <button
-                        onClick={() => {
-                          setSelectedFile(null);
-                          setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
-                          if (fileInputRef.current) fileInputRef.current.value = "";
-                        }}
-                        className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
-                      >
-                        <FaTrash size={12} />
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div
-                    className={`w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
-                    onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
-                  >
-                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : userData?.email.charAt(0).toUpperCase() || ""}
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  ref={fileInputRef}
-                />
-              </div>
-              <div>
-                {!isEditing ? (
-                  <>
-                    <h2 className="text-lg font-semibold">{formState.fio || "Не указано"}</h2>
-                    <p className="text-gray-600">{userData?.email || "Не указан"}</p>
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <div>
-                      <InputField
-                        type="text"
-                        value={formState.fio}
-                        onChange={handleChange}
-                        placeholder="ФИО"
-                        icon={FaUser}
-                        name="fio"
-                        required
-                        disabled={isFetching}
-                      />
-                      {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
-                    </div>
-                    <p className="text-gray-600 text-sm">{userData?.email || "Не указан"}</p>
-                  </div>
-                )}
+    <div className="min-h-screen bg-gray-100">
+      <style jsx global>{`
+        /* Стилизация полос прокрутки */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: rgba(107, 114, 128, 0.5); /* gray-500 с прозрачностью */
+          border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: rgba(107, 114, 128, 0.8); /* gray-500 темнее при hover */
+        }
+      `}</style>
+      <AdminHeader />
+      <main className="container mx-auto px-4 pt-24 pb-12">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-800">Панель управления</h1>
+          <button
+            onClick={() => navigateTo(router, "/edit-events", { new: "true" })}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg"
+          >
+            <FaPlus className="mr-2" />
+            Новое мероприятие
+          </button>
+        </div>
+
+        {error && (
+          <div className="mb-8 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500 shadow-sm">
+            {error}
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Пользователи */}
+          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+            <div className="flex justify-between items-center mb-6">
+              <div className="flex items-center">
+                <FaUsers className="text-blue-500 text-xl mr-3" />
+                <h2 className="text-xl font-semibold text-gray-800">Пользователи</h2>
               </div>
             </div>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleEditToggle}
-              className="flex items-center justify-center w-8 h-8 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"
-            >
-              {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
-            </motion.button>
+            <div className="mb-6">
+              <InputField
+                type="text"
+                value={userSearch}
+                onChange={handleUserSearchChange}
+                placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
+                icon={FaSearch}
+                name="userSearch"
+              />
+            </div>
+            {isLoading.users ? (
+              <div className="text-center py-6">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+              </div>
+            ) : users.length > 0 ? (
+              <div className="max-h-[400px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {users.map((user) => (
+                      <tr key={user.id} className="hover:bg-gray-50 transition-colors duration-150">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.fio}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
+                          <button
+                            onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
+                            className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200"
+                          >
+                            Управлять
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-6">
+                {userSearch.trim() ? "Пользователи не найдены" : "Нет доступных пользователей"}
+              </p>
+            )}
           </div>
 
-          {!isEditing ? (
-            <div className="space-y-2">
-              <p><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
-              <p><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
+          {/* Мероприятия */}
+          <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center">
+                <FaCalendarAlt className="text-blue-500 text-x1 mr-3" />
+                <h2 className="text-xl font-semibold text-gray-800">Мероприятия</h2>
+              </div>
+              <button
+                onClick={() => setIsFilterOpen(!isFilterOpen)}
+                className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 shadow-sm"
+              >
+                <FaFilter className="mr-2" />
+                Фильтры
+              </button>
             </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4 relative">
-              {isFetching && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-                </div>
-              )}
-              <div>
-                <InputField
-                  type="text"
-                  value={formState.telegram}
-                  onChange={handleChange}
-                  placeholder="Telegram"
-                  icon={FaTelegramPlane}
-                  name="telegram"
-                  required
-                  disabled={isFetching}
-                />
-                {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
-              </div>
-              <div>
-                <InputField
-                  type="text"
-                  value={formState.whatsapp}
-                  onChange={handleChange}
-                  placeholder="WhatsApp"
-                  icon={FaWhatsapp}
-                  name="whatsapp"
-                  required
-                  disabled={isFetching}
-                />
-                {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
-              </div>
-              {updateError && <ErrorDisplay error={updateError} />}
-              {updateSuccess && <SuccessDisplay message={updateSuccess} />}
-              <div className="flex justify-end space-x-4">
-                <ModalButton
-                  type="button"
-                  variant="secondary"
-                  onClick={() => setIsChangePasswordOpen(true)}
-                  disabled={isFetching}
-                >
-                  <FaLock className="mr-2" /> Сменить пароль
-                </ModalButton>
-                <ModalButton
-                  type="submit"
-                  disabled={isFetching || Object.keys(validationErrors).length > 0}
-                >
-                  {isFetching ? "Сохранение..." : "Сохранить"}
-                </ModalButton>
-              </div>
-            </form>
-          )}
-        </motion.div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-3">Мои мероприятия</h3>
-          <p className="text-gray-500 mb-3">У вас пока нет зарегистрированных мероприятий.</p>
-          <ModalButton onClick={() => navigateTo("/events")}>
-            Начать мероприятие
-          </ModalButton>
-        </div>
-      </div>
+            <div className="mb-6">
+              <InputField
+                type="text"
+                value={eventSearch}
+                onChange={handleEventSearchChange}
+                placeholder="Поиск по названию..."
+                icon={FaSearch}
+                name="eventSearch"
+              />
+            </div>
 
-      {/* Модальное окно для смены пароля */}
-      <ChangePasswordForm
-        isOpen={isChangePasswordOpen}
-        onClose={() => setIsChangePasswordOpen(false)}
-      />
+            {/* Выпадающая панель фильтров */}
+            <AnimatePresence>
+              {isFilterOpen && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="mb-6 p-4 bg-gray-50 rounded-lg shadow-inner border border-gray-200"
+                >
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-medium text-gray-800">Фильтры</h3>
+                    <button onClick={() => setIsFilterOpen(false)} className="text-gray-500 hover:text-gray-700">
+                      <FaTimes size={16} />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <InputField
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      placeholder="Дата начала"
+                      icon={FaCalendarAlt}
+                      name="startDate"
+                    />
+                    <InputField
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      placeholder="Дата окончания"
+                      icon={FaCalendarAlt}
+                      name="endDate"
+                    />
+                  </div>
+                  <div className="mt-4">
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hover:shadow-md transition-all duration-300"
+                    >
+                      <option value="">Все статусы</option>
+                      <option value="draft">Черновик</option>
+                      <option value="registration_open">Регистрация открыта</option>
+                      <option value="registration_closed">Регистрация закрыта</option>
+                      <option value="completed">Завершено</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={handleEventFilterSubmit}
+                    className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg"
+                  >
+                    Применить фильтры
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {isLoading.events && events.length === 0 ? (
+              <div className="text-center py-6">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+              </div>
+            ) : events.length > 0 ? (
+              <div className="max-h-[400px] overflow-y-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {events.map((event, index) => {
+                      const registrationsCount = event.registrations_count || 0;
+                      const availableQuantity = event.ticket_type?.available_quantity || 0;
+                      const fillPercentage = availableQuantity > 0 ? (registrationsCount / availableQuantity) * 100 : 0;
+
+                      return (
+                        <tr
+                          key={event.id}
+                          ref={index === events.length - 1 ? lastEventElementRef : null}
+                          className="hover:bg-gray-50 transition-colors duration-150"
+                        >
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.id}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            {event.status === "registration_open" ? (
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
+                            ) : event.status === "registration_closed" ? (
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
+                            ) : event.status === "completed" ? (
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
+                            ) : (
+                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
+                            )}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <div className="w-32 bg-gray-200 rounded-full h-2.5">
+                              <div
+                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                style={{ width: `${fillPercentage}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-xs text-gray-600 mt-2">{registrationsCount} / {availableQuantity}</p>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm">
+                            <button
+                              onClick={() => navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
+                              className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
+                            >
+                              Редактировать
+                            </button>
+                            {event.status === "draft" && (
+                              <button
+                                onClick={() => {
+                                  setEventToDelete(event.id);
+                                  setShowDeleteModal(true);
+                                }}
+                                className="text-red-500 hover:text-red-600 transition-colors duration-200"
+                              >
+                                <FaTrashAlt className="w-4 h-4" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                {isLoading.events && events.length > 0 && (
+                  <div className="text-center py-4">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-gray-500 text-center py-6">
+                {eventSearch.trim() || startDate || endDate || statusFilter
+                  ? "Мероприятия не найдены"
+                  : "Нет доступных мероприятий"}
+              </p>
+            )}
+          </div>
+        </div>
+      </main>
+
+      {/* Модальное окно удаления */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full border border-gray-100">
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Подтверждение удаления</h2>
+            <p className="text-gray-600 mb-6">
+              Вы уверены, что хотите удалить это мероприятие? Это действие нельзя отменить.
+            </p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setEventToDelete(null);
+                }}
+                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={handleDeleteEvent}
+                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-200"
+                disabled={isLoading.events}
+              >
+                {isLoading.events ? "Удаление..." : "Удалить"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
-};
-
-export default Profile;
+}

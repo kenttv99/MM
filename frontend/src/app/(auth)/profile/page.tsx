@@ -6,11 +6,12 @@ import { useAuth } from "@/contexts/AuthContext";
 import InputField from "@/components/common/InputField";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
-import { FaUser, FaTelegramPlane, FaWhatsapp, FaTrash, FaPencilAlt, FaTimes } from "react-icons/fa";
+import ChangePasswordForm from "@/components/ChangePasswordForm";
+import { FaUser, FaTelegramPlane, FaWhatsapp, FaTrash, FaPencilAlt, FaTimes, FaLock, FaCamera } from "react-icons/fa";
 import Image from "next/image";
 import { apiFetch } from "@/utils/api";
 import { ModalButton } from "@/components/common/AuthModal";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface UserData {
   id: number;
@@ -43,10 +44,13 @@ const Profile: React.FC = () => {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [isFetching, setIsFetching] = useState(false); // Лоадер только для формы
+  const [isFetching, setIsFetching] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isAvatarHovered, setIsAvatarHovered] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   const navigateTo = useCallback((path: string) => router.push(path), [router]);
@@ -89,7 +93,7 @@ const Profile: React.FC = () => {
         whatsapp: freshData.whatsapp || "",
         avatarPreview: freshData.avatar_url || null,
       });
-      updateUserData(freshData, true); // Silent update
+      updateUserData(freshData, true);
       localStorage.setItem("user_data", JSON.stringify(freshData));
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
@@ -250,7 +254,6 @@ const Profile: React.FC = () => {
         };
       }
 
-      // Обновляем локальное состояние формы
       setFormState({
         fio: updatedUser.fio || "",
         telegram: updatedUser.telegram || "",
@@ -259,17 +262,13 @@ const Profile: React.FC = () => {
       });
       setUserData(updatedUser);
 
-      // Показываем уведомление
       setUpdateSuccess("Профиль успешно обновлен!");
-
-      // Сбрасываем файл и закрываем форму через 1.5 секунды
       setTimeout(() => {
         setSelectedFile(null);
         setUpdateSuccess(null);
         setIsEditing(false);
       }, 1500);
 
-      // Обновляем контекст без события 'auth-change'
       updateUserData(updatedUser, true);
       localStorage.setItem("user_data", JSON.stringify(updatedUser));
     } catch (err) {
@@ -280,6 +279,7 @@ const Profile: React.FC = () => {
   };
 
   const handleEditToggle = () => {
+    const scrollPosition = window.scrollY;
     setIsEditing((prev) => !prev);
     setUpdateSuccess(null);
     setUpdateError(null);
@@ -291,9 +291,28 @@ const Profile: React.FC = () => {
         avatarPreview: userData.avatar_url || null,
       });
     }
+    requestAnimationFrame(() => window.scrollTo(0, scrollPosition));
   };
 
-  // Показываем лоадер только при начальной загрузке страницы
+  // Варианты анимации для контейнера
+  const containerVariants = {
+    view: { opacity: 1, transition: { staggerChildren: 0.1 } },
+    edit: { opacity: 1, transition: { staggerChildren: 0.1 } },
+  };
+
+  // Лёгкая анимация для дочерних элементов (без растягивания)
+  const childVariants = {
+    view: { opacity: 1, scale: 1 },
+    edit: { opacity: 1, scale: 1 },
+    hidden: { opacity: 0, scale: 0.95 },
+  };
+
+  // Анимация для подсказки (иконки камеры)
+  const tooltipVariants = {
+    hidden: { opacity: 0, y: 10 },
+    visible: { opacity: 1, y: 0 },
+  };
+
   if (authLoading) {
     return (
       <div className="container mx-auto px-4 py-10 mt-16">
@@ -305,19 +324,31 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 py-10 mt-16 max-w-3xl">
+    <div className="container mx-auto px-4 py-10 mt-16 max-w-4xl">
       <h1 className="text-3xl font-bold mb-6">Ваш профиль</h1>
       {fetchError && <ErrorDisplay error={fetchError} />}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6 justify-start">
         <motion.div
-          className="md:col-span-2 bg-white p-6 rounded-lg shadow"
-          initial={{ opacity: 1 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.3 }}
+          ref={containerRef}
+          className="md:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100"
+          layout
+          initial="view"
+          animate={isEditing ? "edit" : "view"}
+          variants={containerVariants}
+          transition={{ duration: 0.4, ease: "easeInOut" }}
         >
-          <div className="flex items-start justify-between mb-6">
+          <motion.div
+            className="flex items-start justify-between mb-6"
+            variants={childVariants}
+            transition={{ duration: 0.3 }}
+          >
             <div className="flex items-center space-x-4">
-              <div className="relative">
+              <motion.div
+                className="relative"
+                variants={childVariants}
+                onMouseEnter={() => setIsAvatarHovered(true)}
+                onMouseLeave={() => setIsAvatarHovered(false)}
+              >
                 {formState.avatarPreview ? (
                   <div
                     className={`w-16 h-16 rounded-full overflow-hidden ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
@@ -335,25 +366,62 @@ const Profile: React.FC = () => {
                         setFormState(prev => ({ ...prev, avatarPreview: null }));
                       }}
                     />
-                    {isEditing && (
-                      <button
-                        onClick={() => {
-                          setSelectedFile(null);
-                          setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
-                          if (fileInputRef.current) fileInputRef.current.value = "";
-                        }}
-                        className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
-                      >
-                        <FaTrash size={12} />
-                      </button>
-                    )}
+                    <AnimatePresence>
+                      {isEditing && (
+                        <motion.button
+                          initial={{ opacity: 0, scale: 0 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0 }}
+                          onClick={() => {
+                            setSelectedFile(null);
+                            setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
+                            if (fileInputRef.current) fileInputRef.current.value = "";
+                          }}
+                          className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                        >
+                          <FaTrash size={12} />
+                        </motion.button>
+                      )}
+                    </AnimatePresence>
+                    {/* Подсказка при наведении */}
+                    <AnimatePresence>
+                      {isEditing && isAvatarHovered && (
+                        <motion.div
+                          initial="hidden"
+                          animate="visible"
+                          exit="hidden"
+                          variants={tooltipVariants}
+                          transition={{ duration: 0.2 }}
+                          className="absolute bottom-0 inset-x-0 flex items-center justify-center h-6"
+                        >
+                          <FaCamera className="text-white drop-shadow-md" size={16} />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 ) : (
                   <div
                     className={`w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
+                    onMouseEnter={() => setIsAvatarHovered(true)}
+                    onMouseLeave={() => setIsAvatarHovered(false)}
                   >
                     {formState.fio ? formState.fio.charAt(0).toUpperCase() : userData?.email.charAt(0).toUpperCase() || ""}
+                    {/* Подсказка при наведении */}
+                    <AnimatePresence>
+                      {isEditing && isAvatarHovered && (
+                        <motion.div
+                          initial="hidden"
+                          animate="visible"
+                          exit="hidden"
+                          variants={tooltipVariants}
+                          transition={{ duration: 0.2 }}
+                          className="absolute bottom-0 inset-x-0 flex items-center justify-center h-6"
+                        >
+                          <FaCamera className="text-white drop-shadow-md" size={16} />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 )}
                 <input
@@ -363,100 +431,163 @@ const Profile: React.FC = () => {
                   className="hidden"
                   ref={fileInputRef}
                 />
-              </div>
-              <div>
-                {!isEditing ? (
-                  <>
-                    <h2 className="text-lg font-semibold">{formState.fio || "Не указано"}</h2>
-                    <p className="text-gray-600">{userData?.email || "Не указан"}</p>
-                  </>
-                ) : (
-                  <div className="space-y-2">
-                    <div>
-                      <InputField
-                        type="text"
-                        value={formState.fio}
-                        onChange={handleChange}
-                        placeholder="ФИО"
-                        icon={FaUser}
-                        name="fio"
-                        required
-                        disabled={isFetching}
-                      />
-                      {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
-                    </div>
-                    <p className="text-gray-600 text-sm">{userData?.email || "Не указан"}</p>
-                  </div>
-                )}
-              </div>
+              </motion.div>
+              <motion.div variants={childVariants}>
+                <AnimatePresence mode="wait">
+                  {!isEditing ? (
+                    <motion.div
+                      key="view"
+                      initial="hidden"
+                      animate="view"
+                      exit="hidden"
+                      variants={childVariants}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <h2 className="text-lg font-semibold">{formState.fio || "Не указано"}</h2>
+                      <p className="text-gray-600">{userData?.email || "Не указан"}</p>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="edit"
+                      initial="hidden"
+                      animate="edit"
+                      exit="hidden"
+                      variants={childVariants}
+                      transition={{ duration: 0.3 }}
+                      className="space-y-2"
+                    >
+                      <div>
+                        <InputField
+                          type="text"
+                          value={formState.fio}
+                          onChange={handleChange}
+                          placeholder="ФИО"
+                          icon={FaUser}
+                          name="fio"
+                          required
+                          disabled={isFetching}
+                        />
+                        {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
+                      </div>
+                      <p className="text-gray-600 text-sm">{userData?.email || "Не указан"}</p>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             </div>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleEditToggle}
-              className="flex items-center justify-center w-8 h-8 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"
-            >
-              {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
-            </motion.button>
-          </div>
-
-          {!isEditing ? (
-            <div className="space-y-2">
-              <p><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
-              <p><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4 relative">
-              {isFetching && (
-                <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-                </div>
-              )}
-              <div>
-                <InputField
-                  type="text"
-                  value={formState.telegram}
-                  onChange={handleChange}
-                  placeholder="Telegram"
-                  icon={FaTelegramPlane}
-                  name="telegram"
-                  required
-                  disabled={isFetching}
-                />
-                {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
-              </div>
-              <div>
-                <InputField
-                  type="text"
-                  value={formState.whatsapp}
-                  onChange={handleChange}
-                  placeholder="WhatsApp"
-                  icon={FaWhatsapp}
-                  name="whatsapp"
-                  required
-                  disabled={isFetching}
-                />
-                {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
-              </div>
-              {updateError && <ErrorDisplay error={updateError} />}
-              {updateSuccess && <SuccessDisplay message={updateSuccess} />}
-              <ModalButton
-                type="submit"
-                disabled={isFetching || Object.keys(validationErrors).length > 0}
+            <motion.div className="flex items-center space-x-2" variants={childVariants}>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={handleEditToggle}
+                className="flex items-center justify-center w-8 h-8 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"
               >
-                {isFetching ? "Сохранение..." : "Сохранить"}
-              </ModalButton>
-            </form>
-          )}
+                {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setIsChangePasswordOpen(true)}
+                className="flex items-center justify-center w-8 h-8 bg-orange-100 rounded-full text-orange-500 hover:bg-orange-200 transition"
+                title="Сменить пароль"
+              >
+                <FaLock size={14} />
+              </motion.button>
+            </motion.div>
+          </motion.div>
+
+          <motion.div layout variants={childVariants}>
+            <AnimatePresence mode="wait">
+              {!isEditing ? (
+                <motion.div
+                  key="view"
+                  initial="hidden"
+                  animate="view"
+                  exit="hidden"
+                  variants={childVariants}
+                  transition={{ duration: 0.3 }}
+                  className="space-y-2"
+                >
+                  <p><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
+                  <p><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
+                </motion.div>
+              ) : (
+                <motion.form
+                  key="edit"
+                  initial="hidden"
+                  animate="edit"
+                  exit="hidden"
+                  variants={childVariants}
+                  transition={{ duration: 0.3 }}
+                  onSubmit={handleSubmit}
+                  className="space-y-4 relative"
+                >
+                  {isFetching && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+                    </div>
+                  )}
+                  <div>
+                    <InputField
+                      type="text"
+                      value={formState.telegram}
+                      onChange={handleChange}
+                      placeholder="Telegram"
+                      icon={FaTelegramPlane}
+                      name="telegram"
+                      required
+                      disabled={isFetching}
+                    />
+                    {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
+                  </div>
+                  <div>
+                    <InputField
+                      type="text"
+                      value={formState.whatsapp}
+                      onChange={handleChange}
+                      placeholder="WhatsApp"
+                      icon={FaWhatsapp}
+                      name="whatsapp"
+                      required
+                      disabled={isFetching}
+                    />
+                    {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
+                  </div>
+                  {updateError && <ErrorDisplay error={updateError} />}
+                  {updateSuccess && <SuccessDisplay message={updateSuccess} />}
+                  <ModalButton
+                    type="submit"
+                    disabled={isFetching || Object.keys(validationErrors).length > 0}
+                  >
+                    {isFetching ? "Сохранение..." : "Сохранить"}
+                  </ModalButton>
+                </motion.form>
+              )}
+            </AnimatePresence>
+          </motion.div>
         </motion.div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-lg font-semibold mb-3">Мои мероприятия</h3>
-          <p className="text-gray-500 mb-3">У вас пока нет зарегистрированных мероприятий.</p>
-          <ModalButton onClick={() => navigateTo("/events")}>
+        <div className="md:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 min-h-[150px] flex flex-col justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-2">Мои мероприятия</h3>
+            <p className="text-gray-500 text-sm mb-4 whitespace-normal break-words">
+              У вас пока нет зарегистрированных мероприятий. Начните с поиска интересных событий!
+            </p>
+          </div>
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigateTo("/events")}
+            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm"
+          >
             Начать мероприятие
-          </ModalButton>
+          </motion.button>
         </div>
       </div>
+
+      <ChangePasswordForm
+        isOpen={isChangePasswordOpen}
+        onClose={() => setIsChangePasswordOpen(false)}
+      />
     </div>
   );
 };

@@ -3,22 +3,22 @@
 
 import React from "react";
 import { FaEnvelope, FaLock } from "react-icons/fa";
-import AuthModal, { ModalButton } from "./common/AuthModal";
+import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
 
 interface LoginProps {
-  isOpen?: boolean;
-  onClose?: () => void;
+  isOpen: boolean;
+  onClose: () => void;
+  toggleMode: () => void;
   isAdminLogin?: boolean;
 }
 
-const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) => {
+const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin = false }) => {
   const endpoint = isAdminLogin ? "/admin/login" : "/auth/login";
-  
+
   const {
     formValues,
-    error,
     isLoading,
     isSuccess,
     handleChange,
@@ -27,60 +27,15 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
     initialValues: { email: "", password: "" },
     endpoint,
     isLogin: true,
-    onSuccess: onClose // Закрываем модальное окно после успешной авторизации
+    onSuccess: onClose,
   });
 
-  // If using as a standalone component and not a modal
-  if (!isOpen && !onClose) {
-    return (
-      <div className="space-y-6">
-        <form onSubmit={handleSubmit}>
-          <InputField
-            type="email"
-            value={formValues.email}
-            onChange={handleChange}
-            placeholder="Введите email"
-            icon={FaEnvelope}
-            name="email"
-            disabled={isSuccess}
-          />
-          <InputField
-            type="password"
-            value={formValues.password}
-            onChange={handleChange}
-            placeholder="Введите пароль"
-            icon={FaLock}
-            name="password"
-            disabled={isSuccess}
-          />
-          {error && (
-            <p className="text-red-500 text-sm mt-2">{error}</p>
-          )}
-          <button
-            type="submit"
-            disabled={isLoading || isSuccess}
-            className="w-full mt-4 px-6 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-300"
-          >
-            {isLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
-          </button>
-        </form>
-      </div>
-    );
-  }
-
-  // Only render the modal if isOpen is true
   if (!isOpen) {
     return null;
   }
 
   return (
-    <AuthModal
-      isOpen={isOpen}
-      onClose={onClose!}
-      title="Вход"
-      error={error}
-      success={isSuccess ? "Вход выполнен успешно!" : undefined}
-    >
+    <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6">
         <InputField
           type="email"
@@ -100,10 +55,21 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
           name="password"
           disabled={isSuccess}
         />
+        <div className="text-sm text-gray-600">
+          Нет аккаунта?{" "}
+          <button
+            type="button"
+            onClick={toggleMode}
+            className="text-orange-500 hover:text-orange-600 hover:underline transition-colors duration-300"
+            disabled={isLoading || isSuccess}
+          >
+            Зарегистрироваться
+          </button>
+        </div>
         <div className="flex justify-end space-x-4">
           <ModalButton
             variant="secondary"
-            onClick={() => onClose && onClose()}
+            onClick={onClose}
             disabled={isLoading || isSuccess}
           >
             Закрыть
@@ -117,7 +83,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, isAdminLogin = false }) 
           </ModalButton>
         </div>
       </form>
-    </AuthModal>
+    </div>
   );
 };
 

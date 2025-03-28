@@ -14,13 +14,13 @@ INCLUDE_EXTENSIONS = [
 
 # Разрешенные пути
 INCLUDE_PATHS = [
-    "backend/",
+    # "backend/",
     # "frontend/src/",
     # "servers/",
     # "backend/api",
     # "backend/schemas_enums",
-    # "frontend/src/contexts",
-    # "frontend/src/components",
+    "frontend/src/contexts",
+    "frontend/src/components",
     # "frontend/src/hooks"
 ]
 
@@ -28,10 +28,9 @@ INCLUDE_PATHS = [
 INCLUDE_FILES = [
     "constants.py",
     # "README.md",
-    # "frontend/src/next.config.ts",
-    # "servers/server_user.py",
+    "frontend/src/next.config.ts",
     # "frontend/src/app/(auth)/profile/page.tsx",
-    # "frontend/src/utils/api.ts"
+    "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки

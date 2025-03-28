@@ -1,17 +1,17 @@
 // frontend/src/components/Registration.tsx
 "use client";
 
-import React, { Dispatch, SetStateAction } from "react";
+import React from "react";
 import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import { IconType } from "react-icons";
-import AuthModal, { ModalButton } from "./common/AuthModal";
+import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
 
 interface RegistrationProps {
   isOpen: boolean;
   onClose: () => void;
-  setLoginOpen: Dispatch<SetStateAction<boolean>>;
+  toggleMode: () => void;
 }
 
 interface FieldConfig {
@@ -21,7 +21,7 @@ interface FieldConfig {
   icon: IconType;
 }
 
-const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOpen }) => {
+const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode }) => {
   const fields: FieldConfig[] = [
     { name: "fio", type: "text", placeholder: "Введите ваше ФИО", icon: FaUser },
     { name: "email", type: "email", placeholder: "Введите email", icon: FaEnvelope },
@@ -38,25 +38,27 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
     whatsapp: "",
   };
 
-  const onSuccess = () => {
-    onClose();
-    setLoginOpen(true);
-  };
-
   const {
     formValues,
-    error,
     isLoading,
     handleChange,
-    handleSubmit
+    handleSubmit,
+    isSuccess,
   } = useAuthForm({
     initialValues,
     endpoint: "/auth/register",
-    onSuccess
+    onSuccess: () => {
+      onClose();
+      toggleMode(); // Переключаемся на логин после успешной регистрации
+    },
   });
 
+  if (!isOpen) {
+    return null;
+  }
+
   return (
-    <AuthModal isOpen={isOpen} onClose={onClose} title="Регистрация" error={error}>
+    <div className="space-y-6">
       <form onSubmit={handleSubmit} className="space-y-6">
         {fields.map((field) => (
           <InputField
@@ -67,18 +69,30 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, setLoginOp
             placeholder={field.placeholder}
             icon={field.icon}
             name={field.name}
+            disabled={isSuccess}
           />
         ))}
+        <div className="text-sm text-gray-600">
+          Уже есть аккаунт?{" "}
+          <button
+            type="button"
+            onClick={toggleMode}
+            className="text-orange-500 hover:text-orange-600 hover:underline transition-colors duration-300"
+            disabled={isLoading || isSuccess}
+          >
+            Войти
+          </button>
+        </div>
         <div className="flex justify-end space-x-4">
-          <ModalButton variant="secondary" onClick={onClose} disabled={isLoading}>
+          <ModalButton variant="secondary" onClick={onClose} disabled={isLoading || isSuccess}>
             Закрыть
           </ModalButton>
-          <ModalButton type="submit" variant="primary" disabled={isLoading}>
-            {isLoading ? "Регистрация..." : "Зарегистрироваться"}
+          <ModalButton type="submit" variant="primary" disabled={isLoading || isSuccess}>
+            {isLoading ? "Регистрация..." : isSuccess ? "Успешно!" : "Зарегистрироваться"}
           </ModalButton>
         </div>
       </form>
-    </AuthModal>
+    </div>
   );
 };
 

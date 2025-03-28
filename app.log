@@ -155,3 +155,5 @@ FROM events
 WHERE events.start_date >= $1::VARCHAR]
 [parameters: ('2025-03-28',)]
 (Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 14:26:47,104 - root - ERROR - Error logging user activity: 'NoneType' object has no attribute 'headers'
+2025-03-28 15:06:45,339 - root - ERROR - Error logging user activity: 'NoneType' object has no attribute 'headers'

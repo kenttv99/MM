@@ -1,7 +1,5 @@
 // frontend/src/hooks/useChangePasswordForm.ts
 import { useState, useCallback, FormEvent, ChangeEvent } from "react";
-// import { useRouter } from "next/navigation";
-// import { useAuth } from "@/contexts/AuthContext";
 
 interface FormValues {
   currentPassword: string;
@@ -19,8 +17,6 @@ export const useChangePasswordForm = ({ initialValues, onSuccess }: ChangePasswo
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-//   const { logout } = useAuth();
-//   const { push } = useRouter();
 
   const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -61,9 +57,7 @@ export const useChangePasswordForm = ({ initialValues, onSuccess }: ChangePasswo
 
         setIsSuccess(true);
         setTimeout(() => {
-        //   logout();
-        //   push("/login");
-          if (onSuccess) onSuccess();
+          if (onSuccess) onSuccess(); // Закрываем модальное окно
         }, 1500);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Произошла ошибка");

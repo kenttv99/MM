@@ -5,10 +5,11 @@ import React, { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import Logo from "./Logo";
-import Registration from "./Registration";
 import Login from "./Login";
+import Registration from "./Registration";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
+import AuthModal from "./common/AuthModal";
 
 interface NavItem {
   href?: string;
@@ -24,9 +25,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   }, [avatarUrl]);
   
   if (avatarUrl && !imgError) {
-    // Не добавляем слэш, так как URL уже должен быть абсолютным
     const correctAvatarUrl = avatarUrl;
-    console.log("Avatar URL in Header:", correctAvatarUrl);
     return (
       <Image
         src={correctAvatarUrl}
@@ -34,10 +33,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
         width={40}
         height={40}
         className="w-10 h-10 rounded-full object-cover hover:opacity-90"
-        onError={() => {
-          console.error("Failed to load avatar:", correctAvatarUrl);
-          setImgError(true);
-        }}
+        onError={() => setImgError(true)}
       />
     );
   }
@@ -53,13 +49,12 @@ const Header: React.FC = () => {
   const { isAuth, userData, logout, checkAuth } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const notificationRef = useRef<HTMLDivElement>(null);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -70,11 +65,9 @@ const Header: React.FC = () => {
   useEffect(() => {
     const handleAuthChange = () => {
       checkAuth();
-      setIsLoginOpen(false);
-      setIsRegistrationOpen(false);
+      setIsModalOpen(false);
       setIsMobileMenuOpen(false);
     };
-    
     window.addEventListener("auth-change", handleAuthChange);
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
@@ -91,7 +84,6 @@ const Header: React.FC = () => {
         setIsNotificationsOpen(false);
       }
     };
-
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotificationsOpen]);
@@ -116,10 +108,18 @@ const Header: React.FC = () => {
 
   const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
   const toggleNotifications = () => setIsNotificationsOpen((prev) => !prev);
+  const openLogin = () => {
+    setIsModalOpen(true);
+    setIsRegisterMode(false);
+  };
+  const openRegistration = () => {
+    setIsModalOpen(true);
+    setIsRegisterMode(true);
+  };
 
   const guestNavItems: NavItem[] = [
-    { label: "Регистрация", onClick: () => setIsRegistrationOpen(true) },
-    { label: "Войти", onClick: () => setIsLoginOpen(true) },
+    { label: "Регистрация", onClick: openRegistration },
+    { label: "Войти", onClick: openLogin },
   ];
 
   const authNavItemsMobile: NavItem[] = [
@@ -265,7 +265,7 @@ const Header: React.FC = () => {
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => setIsRegistrationOpen(true)}
+                  onClick={openRegistration}
                   className="px-4 py-2 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50"
                 >
                   Регистрация
@@ -273,7 +273,7 @@ const Header: React.FC = () => {
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => setIsLoginOpen(true)}
+                  onClick={openLogin}
                   className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
                 >
                   Войти
@@ -284,15 +284,43 @@ const Header: React.FC = () => {
         </div>
       </header>
       
-      <Registration 
-        isOpen={isRegistrationOpen} 
-        onClose={() => setIsRegistrationOpen(false)} 
-        setLoginOpen={setIsLoginOpen} 
-      />
-      <Login 
-        isOpen={isLoginOpen} 
-        onClose={() => setIsLoginOpen(false)} 
-      />
+      <AuthModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        title={isRegisterMode ? "Регистрация" : "Вход"}
+      >
+        <AnimatePresence mode="wait">
+          {isRegisterMode ? (
+            <motion.div
+              key="registration"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Registration
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                toggleMode={() => setIsRegisterMode(false)}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="login"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <Login
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                toggleMode={() => setIsRegisterMode(true)}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </AuthModal>
     </>
   );
 };

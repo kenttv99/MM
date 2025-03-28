@@ -4,7 +4,7 @@ from backend.schemas_enums.schemas import ChangePassword, ChangePasswordResponse
 from backend.config.auth import create_user, get_user_by_username, pwd_context, create_access_token, get_current_user, log_user_activity
 from backend.database.user_db import AsyncSession, User, get_async_db
 from backend.config.logging_config import logger
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import timedelta
 from backend.config.rate_limiter import rate_limit
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES
@@ -67,14 +67,17 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
         "whatsapp": db_user.whatsapp,
         "avatar_url": db_user.avatar_url
     }
-    
+
 @router.post("/change-password", response_model=ChangePasswordResponse)
-async def change_password(
+async def change_user_password(
     data: ChangePassword = Body(...),
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_async_db)
+    token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db = Depends(get_async_db),
+    request: Request = None  # Добавляем request
 ):
+    current_user = await get_current_user(token.credentials, db)
     user = await db.get(User, current_user.id)
+    await log_user_activity(db, user.id, request, action="change_password")  # Передаём request
     if not user or not pwd_context.verify(data.current_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -83,4 +86,4 @@ async def change_password(
     
     user.password_hash = pwd_context.hash(data.new_password)
     await db.commit()
-    return ChangePasswordResponse(message="Пароль успешно изменен")
+    return {"message": "Пароль успешно изменен"}

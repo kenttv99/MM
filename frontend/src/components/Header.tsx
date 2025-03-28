@@ -1,7 +1,7 @@
 // frontend/src/components/Header.tsx
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import Logo from "./Logo";
@@ -19,16 +19,15 @@ interface NavItem {
 
 const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
   const [imgError, setImgError] = useState(false);
-  
+
   useEffect(() => {
     setImgError(false);
   }, [avatarUrl]);
-  
+
   if (avatarUrl && !imgError) {
-    const correctAvatarUrl = avatarUrl;
     return (
       <Image
-        src={correctAvatarUrl}
+        src={avatarUrl}
         alt="User Avatar"
         width={40}
         height={40}
@@ -37,7 +36,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
       />
     );
   }
-  
+
   return (
     <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-xl font-bold hover:bg-orange-200">
       {(fio || email).charAt(0).toUpperCase()}
@@ -55,6 +54,7 @@ const Header: React.FC = () => {
   const notificationRef = useRef<HTMLDivElement>(null);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const prevIsAuth = useRef(isAuth); // Отслеживаем предыдущее значение isAuth
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -65,12 +65,19 @@ const Header: React.FC = () => {
   useEffect(() => {
     const handleAuthChange = () => {
       checkAuth();
-      setIsModalOpen(false);
-      setIsMobileMenuOpen(false);
     };
     window.addEventListener("auth-change", handleAuthChange);
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
+
+  // Эффект для закрытия модального окна только при изменении isAuth
+  useEffect(() => {
+    if (isAuth !== prevIsAuth.current && isAuth) {
+      setIsModalOpen(false);
+      setIsMobileMenuOpen(false);
+    }
+    prevIsAuth.current = isAuth;
+  }, [isAuth]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -88,46 +95,62 @@ const Header: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotificationsOpen]);
 
-  const startNotificationCloseTimer = () => {
+  const startNotificationCloseTimer = useCallback(() => {
     if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current);
     notificationTimeoutRef.current = setTimeout(() => setIsNotificationsOpen(false), 1000);
-  };
+  }, []);
 
-  const stopNotificationCloseTimer = () => {
+  const stopNotificationCloseTimer = useCallback(() => {
     if (notificationTimeoutRef.current) {
       clearTimeout(notificationTimeoutRef.current);
       notificationTimeoutRef.current = null;
     }
-  };
+  }, []);
 
-  const handleLogout = () => {
+  const handleLogout = useCallback(() => {
     logout();
     setIsNotificationsOpen(false);
     setIsMobileMenuOpen(false);
-  };
+  }, [logout]);
 
-  const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
-  const toggleNotifications = () => setIsNotificationsOpen((prev) => !prev);
-  const openLogin = () => {
+  const toggleMobileMenu = useCallback(() => setIsMobileMenuOpen((prev) => !prev), []);
+  const toggleNotifications = useCallback(() => setIsNotificationsOpen((prev) => !prev), []);
+
+  const openLogin = useCallback(() => {
     setIsModalOpen(true);
     setIsRegisterMode(false);
-  };
-  const openRegistration = () => {
+  }, []);
+
+  const openRegistration = useCallback(() => {
     setIsModalOpen(true);
     setIsRegisterMode(true);
-  };
+  }, []);
 
-  const guestNavItems: NavItem[] = [
-    { label: "Регистрация", onClick: openRegistration },
-    { label: "Войти", onClick: openLogin },
-  ];
+  const handleModalClose = useCallback(() => {
+    setIsModalOpen(false);
+    setIsRegisterMode(false);
+  }, []);
 
-  const authNavItemsMobile: NavItem[] = [
-    { href: "/profile", label: "Профиль" },
-    { href: "/notifications", label: "Уведомления" },
-    { href: "/partner", label: "Стать партнером" },
-    { label: "Выход", onClick: handleLogout },
-  ];
+  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
+  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+
+  const guestNavItems = useMemo(
+    (): NavItem[] => [
+      { label: "Регистрация", onClick: openRegistration },
+      { label: "Войти", onClick: openLogin },
+    ],
+    [openRegistration, openLogin]
+  );
+
+  const authNavItemsMobile = useMemo(
+    (): NavItem[] => [
+      { href: "/profile", label: "Профиль" },
+      { href: "/notifications", label: "Уведомления" },
+      { href: "/partner", label: "Стать партнером" },
+      { label: "Выход", onClick: handleLogout },
+    ],
+    [handleLogout]
+  );
 
   const menuVariants = {
     closed: { opacity: 0, y: -20 },
@@ -151,7 +174,6 @@ const Header: React.FC = () => {
             <Logo />
           </Link>
 
-          {/* Мобильное меню */}
           <div className="flex items-center md:hidden">
             {isAuth && userData && (
               <Link href="/profile" className="mr-4 text-orange-500 hover:text-orange-600">
@@ -171,7 +193,7 @@ const Header: React.FC = () => {
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
                 >
-                  <button 
+                  <button
                     onClick={toggleMobileMenu}
                     className="absolute top-4 right-4 text-gray-500 hover:text-orange-500"
                   >
@@ -193,8 +215,8 @@ const Header: React.FC = () => {
                             {item.label}
                           </button>
                         ) : (
-                          <Link 
-                            href={item.href || "#"} 
+                          <Link
+                            href={item.href || "#"}
                             className="text-gray-800 hover:text-orange-500"
                             onClick={() => setIsMobileMenuOpen(false)}
                           >
@@ -209,17 +231,19 @@ const Header: React.FC = () => {
             </AnimatePresence>
           </div>
 
-          {/* Десктопная навигация */}
           <div className="hidden md:flex items-center space-x-4">
             {isAuth && userData ? (
               <>
-                <Link href="/partner" className="text-orange-500 hover:text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50">
+                <Link
+                  href="/partner"
+                  className="text-orange-500 hover:text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50"
+                >
                   Стать партнером
                 </Link>
                 <div className="relative">
-                  <button 
+                  <button
                     ref={notificationButtonRef}
-                    onClick={toggleNotifications} 
+                    onClick={toggleNotifications}
                     className="text-orange-500 hover:text-orange-600"
                     onMouseEnter={stopNotificationCloseTimer}
                     onMouseLeave={startNotificationCloseTimer}
@@ -250,13 +274,17 @@ const Header: React.FC = () => {
                 <Link href="/profile" className="text-orange-500 hover:text-orange-600">
                   <AvatarDisplay avatarUrl={userData.avatar_url} fio={userData.fio} email={userData.email} />
                 </Link>
-                <button 
-                  onClick={handleLogout} 
+                <button
+                  onClick={handleLogout}
                   className="text-orange-500 hover:text-orange-600 ml-2"
                   title="Выход"
                 >
                   <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                    <path
+                      fillRule="evenodd"
+                      d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z"
+                      clipRule="evenodd"
+                    />
                   </svg>
                 </button>
               </>
@@ -283,10 +311,10 @@ const Header: React.FC = () => {
           </div>
         </div>
       </header>
-      
+
       <AuthModal
         isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
+        onClose={handleModalClose}
         title={isRegisterMode ? "Регистрация" : "Вход"}
       >
         <AnimatePresence mode="wait">
@@ -298,11 +326,7 @@ const Header: React.FC = () => {
               exit={{ opacity: 0, x: -20 }}
               transition={{ duration: 0.3 }}
             >
-              <Registration
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                toggleMode={() => setIsRegisterMode(false)}
-              />
+              <Registration isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
             </motion.div>
           ) : (
             <motion.div
@@ -312,11 +336,7 @@ const Header: React.FC = () => {
               exit={{ opacity: 0, x: 20 }}
               transition={{ duration: 0.3 }}
             >
-              <Login
-                isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
-                toggleMode={() => setIsRegisterMode(true)}
-              />
+              <Login isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
             </motion.div>
           )}
         </AnimatePresence>

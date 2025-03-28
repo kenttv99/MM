@@ -21,7 +21,7 @@ INCLUDE_PATHS = [
     # "backend/schemas_enums",
     "frontend/src/contexts",
     "frontend/src/components",
-    # "frontend/src/hooks"
+    "frontend/src/hooks"
 ]
 
 # Конкретные файлы для включения (относительные пути)
@@ -29,7 +29,7 @@ INCLUDE_FILES = [
     "constants.py",
     # "README.md",
     "frontend/src/next.config.ts",
-    # "frontend/src/app/(auth)/profile/page.tsx",
+    "frontend/src/app/(auth)/profile/page.tsx",
     "frontend/src/utils/api.ts"
 ]
 

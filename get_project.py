@@ -19,7 +19,7 @@ INCLUDE_PATHS = [
     # "servers/",
     # "backend/api",
     # "backend/schemas_enums",
-    "frontend/src/contexts",
+    # "frontend/src/contexts",
     "frontend/src/components",
     "frontend/src/hooks"
 ]
@@ -29,10 +29,10 @@ INCLUDE_FILES = [
     "constants.py",
     # "README.md",
     # "frontend/src/next.config.ts",
-    "frontend/src/app/(admin)/admin-profile/page.tsx",
+    # "frontend/src/app/(admin)/admin-profile/page.tsx",
     "frontend/src/app/(public)/event/[slug]/page.tsx",
     "frontend/src/app/(public)/events/page.tsx",
-    # "frontend/src/utils/api.ts"
+    "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки

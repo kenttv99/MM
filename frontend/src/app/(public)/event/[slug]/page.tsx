@@ -12,10 +12,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
 import Login from "@/components/Login";
-import { apiFetch } from "@/utils/api";
+import { apiFetch, CustomError } from "@/utils/api"; // Импортируем CustomError
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
-
-
 
 interface EventData {
   id: number;
@@ -64,7 +62,7 @@ export default function EventPage() {
   const [event, setEvent] = useState<EventData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [hasServerError, setHasServerError] = useState(false); // Добавляем состояние
+  const [hasServerError, setHasServerError] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
@@ -75,6 +73,7 @@ export default function EventPage() {
       setError(null);
       setHasServerError(false);
       const eventId = extractIdFromSlug(slug);
+      
       try {
         const res = await apiFetch(`/v1/public/events/${eventId}`, {
           cache: "no-store",
@@ -112,14 +111,14 @@ export default function EventPage() {
         }
       } catch (err: unknown) {
         if (err instanceof Error) {
-          const hasCode = 'code' in err;
-          if (hasCode && (err as { code: string }).code === "ECONNREFUSED") {
+          const customErr = err as CustomError;
+          if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
             setHasServerError(true);
-            return;
+          } else {
+            setError(err.message || "Произошла ошибка");
           }
-          setError(err.message || "Произошла ошибка");
         } else {
-          setError("Произошла ошибка");
+          setHasServerError(true); // Неизвестные ошибки считаем серверными
         }
       } finally {
         setIsLoading(false);
@@ -137,7 +136,6 @@ export default function EventPage() {
 
   const handleLoginRedirect = () => setIsLoginModalOpen(true);
 
-  // Если есть серверная ошибка, рендерим ErrorPlaceholder
   if (hasServerError) {
     return <ErrorPlaceholder />;
   }

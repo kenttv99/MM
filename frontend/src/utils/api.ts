@@ -1,4 +1,9 @@
 // frontend/src/utils/api.ts
+export interface CustomError extends Error {
+  code?: string;
+  isServerError?: boolean;
+}
+
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem("token") || localStorage.getItem("admin_token");
   
@@ -12,11 +17,11 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   try {
     response = await fetch(url, { ...options, headers });
   } catch {
-    // Сетевые ошибки (например, ECONNREFUSED) выбрасываем как исключение
-    throw new Error("Не удалось подключиться к серверу. Проверьте соединение.");
+    const networkError: CustomError = new Error("Не удалось подключиться к серверу. Проверьте соединение.");
+    networkError.code = "ECONNREFUSED";
+    throw networkError;
   }
 
-  // Обрабатываем только 500-е ошибки как глобальные
   if (!response.ok && response.status >= 500) {
     const errorText = await response.text();
     let errorMessage = "Произошла ошибка на сервере";
@@ -24,12 +29,13 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
       const errorData = JSON.parse(errorText);
       errorMessage = errorData.detail || errorMessage;
     } catch {
-      // Если не удалось распарсить JSON, оставляем общее сообщение
+      // Оставляем общее сообщение
     }
-    throw new Error(errorMessage);
+    const serverError: CustomError = new Error(errorMessage);
+    serverError.isServerError = true;
+    throw serverError;
   }
 
-  // Для остальных ошибок (включая 429) просто возвращаем response
   const newToken = response.headers.get("X-Refresh-Token");
   if (newToken) {
     if (url.includes("/admin")) {

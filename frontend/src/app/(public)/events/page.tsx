@@ -1,12 +1,13 @@
+// frontend/src/app/(public)/events/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
-import { apiFetch } from "@/utils/api";
+import { apiFetch, CustomError } from "@/utils/api"; // Импортируем CustomError
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
-import FormattedDescription from "@/components/FormattedDescription"; // Добавляем импорт
+import FormattedDescription from "@/components/FormattedDescription"; 
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 
 interface TicketType {
@@ -239,7 +240,7 @@ const EventsPage = () => {
   const [events, setEvents] = useState<EventData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasServerError, setHasServerError] = useState(false); // Флаг для серверных ошибок
+  const [hasServerError, setHasServerError] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [startDate, setStartDate] = useState("");
@@ -257,7 +258,7 @@ const EventsPage = () => {
   const fetchEvents = useCallback(async (pageNum: number, reset: boolean = false) => {
     setIsLoading(true);
     setError(null);
-    setHasServerError(false); // Сбрасываем флаг
+    setHasServerError(false);
     try {
       const params = new URLSearchParams({
         page: pageNum.toString(),
@@ -269,6 +270,7 @@ const EventsPage = () => {
       if (currentFilters.current.endDate) {
         params.append("end_date", currentFilters.current.endDate);
       }
+      
       const response = await apiFetch(`/v1/public/events?${params.toString()}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store"
@@ -284,7 +286,7 @@ const EventsPage = () => {
           // Оставляем общее сообщение
         }
         if (response.status >= 500) {
-          setHasServerError(true); // Устанавливаем флаг для 500+
+          setHasServerError(true);
           return;
         } else if (response.status === 429) {
           errorMessage = "Частые запросы. Попробуйте немного позже.";
@@ -305,30 +307,30 @@ const EventsPage = () => {
       setHasMore(filteredData.length === ITEMS_PER_PAGE);
     } catch (err: unknown) {
       if (err instanceof Error) {
-        const hasCode = 'code' in err;
-        if (hasCode && (err as { code: string }).code === "ECONNREFUSED") {
-          setHasServerError(true); // Устанавливаем флаг для ECONNREFUSED
-          return;
+        const customErr = err as CustomError;
+        if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
+          setHasServerError(true);
+        } else {
+          setError(err.message || "Не удалось загрузить мероприятия");
         }
-        setError(err.message || "Не удалось загрузить мероприятия");
       } else {
-        setError("Не удалось загрузить мероприятия");
+        setHasServerError(true); // Неизвестные ошибки считаем серверными
       }
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const applyFilters = () => {
+  const applyFilters = useCallback(() => {
     currentFilters.current = { startDate, endDate };
     setIsFilterActive(startDate !== "" || endDate !== "");
     setPage(1);
     setEvents([]);
     fetchEvents(1, true);
     setIsFilterOpen(false);
-  };
+  }, [startDate, endDate, fetchEvents]);
 
-  const resetFilters = () => {
+  const resetFilters = useCallback(() => {
     setStartDate("");
     setEndDate("");
     currentFilters.current = { startDate: "", endDate: "" };
@@ -337,7 +339,7 @@ const EventsPage = () => {
     setEvents([]);
     fetchEvents(1, true);
     setIsFilterOpen(false);
-  };
+  }, [fetchEvents]);
 
   useEffect(() => {
     if (!initialLoadComplete.current) {
@@ -369,8 +371,7 @@ const EventsPage = () => {
   }, [page, fetchEvents, hasMore]);
 
   const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
-  
-  // Если есть серверная ошибка, рендерим ErrorPlaceholder
+
   if (hasServerError) {
     return <ErrorPlaceholder />;
   }

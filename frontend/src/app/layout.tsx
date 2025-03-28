@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import ErrorBoundary from "@/components/Errors/ErrorBoundary";
 // import Breadcrumbs from "@/components/Breadcrumbs";
 
 const geistSans = Geist({
@@ -27,8 +28,10 @@ export default function RootLayout({
     <html lang="ru" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <AuthProvider>
+          <ErrorBoundary>
           {/* <Breadcrumbs /> */}
           {children}
+          </ErrorBoundary>
         </AuthProvider>
       </body>
     </html>

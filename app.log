@@ -157,3 +157,60 @@ WHERE events.start_date >= $1::VARCHAR]
 (Background on this error at: https://sqlalche.me/e/20/f405)
 2025-03-28 14:26:47,104 - root - ERROR - Error logging user activity: 'NoneType' object has no attribute 'headers'
 2025-03-28 15:06:45,339 - root - ERROR - Error logging user activity: 'NoneType' object has no attribute 'headers'
+2025-03-28 18:57:52,488 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 18:57:57,503 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:04:39,903 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:04:50,550 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:15:09,238 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:15:27,888 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:21:01,510 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:21:15,144 - root - ERROR - Error logging user activity: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.NotNullViolationError'>: значение NULL в столбце "user_id" отношения "user_activities" нарушает ограничение NOT NULL
+DETAIL:  Ошибочная строка содержит (609, null, 127.0.0.1, next-auth.csrf-token=548735245255ed12a218c7df520c38264b58b9c721d..., Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KH..., login_failed, 2025-03-28 16:21:14.879442, 95543d9d89de0139e11560d5334ce33f698ac8df0426eb39db8e3a5f51d3c059).
+[SQL: INSERT INTO user_activities (user_id, ip_address, cookies, user_agent, action, created_at, device_fingerprint) VALUES ($1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::TIMESTAMP WITHOUT TIME ZONE, $7::VARCHAR) RETURNING user_activities.id]
+[parameters: (None, '127.0.0.1', 'next-auth.csrf-token=548735245255ed12a218c7df520c38264b58b9c721d3183cd0067161af2cb00d%7C82fb559a7b01833c42145f5b5a99a2fbd48d471020972ca8f065d1042fefe49c; next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000%2Flogin; __next_hmr_refresh_hash__=1c256a704a41d372a0cdd42638986b15633457081244afec', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36', 'login_failed', datetime.datetime(2025, 3, 28, 16, 21, 14, 879442), '95543d9d89de0139e11560d5334ce33f698ac8df0426eb39db8e3a5f51d3c059')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-03-28 19:27:42,929 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:27:45,626 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 19:27:46,917 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 20:42:30,797 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 20:42:34,971 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 21:49:25,462 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 21:51:30,733 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 21:57:06,845 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:00:54,007 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:01:26,514 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:01,990 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:05,143 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:06,248 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:06,945 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:07,402 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:07,877 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:08,089 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:08,270 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:03:08,527 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:18:13,758 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:18:17,535 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:18:33,641 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:18:37,042 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:23:50,448 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:23:51,864 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:23:52,895 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:23:53,373 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:26:03,898 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:26:05,212 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:26:05,859 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:27:55,280 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:33:02,874 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:33:04,563 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:33:05,076 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:34:46,501 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:34:47,106 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:39,850 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:40,293 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:45,817 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:47,294 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:57,665 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:57,892 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:38:58,837 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:39:14,565 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 22:39:20,844 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

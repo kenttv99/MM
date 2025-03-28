@@ -1,7 +1,7 @@
 // frontend/src/components/Registration.tsx
 "use client";
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import { IconType } from "react-icons";
 import { ModalButton } from "./common/AuthModal";
@@ -21,10 +21,15 @@ interface FieldConfig {
   placeholder: string;
   icon: IconType;
   validate: (value: string) => string | null;
+  required?: boolean;
 }
 
 interface FormErrors {
   [key: string]: string | null;
+}
+
+interface TouchedFields {
+  [key: string]: boolean;
 }
 
 const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode }) => {
@@ -35,8 +40,9 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
         type: "text",
         placeholder: "Введите ваше ФИО",
         icon: FaUser,
+        required: true,
         validate: (value) => {
-          if (!value.trim()) return "ФИО обязательно";
+          if (!value.trim() && !value) return "ФИО обязательно";
           if (value.length < 2) return "ФИО должно содержать минимум 2 символа";
           if (!/^[a-zA-Zа-яА-Я\s-]+$/.test(value)) return "Только буквы, пробелы и дефисы";
           return null;
@@ -47,6 +53,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
         type: "email",
         placeholder: "Введите email",
         icon: FaEnvelope,
+        required: true,
         validate: (value) => {
           if (!value) return "Email обязателен";
           if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "Неверный формат email";
@@ -58,6 +65,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
         type: "password",
         placeholder: "Введите пароль",
         icon: FaLock,
+        required: true,
         validate: (value) => {
           if (!value) return "Пароль обязателен";
           if (value.length < 8) return "Минимум 8 символов";
@@ -70,8 +78,9 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
         type: "text",
         placeholder: "Введите Telegram (например, @username)",
         icon: FaTelegram,
+        required: false,
         validate: (value) => {
-          if (!value) return "Telegram обязателен";
+          if (!value) return null;
           if (!/^@[\w]{5,32}$/.test(value)) return "Формат: @username (5-32 символа)";
           return null;
         },
@@ -81,8 +90,9 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
         type: "text",
         placeholder: "Введите WhatsApp (только цифры)",
         icon: FaWhatsapp,
+        required: false,
         validate: (value) => {
-          if (!value) return "WhatsApp обязателен";
+          if (!value) return null;
           if (!/^\d{10,15}$/.test(value)) return "10-15 цифр без пробелов";
           return null;
         },
@@ -105,16 +115,24 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
   const [formErrors, setFormErrors] = useState<FormErrors>(
     Object.fromEntries(fields.map((field) => [field.name, null]))
   );
+  const [touched, setTouched] = useState<TouchedFields>(
+    Object.fromEntries(fields.map((field) => [field.name, false]))
+  );
+  const [isValid, setIsValid] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
 
   const { formValues, isLoading, handleChange: authHandleChange, handleSubmit, isSuccess, error } =
     useAuthForm({
       initialValues,
       endpoint: "/auth/register",
       onSuccess: useCallback(() => {
+        console.log("Registration: onSuccess called, closing modal");
         onClose();
-        toggleMode();
+        if (toggleMode) toggleMode();
       }, [onClose, toggleMode]),
     });
+
+  console.log("Registration: isOpen:", isOpen, "isSuccess:", isSuccess, "isLoading:", isLoading);
 
   const validateField = useCallback(
     (name: string, value: string) => {
@@ -123,6 +141,19 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
     },
     [fields]
   );
+
+  const validateForm = useCallback(() => {
+    const errors = Object.fromEntries(
+      fields.map((field) => [field.name, validateField(field.name, formValues[field.name])])
+    );
+    return errors;
+  }, [fields, formValues, validateField]);
+
+  useEffect(() => {
+    const errors = validateForm();
+    setFormErrors(errors);
+    setIsValid(Object.values(errors).every((error) => error === null));
+  }, [formValues, validateForm]);
 
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,10 +166,20 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
         formattedValue = value.replace(/\D/g, "");
       }
 
-      authHandleChange({ ...e, target: { ...e.target, value: formattedValue } });
+      const syntheticEvent = {
+        ...e,
+        target: {
+          ...e.target,
+          name: name,
+          value: formattedValue,
+        },
+      } as React.ChangeEvent<HTMLInputElement>;
+
+      authHandleChange(syntheticEvent);
 
       const error = validateField(name, formattedValue);
       setFormErrors((prev) => ({ ...prev, [name]: error }));
+      setTouched((prev) => ({ ...prev, [name]: true }));
     },
     [authHandleChange, validateField]
   );
@@ -146,29 +187,34 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
   const handleBlur = useCallback(
     (e: React.FocusEvent<HTMLInputElement>) => {
       const { name, value } = e.target;
+      setTouched((prev) => ({ ...prev, [name]: true }));
       const error = validateField(name, value);
       setFormErrors((prev) => ({ ...prev, [name]: error }));
     },
     [validateField]
   );
 
-  const isFormValid = useCallback(() => {
-    const errors = Object.fromEntries(
-      fields.map((field) => [field.name, validateField(field.name, formValues[field.name])])
-    );
-    setFormErrors(errors);
-    return Object.values(errors).every((error) => error === null);
-  }, [fields, formValues, validateField]);
-
   const onSubmit = useCallback(
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
-      if (isFormValid()) {
+      setIsSubmitted(true);
+      setTouched(
+        Object.fromEntries(fields.map((field) => [field.name, true]))
+      );
+      if (isValid) {
         handleSubmit(e);
       }
     },
-    [isFormValid, handleSubmit]
+    [isValid, handleSubmit, fields]
   );
+
+  const shouldShowError = (field: FieldConfig, error: string | null) => {
+    if (!error) return false;
+    if (field.required && !formValues[field.name]) {
+      return isSubmitted;
+    }
+    return touched[field.name];
+  };
 
   if (!isOpen) return null;
 
@@ -186,10 +232,10 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               icon={field.icon}
               name={field.name}
               disabled={isLoading || isSuccess}
-              required
+              required={field.required}
             />
             <AnimatePresence>
-              {formErrors[field.name] && (
+              {shouldShowError(field, formErrors[field.name]) && (
                 <motion.p
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -218,7 +264,9 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
           Уже есть аккаунт?{" "}
           <button
             type="button"
-            onClick={toggleMode}
+            onClick={() => {
+              if (toggleMode) toggleMode();
+            }}
             className="text-orange-500 hover:text-orange-600 hover:underline transition-colors duration-300"
             disabled={isLoading || isSuccess}
           >
@@ -232,7 +280,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
           <ModalButton
             type="submit"
             variant="primary"
-            disabled={isLoading || isSuccess || !isFormValid()}
+            disabled={isLoading || isSuccess || !isValid}
           >
             {isLoading ? "Регистрация..." : isSuccess ? "Успешно!" : "Зарегистрироваться"}
           </ModalButton>

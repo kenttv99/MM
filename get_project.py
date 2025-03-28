@@ -15,22 +15,22 @@ INCLUDE_EXTENSIONS = [
 # Разрешенные пути
 INCLUDE_PATHS = [
     # "backend/",
-    # "frontend/src/",
+    "frontend/src/",
     # "servers/",
     # "backend/api",
     # "backend/schemas_enums",
-    "frontend/src/contexts",
-    "frontend/src/components",
-    "frontend/src/hooks"
+    # "frontend/src/contexts",
+    # "frontend/src/components",
+    # "frontend/src/hooks"
 ]
 
 # Конкретные файлы для включения (относительные пути)
 INCLUDE_FILES = [
     "constants.py",
     # "README.md",
-    "frontend/src/next.config.ts",
-    "frontend/src/app/(auth)/profile/page.tsx",
-    "frontend/src/utils/api.ts"
+    # "frontend/src/next.config.ts",
+    # "frontend/src/app/(auth)/profile/page.tsx",
+    # "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки
@@ -39,7 +39,8 @@ EXCLUDE_PATHS = [
     "frontend/public",
     ".git",
     "get_project_encode.py",
-    "get_project.py"
+    "get_project.py",
+    "frontend/package-lock.json"
 ]
 
 def normalize_path(path):

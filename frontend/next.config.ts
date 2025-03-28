@@ -27,9 +27,13 @@ const nextConfig = {
         source: "/admin_edits/:path*",
         destination: "http://localhost:8001/admin_edits/:path*",
       },
+      // {
+      //   source: "/images/:path*",
+      //   destination: "http://localhost:8001/images/:path*",
+      // },
       {
         source: "/images/:path*",
-        destination: "http://localhost:8001/images/:path*",
+        destination: "http://localhost:8000/images/:path*",
       },
     ];
   },

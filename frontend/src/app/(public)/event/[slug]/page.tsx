@@ -6,7 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
-import FormattedDescription from "@/components/FormattedDescription"; // Import the new component
+import FormattedDescription from "@/components/FormattedDescription";
 import { notFound } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
@@ -68,21 +68,34 @@ export default function EventPage() {
   useEffect(() => {
     const fetchEvent = async () => {
       setIsLoading(true);
+      setError(null);
       const eventId = extractIdFromSlug(slug);
       try {
         const res = await apiFetch(`/v1/public/events/${eventId}`, {
           cache: "no-store",
         });
+  
         if (!res.ok) {
-          throw new Error("Event not found or not published");
+          const errorText = await res.text();
+          let errorMessage = "Произошла ошибка";
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.detail || "Произошла ошибка";
+          } catch {
+            // Если не удалось распарсить JSON, оставляем общее сообщение
+          }
+          if (res.status === 429) {
+            errorMessage = "Частые запросы. Попробуйте немного позже.";
+          }
+          throw new Error(errorMessage);
         }
+  
         const data: EventData = await res.json();
         if (!data.published) {
-          throw new Error("Event is not published");
+          throw new Error("Мероприятие не опубликовано");
         }
         setEvent(data);
-
-        // Проверяем, нужно ли перенаправить на правильный slug
+  
         const correctSlug = generateSlug(data.title, data.id);
         if (slug !== correctSlug && !hasRedirected) {
           setHasRedirected(true);
@@ -94,7 +107,7 @@ export default function EventPage() {
         setIsLoading(false);
       }
     };
-
+  
     if (slug) {
       fetchEvent();
     }
@@ -210,8 +223,6 @@ export default function EventPage() {
               className="max-w-3xl mx-auto"
             >
               <h2 className="text-2xl font-semibold mb-4 text-gray-800">Описание</h2>
-              
-              {/* Заменяем обычный параграф на компонент FormattedDescription */}
               <FormattedDescription 
                 content={event.description} 
                 className="text-gray-600 leading-relaxed"

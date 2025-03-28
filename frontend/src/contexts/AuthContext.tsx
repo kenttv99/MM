@@ -22,7 +22,7 @@ interface AuthContextType {
   isLoading: boolean;
   logout: () => void;
   handleLoginSuccess: (token: string, user: UserData) => void;
-  updateUserData: (user: UserData, silent?: boolean) => void; // Обновляем сигнатуру
+  updateUserData: (user: UserData, silent?: boolean) => void;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -44,8 +44,7 @@ function decodeJwt(token: string): JwtPayload | null {
     if (parts.length !== 3) return null;
     const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
     return payload;
-  } catch (err) {
-    console.error("Error decoding token:", err);
+  } catch {
     return null;
   }
 }
@@ -69,7 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isChecking.current = true;
     setIsLoading(true);
     let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-  
+
     if (!token) {
       setIsAuth(false);
       setUserData(null);
@@ -77,7 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isChecking.current = false;
       return;
     }
-  
+
     if (token.startsWith("Bearer ")) token = token.slice(7).trim();
     if (isTokenExpired(token)) {
       localStorage.removeItem(STORAGE_KEYS.TOKEN);
@@ -88,25 +87,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       isChecking.current = false;
       return;
     }
-  
+
     const cachedData = localStorage.getItem(STORAGE_KEYS.USER_DATA);
     let userDataFromCache = null;
     const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-  
+
     if (cachedData) {
       try {
         userDataFromCache = JSON.parse(cachedData);
-        // Нормализуем avatar_url только если он относительный
         if (userDataFromCache.avatar_url && !userDataFromCache.avatar_url.startsWith('http')) {
           userDataFromCache.avatar_url = userDataFromCache.avatar_url.startsWith('/')
             ? `${baseUrl}${userDataFromCache.avatar_url}`
             : `${baseUrl}/${userDataFromCache.avatar_url}`;
         }
-      } catch (error) {
-        console.error("Failed to parse user data:", error);
+      } catch {
+        userDataFromCache = null;
       }
     }
-  
+
     if (!userDataFromCache || !userDataFromCache.avatar_url) {
       try {
         const response = await apiFetch("/user_edits/me", {
@@ -114,7 +112,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         if (response.ok) {
           const freshData = await response.json();
-          // Преобразуем avatar_url в полный URL
           if (freshData.avatar_url) {
             freshData.avatar_url = freshData.avatar_url.startsWith('http')
               ? freshData.avatar_url
@@ -126,8 +123,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
           throw new Error("Failed to fetch fresh user data");
         }
-      } catch (error) {
-        console.error("Error fetching fresh user data:", error);
+      } catch {
         if (userDataFromCache) {
           setUserData(userDataFromCache);
           setIsAuth(true);
@@ -140,19 +136,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUserData(userDataFromCache);
       setIsAuth(true);
     }
-  
+
     setIsLoading(false);
     isChecking.current = false;
   }, []);
 
-  // Define the handleLoginSuccess function
   const handleLoginSuccess = useCallback((token: string, user: UserData) => {
     localStorage.setItem(STORAGE_KEYS.TOKEN, token);
     localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
     setIsAuth(true);
     setUserData(user);
-    window.dispatchEvent(new Event('auth-change'));
     setIsLoading(false);
+    window.dispatchEvent(new Event('auth-change'));
   }, []);
 
   const logout = useCallback(() => {
@@ -178,7 +173,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     checkAuth();
   }, [checkAuth]);
 
-  // Create the context value with EXPLICIT initializers (not shorthand)
   const contextValue = {
     isAuth: isAuth,
     userData: userData,

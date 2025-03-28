@@ -1,7 +1,7 @@
 // frontend/src/components/Header.tsx
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import Logo from "./Logo";
@@ -18,7 +18,7 @@ interface NavItem {
 }
 
 const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
-  const [imgError, setImgError] = useState(false);
+  const [imgError, setImgError] = useState<boolean>(false);
 
   useEffect(() => {
     setImgError(false);
@@ -54,7 +54,7 @@ const Header: React.FC = () => {
   const notificationRef = useRef<HTMLDivElement>(null);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const prevIsAuth = useRef(isAuth); // Отслеживаем предыдущее значение isAuth
+  const prevIsAuth = useRef(isAuth);
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
@@ -70,7 +70,6 @@ const Header: React.FC = () => {
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
 
-  // Эффект для закрытия модального окна только при изменении isAuth
   useEffect(() => {
     if (isAuth !== prevIsAuth.current && isAuth) {
       setIsModalOpen(false);
@@ -114,16 +113,17 @@ const Header: React.FC = () => {
   }, [logout]);
 
   const toggleMobileMenu = useCallback(() => setIsMobileMenuOpen((prev) => !prev), []);
+
   const toggleNotifications = useCallback(() => setIsNotificationsOpen((prev) => !prev), []);
 
   const openLogin = useCallback(() => {
-    setIsModalOpen(true);
     setIsRegisterMode(false);
+    setIsModalOpen(true);
   }, []);
 
   const openRegistration = useCallback(() => {
-    setIsModalOpen(true);
     setIsRegisterMode(true);
+    setIsModalOpen(true);
   }, []);
 
   const handleModalClose = useCallback(() => {
@@ -131,26 +131,25 @@ const Header: React.FC = () => {
     setIsRegisterMode(false);
   }, []);
 
-  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
-  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+  const toggleToLogin = useCallback(() => {
+    setIsRegisterMode(false);
+  }, []);
 
-  const guestNavItems = useMemo(
-    (): NavItem[] => [
-      { label: "Регистрация", onClick: openRegistration },
-      { label: "Войти", onClick: openLogin },
-    ],
-    [openRegistration, openLogin]
-  );
+  const toggleToRegister = useCallback(() => {
+    setIsRegisterMode(true);
+  }, []);
 
-  const authNavItemsMobile = useMemo(
-    (): NavItem[] => [
-      { href: "/profile", label: "Профиль" },
-      { href: "/notifications", label: "Уведомления" },
-      { href: "/partner", label: "Стать партнером" },
-      { label: "Выход", onClick: handleLogout },
-    ],
-    [handleLogout]
-  );
+  const guestNavItems: NavItem[] = [
+    { label: "Регистрация", onClick: openRegistration },
+    { label: "Войти", onClick: openLogin },
+  ];
+
+  const authNavItemsMobile: NavItem[] = [
+    { href: "/profile", label: "Профиль" },
+    { href: "/notifications", label: "Уведомления" },
+    { href: "/partner", label: "Стать партнером" },
+    { label: "Выход", onClick: handleLogout },
+  ];
 
   const menuVariants = {
     closed: { opacity: 0, y: -20 },
@@ -312,35 +311,29 @@ const Header: React.FC = () => {
         </div>
       </header>
 
-      <AuthModal
-        isOpen={isModalOpen}
-        onClose={handleModalClose}
-        title={isRegisterMode ? "Регистрация" : "Вход"}
-      >
-        <AnimatePresence mode="wait">
-          {isRegisterMode ? (
-            <motion.div
-              key="registration"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3 }}
-            >
-              <Registration isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
-            </motion.div>
-          ) : (
-            <motion.div
-              key="login"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              transition={{ duration: 0.3 }}
-            >
-              <Login isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </AuthModal>
+      <AnimatePresence>
+        {isModalOpen && (
+          <AuthModal
+            isOpen={isModalOpen}
+            onClose={handleModalClose}
+            title={isRegisterMode ? "Регистрация" : "Вход"}
+          >
+            {isRegisterMode ? (
+              <Registration
+                isOpen={isModalOpen}
+                onClose={handleModalClose}
+                toggleMode={toggleToLogin}
+              />
+            ) : (
+              <Login
+                isOpen={isModalOpen}
+                onClose={handleModalClose}
+                toggleMode={toggleToRegister}
+              />
+            )}
+          </AuthModal>
+        )}
+      </AnimatePresence>
     </>
   );
 };

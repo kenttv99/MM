@@ -44,7 +44,9 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
     """Авторизация пользователя с возвратом токена и данных пользователя."""
     db_user = await get_user_by_username(db, user.email)
     if not db_user or not pwd_context.verify(user.password, db_user.password_hash):
-        await log_user_activity(db, db_user.id if db_user else None, request, action="login_failed")
+        # Логируем неудачную попытку входа только если пользователь существует
+        if db_user:
+            await log_user_activity(db, db_user.id, request, action="login_failed")
         logger.warning(f"Failed login attempt for email: {user.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -73,11 +75,11 @@ async def change_user_password(
     data: ChangePassword = Body(...),
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db = Depends(get_async_db),
-    request: Request = None  # Добавляем request
+    request: Request = None
 ):
     current_user = await get_current_user(token.credentials, db)
     user = await db.get(User, current_user.id)
-    await log_user_activity(db, user.id, request, action="change_password")  # Передаём request
+    await log_user_activity(db, user.id, request, action="change_password")
     if not user or not pwd_context.verify(data.current_password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -1,3 +1,4 @@
+// frontend/src/app/(public)/events/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -26,19 +27,16 @@ export interface EventData {
   ticket_type?: TicketType;
 }
 
-// Utility function to generate slug based on title and id
 const generateSlug = (title: string, id: number): string => {
   if (!title || title.trim() === "") {
     return `event-${id}`;
   }
-  
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
     й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
     ю: "yu", я: "ya", " ": "-"
   };
-  
   const slugifiedTitle = title
     .toLowerCase()
     .split("")
@@ -47,13 +45,11 @@ const generateSlug = (title: string, id: number): string => {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
-    
   return slugifiedTitle ? `${slugifiedTitle}-${id}` : `event-${id}`;
 };
 
 const ITEMS_PER_PAGE = 6;
 
-// Format date using ru-RU locale for display.
 const formatDateForDisplay = (dateString: string) => {
   try {
     const options: Intl.DateTimeFormatOptions = { 
@@ -67,7 +63,6 @@ const formatDateForDisplay = (dateString: string) => {
   }
 };
 
-// Group events by their formatted start date.
 const groupEventsByDate = (events: EventData[]) => {
   const grouped: { [key: string]: EventData[] } = {};
   events.forEach((event) => {
@@ -78,7 +73,6 @@ const groupEventsByDate = (events: EventData[]) => {
   return grouped;
 };
 
-// Get CSS classes for status badge styling.
 const getStatusStyles = (status: EventData["status"]) => {
   switch (status) {
     case "registration_open": 
@@ -92,7 +86,6 @@ const getStatusStyles = (status: EventData["status"]) => {
   }
 };
 
-/// DateFilter Component - displays the filter modal with date pickers, Reset, and Apply buttons.
 interface DateFilterProps {
   startDate: string;
   endDate: string;
@@ -183,7 +176,6 @@ const DateFilter: React.FC<DateFilterProps> = ({
   );
 };
 
-/// EventCard Component - renders a single event card.
 interface EventCardProps {
   event: EventData;
 }
@@ -242,7 +234,6 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
 };
 
 const EventsPage = () => {
-  // State hooks
   const [events, setEvents] = useState<EventData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -253,7 +244,6 @@ const EventsPage = () => {
   const [isFilterActive, setIsFilterActive] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  // Refs
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
@@ -261,7 +251,6 @@ const EventsPage = () => {
   const initialLoadComplete = useRef(false);
   const currentFilters = useRef({ startDate: "", endDate: "" });
 
-  // Fetch events from the API with filters and pagination support.
   const fetchEvents = useCallback(async (pageNum: number, reset: boolean = false) => {
     setIsLoading(true);
     setError(null);
@@ -280,10 +269,22 @@ const EventsPage = () => {
         headers: { "Accept": "application/json" },
         cache: "no-store"
       });
+  
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(`Ошибка загрузки: ${response.status} - ${errorText}`);
+        let errorMessage = "Не удалось загрузить мероприятия";
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch {
+          // Если не удалось распарсить JSON, оставляем общее сообщение
+        }
+        if (response.status === 429) {
+          errorMessage = "Частые запросы. Попробуйте немного позже.";
+        }
+        throw new Error(errorMessage);
       }
+  
       const data: EventData[] = await response.json();
       const filteredData = data.filter((event) => event.published);
       setEvents((prev) => {
@@ -303,7 +304,6 @@ const EventsPage = () => {
     }
   }, []);
 
-  // Apply filters, update active flag, refresh events, and close the modal.
   const applyFilters = () => {
     currentFilters.current = { startDate, endDate };
     setIsFilterActive(startDate !== "" || endDate !== "");
@@ -313,7 +313,6 @@ const EventsPage = () => {
     setIsFilterOpen(false);
   };
 
-  // Reset filters and refresh events.
   const resetFilters = () => {
     setStartDate("");
     setEndDate("");
@@ -325,7 +324,6 @@ const EventsPage = () => {
     setIsFilterOpen(false);
   };
 
-  // Initial load effect.
   useEffect(() => {
     if (!initialLoadComplete.current) {
       initialLoadComplete.current = true;
@@ -333,7 +331,6 @@ const EventsPage = () => {
     }
   }, [fetchEvents]);
 
-  // Infinite scroll observer effect.
   useEffect(() => {
     if (!hasMore || isLoading) return;
     if (observerRef.current) {
@@ -358,7 +355,6 @@ const EventsPage = () => {
     };
   }, [hasMore, isLoading]);
 
-  // Load additional pages when page updates.
   useEffect(() => {
     if (page > 1 && hasMore) {
       fetchEvents(page);
@@ -373,7 +369,6 @@ const EventsPage = () => {
         <div className="container mx-auto">
           <h1 className="text-3xl font-bold mb-8 text-center text-gray-800">Все мероприятия</h1>
 
-          {/* Filter Section */}
           <div className="mb-6 relative">
             <div className="flex justify-end">
               <button 

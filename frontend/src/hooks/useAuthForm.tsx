@@ -1,7 +1,7 @@
 // frontend/src/hooks/useAuthForm.tsx
 "use client";
 
-import { useState, ChangeEvent, FormEvent, useCallback, useEffect } from "react";
+import { useState, ChangeEvent, FormEvent, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/utils/api";
 
@@ -25,7 +25,7 @@ export const useAuthForm = ({
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [submitSuccess, setSubmitSuccess] = useState(false);
+  const isSubmitting = useRef(false);
 
   const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -35,10 +35,13 @@ export const useAuthForm = ({
   const handleSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
       e.preventDefault();
+
+      if (isSubmitting.current) return;
+      isSubmitting.current = true;
+
       setError("");
       setIsLoading(true);
       setIsSuccess(false);
-      setSubmitSuccess(false);
 
       try {
         const response = await apiFetch(endpoint, {
@@ -60,43 +63,43 @@ export const useAuthForm = ({
               avatar_url: data.avatar_url || undefined,
             };
             handleLoginSuccess(data.access_token, userData);
-            setSubmitSuccess(true);
+            setIsSuccess(true);
           } else {
-            setSubmitSuccess(true);
+            setIsSuccess(true);
+          }
+
+          if (onSuccess) {
+            setTimeout(() => {
+              onSuccess();
+              setFormValues(initialValues);
+            }, 1000);
           }
         } else {
+          // Обрабатываем все ошибки, включая 429
           const errorText = await response.text();
-          let errorMessage = "Ошибка запроса";
+          let errorMessage = "Произошла ошибка";
           try {
             const errorData = JSON.parse(errorText);
-            errorMessage = errorData.detail || errorMessage;
+            errorMessage = errorData.detail || "Произошла ошибка";
           } catch {
-            console.error("Не удалось разобрать JSON ошибки:", errorText);
+            errorMessage = "Произошла ошибка";
+          }
+          // Проверяем статус ответа, чтобы перехватить 429
+          if (response.status === 429) {
+            errorMessage = "Частые запросы. Попробуйте немного позже.";
           }
           setError(errorMessage);
         }
       } catch (err) {
-        const errorMessage = err instanceof Error ? err.message : "Неизвестная ошибка";
-        setError(`Произошла ошибка: ${errorMessage}`);
-        console.error("Auth form error:", err);
+        // Обрабатываем только сетевые ошибки или 500-е ошибки
+        setError(err instanceof Error ? err.message : "Неизвестная ошибка");
       } finally {
         setIsLoading(false);
+        isSubmitting.current = false;
       }
     },
-    [endpoint, formValues, isLogin, handleLoginSuccess]
+    [endpoint, formValues, isLogin, handleLoginSuccess, onSuccess, initialValues]
   );
-
-  useEffect(() => {
-    if (submitSuccess) {
-      setIsSuccess(true);
-      const timer = setTimeout(() => {
-        setFormValues(initialValues);
-        if (onSuccess) onSuccess();
-        setSubmitSuccess(false); // Сбрасываем флаг после выполнения
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [submitSuccess, initialValues, onSuccess]);
 
   return {
     formValues,

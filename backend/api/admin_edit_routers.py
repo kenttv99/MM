@@ -328,7 +328,7 @@ async def get_admin_events(
     search: str = None,
     start_date: str = None,
     end_date: str = None,
-    status: str = None,
+    status_param: str = None,  # Renamed to avoid conflict with status module
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
@@ -348,8 +348,8 @@ async def get_admin_events(
             query = query.where(Event.start_date >= start_date)
         if end_date:
             query = query.where(Event.start_date <= end_date)
-        if status:
-            query = query.where(Event.status == status)
+        if status_param:  # Using renamed parameter
+            query = query.where(Event.status == status_param)
 
         result = await db.execute(query)
         events = result.scalars().all()

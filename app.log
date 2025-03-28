@@ -99,3 +99,59 @@ pip install python-multipart
 2025-03-26 12:41:17,449 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-03-26 12:41:17,463 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-03-26 12:41:17,465 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-28 02:19:03,452 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:19:04,324 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:21:08,598 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:21:09,745 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:24:10,461 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:24:10,639 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:28:48,066 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-28 02:28:48,138 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-28',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)

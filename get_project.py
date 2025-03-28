@@ -14,25 +14,24 @@ INCLUDE_EXTENSIONS = [
 
 # Разрешенные пути
 INCLUDE_PATHS = [
-    # "backend/",
+    "backend/",
     # "frontend/src/",
     # "servers/",
-    "backend/api",
-    "backend/schemas_enums",
-    "frontend/src/contexts",
-    "frontend/src/components",
-    "frontend/src/hooks"
+    # "backend/api",
+    # "backend/schemas_enums",
+    # "frontend/src/contexts",
+    # "frontend/src/components",
+    # "frontend/src/hooks"
 ]
 
 # Конкретные файлы для включения (относительные пути)
 INCLUDE_FILES = [
     "constants.py",
     # "README.md",
-    "frontend/src/next.config.ts",
-    "servers/server_user.py",
-    "frontend/src/app/(admin)/dashboard/page.tsx",
-    "frontend/src/app/(admin)/layout.tsx",
-    "frontend/src/utils/api.ts"
+    # "frontend/src/next.config.ts",
+    # "servers/server_user.py",
+    # "frontend/src/app/(auth)/profile/page.tsx",
+    # "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки
@@ -101,9 +100,17 @@ def get_project_files(project_root):
 
 def write_project_content(project_root, output_file_base):
     project_root = Path(project_root)
+    output_dir = Path(output_file_base).parent
     
     if not project_root.exists():
         raise FileNotFoundError(f"Директория проекта {project_root} не существует")
+    
+    if output_dir.exists():
+        for file in output_dir.glob("project_content_*.txt"):  # Удаляем только файлы с шаблоном project_content_*.txt
+            try:
+                file.unlink()
+            except Exception as e:
+                print(f"Не удалось удалить файл {file}: {e}")
     
     all_files = get_project_files(project_root)
     print(f"Всего файлов найдено: {len(all_files)}")

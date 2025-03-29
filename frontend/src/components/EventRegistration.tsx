@@ -14,13 +14,14 @@ interface EventRegistrationProps {
   eventTime: string;
   eventLocation: string;
   ticketType: string;
-  availableQuantity: number; // Общее количество билетов
-  soldQuantity: number;      // Количество забронированных билетов
+  availableQuantity: number;
+  soldQuantity: number;
   price: number;
   freeRegistration: boolean;
   onBookingClick: () => void;
   onLoginClick: () => void;
-  onBookingSuccess?: () => void; // Callback для обновления данных после бронирования
+  onBookingSuccess?: () => void;
+  displayStatus?: string; // Добавлен новый проп
 }
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
@@ -37,6 +38,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   onBookingClick,
   onLoginClick,
   onBookingSuccess,
+  displayStatus,
 }) => {
   const { userData, isAuth } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -44,12 +46,15 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
 
-  const remainingQuantity = availableQuantity - soldQuantity; // Оставшиеся билеты
+  const remainingQuantity = availableQuantity - soldQuantity;
   const maxVisibleSeats = 10;
   const seatsArray = Array.from(
-    { length: Math.min(remainingQuantity, maxVisibleSeats) }, // Используем оставшиеся билеты
+    { length: Math.min(remainingQuantity, maxVisibleSeats) },
     (_, index) => index
   );
+
+  const isRegistrationClosedOrCompleted =
+    displayStatus === "Регистрация закрыта" || displayStatus === "Мероприятие завершено";
 
   const handleConfirmBooking = async () => {
     setIsBooking(true);
@@ -74,7 +79,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         setSuccess("Вы успешно забронировали билет!");
         setTimeout(() => {
           setIsModalOpen(false);
-          if (onBookingSuccess) onBookingSuccess(); // Вызываем callback для обновления данных
+          if (onBookingSuccess) onBookingSuccess();
         }, 1500);
       } else {
         const errorData = await response.json();
@@ -108,7 +113,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           <div className="flex items-center">
             <FaTicketAlt className="text-orange-500 mr-2" />
             <h3 className="text-lg font-semibold text-gray-800">
-              Доступные места: {remainingQuantity} / {availableQuantity} (Забронировано: {soldQuantity})
+              {isRegistrationClosedOrCompleted
+                ? "Места распределены"
+                : `Доступные места: ${remainingQuantity}`}
             </h3>
           </div>
           <motion.button
@@ -116,12 +123,16 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             whileTap={{ scale: 0.95 }}
             onClick={handleButtonClick}
             disabled={remainingQuantity === 0 || isBooking}
-            className={`px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md ${remainingQuantity === 0 || isBooking ? "bg-gray-300 text-gray-500 cursor-not-allowed" : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg"}`}
+            className={`px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md ${
+              remainingQuantity === 0 || isBooking
+                ? "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg"
+            }`}
           >
             {isBooking ? "Бронирование..." : "Забронировать"}
           </motion.button>
         </div>
-        {remainingQuantity > 0 ? (
+        {!isRegistrationClosedOrCompleted && remainingQuantity > 0 ? (
           <div className="flex flex-wrap gap-2 justify-center mb-4">
             <AnimatePresence>
               {seatsArray.map((seat) => (
@@ -133,7 +144,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   transition={{ duration: 0.3, delay: seat * 0.05 }}
                   onClick={handleButtonClick}
                   disabled={isBooking}
-                  className={`w-8 h-8 rounded-md transition-all duration-200 ${isBooking ? "bg-gray-200 cursor-not-allowed" : "bg-orange-100 hover:bg-orange-200 text-orange-600"} flex items-center justify-center text-sm font-medium`}
+                  className={`w-8 h-8 rounded-md transition-all duration-200 ${
+                    isBooking
+                      ? "bg-gray-200 cursor-not-allowed"
+                      : "bg-orange-100 hover:bg-orange-200 text-orange-600"
+                  } flex items-center justify-center text-sm font-medium`}
                   title={`Место ${seat + 1}`}
                 >
                   {seat + 1}
@@ -147,7 +162,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             )}
           </div>
         ) : (
-          <p className="text-gray-500 text-center mb-4">Места закончились</p>
+          <p className="text-gray-500 text-center mb-4">
+            {isRegistrationClosedOrCompleted ? "Места распределены" : "Места закончились"}
+          </p>
         )}
       </div>
 

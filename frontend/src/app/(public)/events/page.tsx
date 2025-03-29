@@ -1,3 +1,4 @@
+// frontend/src/app/(public)/events/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -6,7 +7,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { apiFetch, CustomError } from "@/utils/api";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
-import FormattedDescription from "@/components/FormattedDescription"; 
+import FormattedDescription from "@/components/FormattedDescription";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 
 interface TicketType {
@@ -54,10 +55,10 @@ const ITEMS_PER_PAGE = 6;
 
 const formatDateForDisplay = (dateString: string) => {
   try {
-    const options: Intl.DateTimeFormatOptions = { 
-      day: "numeric", 
-      month: "long", 
-      year: "numeric" 
+    const options: Intl.DateTimeFormatOptions = {
+      day: "numeric",
+      month: "long",
+      year: "numeric"
     };
     return new Date(dateString).toLocaleDateString("ru-RU", options);
   } catch {
@@ -77,13 +78,13 @@ const groupEventsByDate = (events: EventData[]) => {
 
 const getStatusStyles = (status: EventData["status"]) => {
   switch (status) {
-    case "registration_open": 
+    case "registration_open":
       return "bg-green-500/80 text-white";
-    case "registration_closed": 
+    case "registration_closed":
       return "bg-red-500/80 text-white";
-    case "completed": 
+    case "completed":
       return "bg-gray-500/80 text-white";
-    default: 
+    default:
       return "bg-gray-500/80 text-white";
   }
 };
@@ -183,6 +184,8 @@ interface EventCardProps {
 }
 
 const EventCard: React.FC<EventCardProps> = ({ event }) => {
+  const isCompleted = event.status === "completed";
+
   return (
     <Link href={`/event/${generateSlug(event.title, event.id)}`} key={event.id}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden relative h-full flex flex-col">
@@ -222,7 +225,7 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
               </svg>
               {formatDateForDisplay(event.start_date)}
             </span>
-            {event.ticket_type && (
+            {event.ticket_type && !isCompleted && (
               <span className="bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-1 rounded-full">
                 {event.status === "registration_open" && event.ticket_type.remaining_quantity !== undefined && event.ticket_type.remaining_quantity > 0
                   ? `Осталось мест: ${event.ticket_type.remaining_quantity}`
@@ -270,7 +273,7 @@ const EventsPage = () => {
       if (currentFilters.current.endDate) {
         params.append("end_date", currentFilters.current.endDate);
       }
-      
+
       const response = await apiFetch(`/v1/public/events?${params.toString()}`, {
         headers: { "Accept": "application/json" },
         cache: "no-store"
@@ -384,11 +387,11 @@ const EventsPage = () => {
 
           <div className="mb-6 relative">
             <div className="flex justify-end">
-              <button 
+              <button
                 onClick={() => setIsFilterOpen((prev) => !prev)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
-                  isFilterActive 
-                    ? "bg-orange-100 text-orange-700 hover:bg-orange-200" 
+                  isFilterActive
+                    ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
@@ -468,7 +471,7 @@ const EventsPage = () => {
               </div>
               <h3 className="text-xl font-semibold mb-2 text-gray-800">Мероприятия не найдены</h3>
               <p className="text-gray-600 text-center max-w-md mb-6">
-                {isFilterActive 
+                {isFilterActive
                   ? "Не найдено мероприятий, соответствующих выбранным критериям. Попробуйте изменить фильтры."
                   : "В настоящее время нет доступных мероприятий."}
               </p>

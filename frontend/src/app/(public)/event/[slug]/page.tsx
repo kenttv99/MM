@@ -84,16 +84,14 @@ export default function EventPage() {
     setError(null);
     setHasServerError(false);
     const eventId = extractIdFromSlug(slug);
-  
+
     try {
       const res = await apiFetch(`/v1/public/events/${eventId}`, {
         cache: "no-store",
       });
-  
+
       if (!res.ok) {
-        // Check if this is a 404 error due to unpublished event
         if (res.status === 404) {
-          // Create a placeholder "unpublished" event to display the unavailable message
           setEvent({
             id: parseInt(eventId),
             title: "Недоступное мероприятие",
@@ -101,9 +99,9 @@ export default function EventPage() {
             start_date: new Date().toISOString(),
             published: false
           });
-          return; // Exit early but don't set error
+          return;
         }
-  
+
         const errorText = await res.text();
         let errorMessage = "Произошла ошибка";
         try {
@@ -121,10 +119,10 @@ export default function EventPage() {
         setError(errorMessage);
         return;
       }
-  
+
       const data: EventData = await res.json();
       setEvent(data);
-  
+
       const correctSlug = generateSlug(data.title, data.id);
       if (slug !== correctSlug && !hasRedirected) {
         setHasRedirected(true);
@@ -195,7 +193,7 @@ export default function EventPage() {
   if (error || !event) {
     return notFound();
   }
-  // Проверка статуса "draft" или published: false - оставляем эту проверку здесь
+
   if (event.status === "draft" || !event.published) {
     return (
       <div className="min-h-screen flex flex-col">
@@ -226,7 +224,7 @@ export default function EventPage() {
   const eventTime = format(new Date(event.start_date), "HH:mm", { locale: ru });
   const availableQuantity = event.ticket_type?.available_quantity || 0;
   const remainingQuantity = event.ticket_type?.remaining_quantity || 0;
-  const soldQuantity = availableQuantity - remainingQuantity; // Вычисляем soldQuantity
+  const soldQuantity = availableQuantity - remainingQuantity;
   const displayStatus =
     event.status === "registration_open" && remainingQuantity === 0
       ? "Регистрация закрыта (мест нет)"
@@ -321,6 +319,7 @@ export default function EventPage() {
                   onBookingClick={handleBookingClick}
                   onLoginClick={handleLoginClick}
                   onBookingSuccess={fetchEvent}
+                  displayStatus={displayStatus} // Передаем displayStatus
                 />
                 {!isAuth && (
                   <motion.p

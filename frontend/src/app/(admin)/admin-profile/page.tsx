@@ -1,13 +1,13 @@
-// frontend/src/app/(admin)/admin-profile/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useContext } from "react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
 import { AdminProfile } from "@/types/index";
+import { PageLoadContext } from "@/contexts/PageLoadContext";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -19,9 +19,9 @@ const AdminProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isProfileLoading, setIsProfileLoading] = useState<boolean>(true);
-
   const router = useRouter();
   const { isLoading: authLoading, checkAuth } = useAdminAuth();
+  const { setPageLoaded } = useContext(PageLoadContext);
 
   const fetchAdminProfile = useCallback(async () => {
     setIsProfileLoading(true);
@@ -68,16 +68,17 @@ const AdminProfilePage: React.FC = () => {
         navigateTo(router, "/admin-login");
       }
     };
-    initialize().catch(err => console.error("Profile initialization failed:", err));
+    initialize().catch((err) => console.error("Profile initialization failed:", err));
   }, [checkAuth, fetchAdminProfile, router]);
 
-  if (authLoading || isProfileLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    // Уведомляем layout о готовности страницы
+    if (!authLoading && !isProfileLoading && (profile || error)) {
+      setPageLoaded(true);
+    }
+  }, [authLoading, isProfileLoading, profile, error, setPageLoaded]);
+
+  if (authLoading || isProfileLoading) return null; // Не рендерим ничего, пока данные не готовы
 
   return (
     <div className="min-h-screen bg-gray-50">

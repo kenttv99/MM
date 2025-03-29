@@ -1,7 +1,6 @@
-  // frontend/src/app/(admin)/edit-user/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useContext } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
@@ -11,7 +10,8 @@ import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useUserForm } from "@/hooks/useUserForm";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
-import { motion } from "framer-motion"; // Добавляем framer-motion
+import { motion } from "framer-motion";
+import { PageLoadContext } from "@/contexts/PageLoadContext";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -26,19 +26,13 @@ const EditUserPage: React.FC = () => {
   const { isAdminAuth } = useAdminAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+  const { setPageLoaded } = useContext(PageLoadContext);
 
-  const {
-    userData,
-    isLoading,
-    error,
-    loadUser,
-    handleChange,
-    handleSubmit
-  } = useUserForm({
+  const { userData, isLoading, error, loadUser, handleChange, handleSubmit } = useUserForm({
     onSuccess: () => {
       setLocalSuccess("Пользователь успешно обновлён");
-      setTimeout(() => navigateTo(router, "/dashboard"), 1500); // Убираем refresh=true
-    }
+      setTimeout(() => navigateTo(router, "/dashboard"), 1500);
+    },
   });
 
   useEffect(() => {
@@ -54,28 +48,34 @@ const EditUserPage: React.FC = () => {
     loadUser(userId);
   }, [userId, isAdminAuth, router, loadUser]);
 
-  if (isLoading || !userData) return null;
+  useEffect(() => {
+    // Уведомляем layout о готовности страницы
+    if (!isLoading && (userData || error)) {
+      setPageLoaded(true);
+    }
+  }, [isLoading, userData, error, setPageLoaded]);
+
+  if (isLoading || !userData) return null; // Не рендерим ничего, пока данные не готовы
 
   return (
     <div className="min-h-screen bg-gray-50">
       <AdminHeader />
-      <main className="container mx-auto px-4 pt-24 pb-12">
+      <main className="container mx-auto px-4 sm:px-6 pt-24 pb-12">
         <div className="max-w-3xl mx-auto">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-          >
-            <h1 className="text-3xl font-bold mb-8 text-gray-800">Редактирование пользователя</h1>
-            <div className="bg-white p-8 rounded-xl shadow-lg border border-gray-100">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-6 sm:mb-8 text-gray-800">Редактирование пользователя</h1>
+            <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg border border-gray-100">
               <ErrorDisplay error={error} className="mb-6" />
               <SuccessDisplay message={localSuccess} className="mb-6" />
-              
-              <form onSubmit={(e) => {
-                e.preventDefault();
-                setIsSubmitting(true);
-                handleSubmit(e).finally(() => setIsSubmitting(false));
-              }} className="space-y-6">
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  setIsSubmitting(true);
+                  handleSubmit(e).finally(() => setIsSubmitting(false));
+                }}
+                className="space-y-4 sm:space-y-6"
+              >
                 <InputField
                   type="text"
                   value={userData.fio}
@@ -112,7 +112,7 @@ const EditUserPage: React.FC = () => {
                   name="whatsapp"
                   required
                 />
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 sm:gap-0">
                   <div>
                     <label className="block text-gray-700 mb-2 font-medium">Заблокирован</label>
                     <div className="relative inline-block w-12 h-6">
@@ -164,15 +164,15 @@ const EditUserPage: React.FC = () => {
                     </div>
                   </div>
                 </div>
-                <div className="flex justify-between pt-4">
+                <div className="flex flex-col sm:flex-row justify-between pt-6 gap-4 sm:gap-6">
                   <button
                     type="button"
                     onClick={() => navigateTo(router, "/dashboard")}
-                    className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                    className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-300 text-base min-h-[44px]"
                   >
                     Отмена
                   </button>
-                  <ModalButton type="submit" disabled={isSubmitting || isLoading}>
+                  <ModalButton type="submit" disabled={isSubmitting || isLoading} className="w-full sm:w-auto">
                     {isSubmitting || isLoading ? "Сохранение..." : "Сохранить"}
                   </ModalButton>
                 </div>

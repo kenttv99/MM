@@ -1,5 +1,9 @@
 // frontend/src/utils/api.ts
-import { CustomError } from "@/types/index";
+
+export interface CustomError extends Error {
+  code?: string;
+  isServerError?: boolean;
+}
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem("token") || localStorage.getItem("admin_token");
@@ -14,7 +18,7 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   try {
     response = await fetch(url, { ...options, headers });
   } catch {
-    const networkError: CustomError = new Error("Не удалось подключиться к серверу. Проверьте соединение.");
+    const networkError = new Error("Не удалось подключиться к серверу. Проверьте соединение.") as CustomError;
     networkError.code = "ECONNREFUSED";
     throw networkError;
   }
@@ -28,7 +32,7 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
     } catch {
       // Оставляем общее сообщение
     }
-    const serverError: CustomError = new Error(errorMessage);
+    const serverError = new Error(errorMessage) as CustomError;
     serverError.isServerError = true;
     throw serverError;
   }
@@ -60,5 +64,3 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   
   return response;
 }
-
-export { CustomError };

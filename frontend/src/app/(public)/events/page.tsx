@@ -1,7 +1,6 @@
-// frontend/src/app/(public)/events/page.tsx
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
@@ -9,6 +8,7 @@ import { apiFetch, CustomError } from "@/utils/api";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
+import { PageLoadContext } from "@/contexts/PageLoadContext";
 
 interface TicketType {
   name: string;
@@ -58,7 +58,7 @@ const formatDateForDisplay = (dateString: string) => {
     const options: Intl.DateTimeFormatOptions = {
       day: "numeric",
       month: "long",
-      year: "numeric"
+      year: "numeric",
     };
     return new Date(dateString).toLocaleDateString("ru-RU", options);
   } catch {
@@ -110,7 +110,7 @@ const DateFilter: React.FC<DateFilterProps> = ({
   onClose,
   onReset,
   startDateRef,
-  endDateRef
+  endDateRef,
 }) => {
   const handleCalendarClick = (ref: React.RefObject<HTMLInputElement | null>) => {
     if (ref.current && typeof ref.current.showPicker === "function") {
@@ -119,7 +119,7 @@ const DateFilter: React.FC<DateFilterProps> = ({
   };
 
   return (
-    <div className="absolute top-12 right-0 z-10 p-5 bg-white rounded-lg shadow-lg border border-gray-200 w-80 animate-fade-in">
+    <div className="absolute top-[60px] right-0 z-10 p-4 sm:p-5 bg-white rounded-lg shadow-lg border border-gray-200 w-full max-w-[300px] animate-fade-in">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Фильтр по датам</h3>
         <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
@@ -163,14 +163,14 @@ const DateFilter: React.FC<DateFilterProps> = ({
       <div className="flex justify-between pt-4 border-t border-gray-100">
         <button
           onClick={onReset}
-          className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200 text-sm flex items-center gap-1"
+          className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200 text-sm flex items-center gap-1 min-h-[44px]"
         >
           <FaTimes size={10} />
           Сбросить
         </button>
         <button
           onClick={onApply}
-          className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 text-sm"
+          className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-200 text-sm min-h-[44px]"
         >
           Применить
         </button>
@@ -188,7 +188,7 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
 
   return (
     <Link href={`/event/${generateSlug(event.title, event.id)}`} key={event.id}>
-      <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden relative h-full flex flex-col">
+      <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden min-h-[300px] flex flex-col">
         <div className="relative h-48">
           {event.image_url ? (
             <>
@@ -203,25 +203,32 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
             </>
           ) : (
             <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-              <span className="text-gray-500">Нет изображения</span>
+              <span className="text-gray-500 text-base">Нет изображения</span>
             </div>
           )}
-          <span className={`absolute top-2 right-2 px-2 py-1 text-xs font-semibold rounded-full ${getStatusStyles(event.status)}`}>
+          <span
+            className={`absolute top-2 right-2 px-2 py-1 text-xs font-semibold rounded-full ${getStatusStyles(event.status)}`}
+          >
             {event.status === "registration_open" && "Регистрация открыта"}
             {event.status === "registration_closed" && "Регистрация закрыта"}
             {event.status === "completed" && "Завершено"}
           </span>
         </div>
-        <div className="p-5 flex-grow flex flex-col">
+        <div className="p-4 sm:p-5 flex-grow flex flex-col">
           <h3 className="text-lg font-semibold text-gray-800 mb-2 line-clamp-2">{event.title}</h3>
           <FormattedDescription
             content={event.description || "Описание отсутствует"}
-            className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow [&_*]:!text-sm [&_h1]:!text-sm [&_h2]:!text-sm [&_h3]:!text-sm [&_h4]:!text-sm [&_h5]:!text-sm [&_h6]:!text-sm"
+            className="text-gray-600 text-base mb-4 line-clamp-3 flex-grow [&_*]:!text-sm [&_h1]:!text-sm [&_h2]:!text-sm [&_h3]:!text-sm [&_h4]:!text-sm [&_h5]:!text-sm [&_h6]:!text-sm"
           />
-          <div className="text-gray-500 text-sm mt-auto flex justify-between items-center">
-            <span className="flex items-center">
+          <div className="text-gray-500 text-sm mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center">
+            <span className="flex items-center mb-2 sm:mb-0">
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                />
               </svg>
               {formatDateForDisplay(event.start_date)}
             </span>
@@ -250,6 +257,7 @@ const EventsPage = () => {
   const [endDate, setEndDate] = useState("");
   const [isFilterActive, setIsFilterActive] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const { setPageLoaded } = useContext(PageLoadContext);
 
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
@@ -258,71 +266,72 @@ const EventsPage = () => {
   const initialLoadComplete = useRef(false);
   const currentFilters = useRef({ startDate: "", endDate: "" });
 
-  const fetchEvents = useCallback(async (pageNum: number, reset: boolean = false) => {
-    setIsLoading(true);
-    setError(null);
-    setHasServerError(false);
-    try {
-      const params = new URLSearchParams({
-        page: pageNum.toString(),
-        limit: ITEMS_PER_PAGE.toString()
-      });
-      if (currentFilters.current.startDate) {
-        params.append("start_date", currentFilters.current.startDate);
-      }
-      if (currentFilters.current.endDate) {
-        params.append("end_date", currentFilters.current.endDate);
-      }
-
-      const response = await apiFetch(`/v1/public/events?${params.toString()}`, {
-        headers: { "Accept": "application/json" },
-        cache: "no-store"
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorMessage = "Не удалось загрузить мероприятия";
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorMessage;
-        } catch {
-          // Оставляем общее сообщение
+  const fetchEvents = useCallback(
+    async (pageNum: number, reset: boolean = false) => {
+      setIsLoading(true);
+      setError(null);
+      setHasServerError(false);
+      try {
+        const params = new URLSearchParams({
+          page: pageNum.toString(),
+          limit: ITEMS_PER_PAGE.toString(),
+        });
+        if (currentFilters.current.startDate) {
+          params.append("start_date", currentFilters.current.startDate);
         }
-        if (response.status >= 500) {
-          setHasServerError(true);
+        if (currentFilters.current.endDate) {
+          params.append("end_date", currentFilters.current.endDate);
+        }
+
+        const response = await apiFetch(`/v1/public/events?${params.toString()}`, {
+          headers: { Accept: "application/json" },
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          let errorMessage = "Не удалось загрузить мероприятия";
+          try {
+            const errorData = JSON.parse(errorText);
+            errorMessage = errorData.detail || errorMessage;
+          } catch {
+            // Оставляем общее сообщение
+          }
+          if (response.status >= 500) {
+            setHasServerError(true);
+            return;
+          } else if (response.status === 429) {
+            errorMessage = "Частые запросы. Попробуйте немного позже.";
+          }
+          setError(errorMessage);
           return;
-        } else if (response.status === 429) {
-          errorMessage = "Частые запросы. Попробуйте немного позже.";
         }
-        setError(errorMessage);
-        return;
-      }
 
-      const data: EventData[] = await response.json();
-      const filteredData = data.filter((event) => event.published);
-      setEvents((prev) => {
-        if (reset) return filteredData;
-        const newEvents = filteredData.filter(
-          (newEvent) => !prev.some((existing) => existing.id === newEvent.id)
-        );
-        return [...prev, ...newEvents];
-      });
-      setHasMore(filteredData.length === ITEMS_PER_PAGE);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        const customErr = err as CustomError;
-        if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
-          setHasServerError(true);
+        const data: EventData[] = await response.json();
+        const filteredData = data.filter((event) => event.published);
+        setEvents((prev) => {
+          if (reset) return filteredData;
+          const newEvents = filteredData.filter((newEvent) => !prev.some((existing) => existing.id === newEvent.id));
+          return [...prev, ...newEvents];
+        });
+        setHasMore(filteredData.length === ITEMS_PER_PAGE);
+      } catch (err: unknown) {
+        if (err instanceof Error) {
+          const customErr = err as CustomError;
+          if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
+            setHasServerError(true);
+          } else {
+            setError(err.message || "Не удалось загрузить мероприятия");
+          }
         } else {
-          setError(err.message || "Не удалось загрузить мероприятия");
+          setHasServerError(true);
         }
-      } else {
-        setHasServerError(true);
+      } finally {
+        setIsLoading(false);
       }
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    },
+    []
+  );
 
   const applyFilters = useCallback(() => {
     currentFilters.current = { startDate, endDate };
@@ -373,23 +382,29 @@ const EventsPage = () => {
     if (page > 1 && hasMore) fetchEvents(page);
   }, [page, fetchEvents, hasMore]);
 
+  useEffect(() => {
+    // Уведомляем layout о готовности страницы
+    if (!isLoading && (events.length > 0 || error || hasServerError)) {
+      setPageLoaded(true);
+    }
+  }, [isLoading, events, error, hasServerError, setPageLoaded]);
+
   const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
 
-  if (hasServerError) {
-    return <ErrorPlaceholder />;
-  }
+  if (hasServerError) return <ErrorPlaceholder />;
+  if (isLoading && events.length === 0) return null; // Не рендерим ничего, пока данные не готовы
 
   return (
     <>
-      <main className="flex-grow pt-24 pb-16 px-4 min-h-[calc(100vh-120px)] bg-gray-50">
+      <main className="flex-grow pt-24 pb-16 px-4 sm:px-6 min-h-[calc(100vh-120px)] bg-gray-50">
         <div className="container mx-auto">
-          <h1 className="text-3xl font-bold mb-8 text-center text-gray-800">Все мероприятия</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold mb-8 text-center text-gray-800">Все мероприятия</h1>
 
           <div className="mb-6 relative">
             <div className="flex justify-end">
               <button
                 onClick={() => setIsFilterOpen((prev) => !prev)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 text-base ${
                   isFilterActive
                     ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
                     : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -454,23 +469,18 @@ const EventsPage = () => {
           </div>
 
           {error && (
-            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500 text-center">
+            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500 text-center text-base">
               {error}
             </div>
           )}
 
-          {isLoading && events.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mb-4"></div>
-              <p className="text-gray-600">Загрузка мероприятий...</p>
-            </div>
-          ) : events.length === 0 ? (
+          {events.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
               <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
                 <FaCalendarAlt className="text-orange-500 w-8 h-8" />
               </div>
               <h3 className="text-xl font-semibold mb-2 text-gray-800">Мероприятия не найдены</h3>
-              <p className="text-gray-600 text-center max-w-md mb-6">
+              <p className="text-gray-600 text-center max-w-md mb-6 text-base">
                 {isFilterActive
                   ? "Не найдено мероприятий, соответствующих выбранным критериям. Попробуйте изменить фильтры."
                   : "В настоящее время нет доступных мероприятий."}
@@ -478,7 +488,7 @@ const EventsPage = () => {
               {isFilterActive && (
                 <button
                   onClick={resetFilters}
-                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors text-base min-h-[44px]"
                 >
                   Сбросить фильтры
                 </button>
@@ -487,8 +497,8 @@ const EventsPage = () => {
           ) : (
             Object.entries(groupedEvents).map(([date, eventsForDate]) => (
               <div key={date} className="mb-8 animate-fade-in">
-                <h2 className="text-base font-medium text-gray-500 mb-3">{date}</h2>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <h2 className="text-base sm:text-lg font-medium text-gray-500 mb-3">{date}</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                   {eventsForDate.map((event) => (
                     <EventCard event={event} key={event.id} />
                   ))}
@@ -507,9 +517,7 @@ const EventsPage = () => {
             </div>
           )}
           {!hasMore && events.length > 0 && (
-            <p className="text-center text-gray-600 py-8">
-              Все мероприятия загружены
-            </p>
+            <p className="text-center text-gray-600 py-8 text-base">Все мероприятия загружены</p>
           )}
         </div>
       </main>

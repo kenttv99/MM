@@ -1,8 +1,8 @@
-// frontend/src/app/(public)/event/[slug]/page.tsx
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useContext } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { apiFetch, CustomError } from "@/utils/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -12,7 +12,6 @@ import { notFound } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
-import { apiFetch, CustomError } from "@/utils/api";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 import { format } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -20,6 +19,7 @@ import Login from "@/components/Login";
 import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { FaCalendarAlt } from "react-icons/fa";
+import { PageLoadContext } from "@/contexts/PageLoadContext";
 
 interface EventData {
   id: number;
@@ -78,6 +78,32 @@ export default function EventPage() {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
+  const { setPageLoaded } = useContext(PageLoadContext);
+
+  // Define all useCallback hooks first, regardless of conditions
+  const handleBookingClick = useCallback(() => {
+    console.log("Booking click triggered in page.tsx");
+  }, []);
+
+  const handleLoginClick = useCallback(() => {
+    console.log("Login click triggered, setting isModalOpen to true");
+    setIsRegisterMode(false);
+    setIsModalOpen(true);
+  }, []);
+
+  const handleModalClose = useCallback(() => {
+    console.log("Closing modal");
+    setIsModalOpen(false);
+    setIsRegisterMode(false);
+  }, []);
+
+  const toggleToLogin = useCallback(() => {
+    setIsRegisterMode(false);
+  }, []);
+
+  const toggleToRegister = useCallback(() => {
+    setIsRegisterMode(true);
+  }, []);
 
   const fetchEvent = useCallback(async () => {
     setIsLoading(true);
@@ -97,8 +123,9 @@ export default function EventPage() {
             title: "Недоступное мероприятие",
             status: "draft",
             start_date: new Date().toISOString(),
-            published: false
+            published: false,
           });
+          setPageLoaded(true); // Устанавливаем, что загрузка завершена
           return;
         }
 
@@ -112,11 +139,13 @@ export default function EventPage() {
         }
         if (res.status >= 500) {
           setHasServerError(true);
+          setPageLoaded(true); // Устанавливаем, что загрузка завершена
           return;
         } else if (res.status === 429) {
           errorMessage = "Частые запросы. Попробуйте немного позже.";
         }
         setError(errorMessage);
+        setPageLoaded(true); // Устанавливаем, что загрузка завершена
         return;
       }
 
@@ -141,8 +170,9 @@ export default function EventPage() {
       }
     } finally {
       setIsLoading(false);
+      setPageLoaded(true); // Устанавливаем, что загрузка завершена
     }
-  }, [slug, router, hasRedirected]);
+  }, [slug, router, hasRedirected, setPageLoaded]);
 
   useEffect(() => {
     if (slug) fetchEvent();
@@ -154,51 +184,15 @@ export default function EventPage() {
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
 
-  const handleBookingClick = () => {
-    console.log("Booking click triggered in page.tsx");
-  };
-
-  const handleLoginClick = useCallback(() => {
-    console.log("Login click triggered, setting isModalOpen to true");
-    setIsRegisterMode(false);
-    setIsModalOpen(true);
-  }, []);
-
-  const handleModalClose = useCallback(() => {
-    console.log("Closing modal");
-    setIsModalOpen(false);
-    setIsRegisterMode(false);
-  }, []);
-
-  const toggleToLogin = useCallback(() => {
-    setIsRegisterMode(false);
-  }, []);
-
-  const toggleToRegister = useCallback(() => {
-    setIsRegisterMode(true);
-  }, []);
-
-  if (hasServerError) {
-    return <ErrorPlaceholder />;
-  }
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
-      </div>
-    );
-  }
-
-  if (error || !event) {
-    return notFound();
-  }
+  if (hasServerError) return <ErrorPlaceholder />;
+  if (error) return notFound();
+  if (isLoading || !event) return null;
 
   if (event.status === "draft" || !event.published) {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-grow container mx-auto px-4 py-12">
+        <main className="flex-grow container mx-auto px-4 sm:px-6 py-12">
           <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
             <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
               <FaCalendarAlt className="text-orange-500 w-8 h-8" />
@@ -209,7 +203,7 @@ export default function EventPage() {
             </p>
             <button
               onClick={() => router.push("/events")}
-              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-300 min-h-[44px]"
             >
               Вернуться к мероприятиям
             </button>
@@ -244,7 +238,7 @@ export default function EventPage() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: "easeOut" }}
-          className="relative h-[400px] w-full px-4 sm:px-6 lg:px-8 mt-16 mb-8"
+          className="relative h-[300px] sm:h-[400px] w-full px-4 sm:px-6 lg:px-8 mt-16 mb-6 sm:mb-8"
         >
           <div className="relative h-full w-full rounded-xl overflow-hidden">
             {event.image_url ? (
@@ -254,6 +248,7 @@ export default function EventPage() {
                 fill
                 className="object-cover"
                 priority
+                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 80vw, 1200px"
               />
             ) : (
               <div className="w-full h-full bg-gray-200 flex items-center justify-center">
@@ -265,7 +260,7 @@ export default function EventPage() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.2, duration: 0.5 }}
-                className="text-4xl md:text-5xl font-bold text-white text-center px-4"
+                className="text-2xl sm:text-4xl md:text-5xl font-bold text-white text-center px-4 max-w-3xl"
               >
                 {event.title}
               </motion.h1>
@@ -273,13 +268,13 @@ export default function EventPage() {
           </div>
         </motion.section>
 
-        <div className="container mx-auto px-4 py-12">
+        <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12">
           {event.ticket_type && (
             <motion.section
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2, duration: 0.5 }}
-              className="mb-12"
+              className="mb-8 sm:mb-12"
             >
               <EventDetails
                 date={eventDate}
@@ -294,15 +289,15 @@ export default function EventPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.3, duration: 0.5 }}
-            className="mb-12"
+            className="mb-8 sm:mb-12"
           >
             {event.ticket_type && (
               <div
-                className={`bg-white p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto ${
+                className={`bg-white p-5 sm:p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto ${
                   displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""
                 }`}
               >
-                <h2 className="text-2xl font-semibold mb-4 text-gray-800 text-center">
+                <h2 className="text-xl sm:text-2xl font-semibold mb-4 text-gray-800 text-center">
                   {displayStatus}
                 </h2>
                 <EventRegistration
@@ -319,14 +314,14 @@ export default function EventPage() {
                   onBookingClick={handleBookingClick}
                   onLoginClick={handleLoginClick}
                   onBookingSuccess={fetchEvent}
-                  displayStatus={displayStatus} // Передаем displayStatus
+                  displayStatus={displayStatus}
                 />
                 {!isAuth && (
                   <motion.p
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     transition={{ delay: 0.5, duration: 0.3 }}
-                    className="text-center mt-6 text-gray-700 font-medium bg-orange-50 py-3 px-6 rounded-full shadow-sm border border-orange-100 max-w-md mx-auto"
+                    className="text-center mt-6 text-gray-700 font-medium bg-orange-50 py-3 px-4 sm:px-6 rounded-full shadow-sm border border-orange-100 max-w-md mx-auto text-sm sm:text-base"
                   >
                     Для бронирования билета{" "}
                     <button
@@ -351,10 +346,10 @@ export default function EventPage() {
               transition={{ delay: 0.4, duration: 0.5 }}
               className="max-w-3xl mx-auto"
             >
-              <h2 className="text-2xl font-semibold mb-4 text-gray-800">Описание</h2>
+              <h2 className="text-xl sm:text-2xl font-semibold mb-4 text-gray-800">Описание</h2>
               <FormattedDescription
                 content={event.description}
-                className="text-gray-600 leading-relaxed"
+                className="text-gray-600 leading-relaxed text-base"
               />
             </motion.section>
           )}

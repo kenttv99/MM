@@ -251,3 +251,10 @@ Traceback (most recent call last):
   File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 311, in _fire_event_triggered_transitions
     raise LocalProtocolError(
 h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=CLOSED
+2025-03-29 23:16:37,017 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone <= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date <= $1::VARCHAR]
+[parameters: ('2025-03-29',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)

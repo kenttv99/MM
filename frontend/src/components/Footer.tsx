@@ -1,3 +1,4 @@
+// frontend/src/components/Footer.tsx
 "use client";
 
 import React from 'react';
@@ -5,14 +6,13 @@ import Link from 'next/link';
 
 const Footer = () => {
   return (
-    <footer className="bg-white pt-12 pb-8 border-t border-gray-100 shadow-inner">
-      <div className="container mx-auto px-4 md:px-6">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8 justify-content-center">
-
-          {/* Первая колонка - Быстрые ссылки */}
+    <footer className="bg-white pt-10 pb-6 border-t border-gray-100 shadow-inner">
+      <div className="container mx-auto px-4 sm:px-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 mb-6 justify-items-center">
+          {/* Быстрые ссылки */}
           <div className="flex flex-col items-center">
             <h3 className="text-lg font-bold mb-4">Быстрые ссылки</h3>
-            <ul className="space-y-2">
+            <ul className="space-y-2 text-sm">
               <li>
                 <Link href="/" className="text-gray-600 hover:text-orange-500 transition-colors duration-300">
                   Главная
@@ -36,10 +36,10 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Вторпя колонка - О нас */}
+          {/* О нас */}
           <div className="flex flex-col items-center">
             <h3 className="text-lg font-bold mb-4">Moscow Mellows</h3>
-            <p className="text-gray-600 mb-4 text-center">
+            <p className="text-gray-600 mb-4 text-center text-sm">
               Vrindavan в центре Москвы.<br/>Присоединяйтесь к нам!
             </p>
             <div className="flex space-x-4">
@@ -68,19 +68,19 @@ const Footer = () => {
             </div>
           </div>
           
-          {/* Третья колонка - Действия */}
+          {/* Действия */}
           <div className="flex flex-col items-center">
             <h3 className="text-lg font-bold mb-4">Действия</h3>
-            <div className="space-y-3">
+            <div className="space-y-3 w-full max-w-xs">
               <Link 
                 href="/registration" 
-                className="block w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300"
+                className="block w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300 text-sm"
               >
                 Регистрация на мероприятие
               </Link>
               <Link 
                 href="/events" 
-                className="block w-full px-4 py-2 text-center bg-white border border-orange-500 text-orange-500 font-medium rounded-lg hover:bg-orange-50 transition-colors duration-300"
+                className="block w-full px-4 py-2 text-center bg-white border border-orange-500 text-orange-500 font-medium rounded-lg hover:bg-orange-50 transition-colors duration-300 text-sm"
               >
                 Наши мероприятия
               </Link>
@@ -88,17 +88,16 @@ const Footer = () => {
           </div>
         </div>
         
-        {/* Нижняя часть футера с копирайтом */}
         <div className="pt-6 border-t border-gray-100">
-          <div className="flex flex-col md:flex-row justify-between items-center">
-            <p className="text-gray-600 text-sm mb-4 md:mb-0">
+          <div className="flex flex-col md:flex-row justify-between items-center text-sm">
+            <p className="text-gray-600 mb-4 md:mb-0">
               © Moscow Mellows {new Date().getFullYear()}. Все права защищены.
             </p>
             <div className="flex space-x-4">
-              <Link href="/privacy" className="text-sm text-gray-500 hover:text-orange-500 transition-colors duration-300">
+              <Link href="/privacy" className="text-gray-500 hover:text-orange-500 transition-colors duration-300">
                 Политика конфиденциальности
               </Link>
-              <Link href="/terms" className="text-sm text-gray-500 hover:text-orange-500 transition-colors duration-300">
+              <Link href="/terms" className="text-gray-500 hover:text-orange-500 transition-colors duration-300">
                 Условия использования
               </Link>
             </div>

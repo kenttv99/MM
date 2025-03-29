@@ -38,6 +38,7 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose
           icon={FaLock}
           name="currentPassword"
           disabled={isSuccess}
+          className="w-full"
         />
         <InputField
           type="password"
@@ -47,6 +48,7 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose
           icon={FaLock}
           name="newPassword"
           disabled={isSuccess}
+          className="w-full"
         />
         <InputField
           type="password"
@@ -56,8 +58,9 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose
           icon={FaLock}
           name="confirmPassword"
           disabled={isSuccess}
+          className="w-full"
         />
-        <div className="flex justify-end space-x-4">
+        <div className="flex flex-col sm:flex-row justify-end space-y-4 sm:space-y-0 sm:space-x-4">
           <ModalButton variant="secondary" onClick={onClose} disabled={isLoading || isSuccess}>
             Отмена
           </ModalButton>

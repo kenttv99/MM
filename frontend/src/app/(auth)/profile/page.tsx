@@ -1,19 +1,28 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useContext } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import InputField from "@/components/common/InputField";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
-import { FaUser, FaTelegramPlane, FaWhatsapp, FaTrash, FaPencilAlt, FaTimes, FaLock, FaCamera } from "react-icons/fa";
+import {
+  FaUser,
+  FaTelegramPlane,
+  FaWhatsapp,
+  FaTrash,
+  FaPencilAlt,
+  FaTimes,
+  FaLock,
+  FaCamera,
+} from "react-icons/fa";
 import Image from "next/image";
 import { apiFetch } from "@/utils/api";
 import { ModalButton } from "@/components/common/AuthModal";
 import { motion, AnimatePresence } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
-
+import { PageLoadContext } from "@/contexts/PageLoadContext";
 
 const Profile: React.FC = () => {
   const { isAuth, userData: contextUserData, isLoading: authLoading, updateUserData } = useAuth();
@@ -30,8 +39,10 @@ const Profile: React.FC = () => {
   const [isAvatarHovered, setIsAvatarHovered] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
+  const fetchAttempted = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const { setPageLoaded } = useContext(PageLoadContext);
 
   const navigateTo = useCallback((path: string) => router.push(path), [router]);
 
@@ -39,13 +50,14 @@ const Profile: React.FC = () => {
     if (!isAuth || isFetching) return;
 
     setIsFetching(true);
+    fetchAttempted.current = true;
     setFetchError(null);
     try {
       const token = localStorage.getItem("token");
       if (!token) throw new Error("Токен авторизации отсутствует");
 
       const response = await apiFetch("/user_edits/me", {
-        headers: { Authorization: `Bearer ${token}`, "Accept": "application/json" },
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       });
 
       if (!response.ok) {
@@ -61,9 +73,9 @@ const Profile: React.FC = () => {
       const freshData: UserData = await response.json();
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       if (freshData.avatar_url) {
-        freshData.avatar_url = freshData.avatar_url.startsWith('http')
+        freshData.avatar_url = freshData.avatar_url.startsWith("http")
           ? freshData.avatar_url
-          : `${baseUrl}${freshData.avatar_url.startsWith('/') ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
+          : `${baseUrl}${freshData.avatar_url.startsWith("/") ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
       }
 
       setUserData(freshData);
@@ -75,34 +87,61 @@ const Profile: React.FC = () => {
       });
       updateUserData(freshData, true);
       localStorage.setItem("user_data", JSON.stringify(freshData));
+      hasFetched.current = true;
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
-      setUserData(contextUserData);
+      if (contextUserData) {
+        setUserData(contextUserData);
+        setFormState({
+          fio: contextUserData.fio || "",
+          telegram: contextUserData.telegram || "",
+          whatsapp: contextUserData.whatsapp || "",
+          avatarPreview: contextUserData.avatar_url || null,
+        });
+      }
     } finally {
       setIsFetching(false);
+      // Signal that the page has finished loading, even if there was an error
+      setPageLoaded(true);
     }
-  }, [isAuth, isFetching, contextUserData, navigateTo, updateUserData]);
+  }, [isAuth, isFetching, contextUserData, navigateTo, updateUserData, setPageLoaded]);
 
   useEffect(() => {
-    const initialize = async () => {
-      if (!authLoading && !hasFetched.current) {
-        hasFetched.current = true;
-        if (!isAuth) navigateTo("/");
-        else fetchUserProfile();
+    // Initialize - always trying to load user data if authenticated
+    if (!authLoading && !hasFetched.current) {
+      if (!isAuth) {
+        navigateTo("/");
+        setPageLoaded(true); // Signal that redirection is finished
+      } else {
+        fetchUserProfile();
       }
-    };
-    initialize();
-  }, [authLoading, isAuth, fetchUserProfile, navigateTo]);
+    }
+  }, [authLoading, isAuth, fetchUserProfile, navigateTo, setPageLoaded]);
+
+  useEffect(() => {
+    // Make sure page is marked as loaded even if authentication is still loading
+    // This prevents infinite loading screen
+    if (authLoading && !fetchAttempted.current) {
+      const timeout = setTimeout(() => {
+        if (!fetchAttempted.current) {
+          console.log("Auth loading timeout - marking page as loaded");
+          setPageLoaded(true);
+        }
+      }, 3000); // 3 second timeout
+
+      return () => clearTimeout(timeout);
+    }
+  }, [authLoading, setPageLoaded]);
 
   useEffect(() => {
     if (userData && userData.avatar_url) {
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       const avatarUrl = userData.avatar_url.startsWith(baseUrl)
         ? userData.avatar_url
-        : `${baseUrl}${userData.avatar_url.startsWith('/') ? userData.avatar_url : `/${userData.avatar_url}`}`;
-      setFormState(prev => ({
+        : `${baseUrl}${userData.avatar_url.startsWith("/") ? userData.avatar_url : `/${userData.avatar_url}`}`;
+      setFormState((prev) => ({
         ...prev,
-        avatarPreview: avatarUrl
+        avatarPreview: avatarUrl,
       }));
     }
   }, [userData]);
@@ -154,8 +193,8 @@ const Profile: React.FC = () => {
         avatarPreview: currentAvatarUrl
           ? currentAvatarUrl.startsWith(baseUrl)
             ? currentAvatarUrl
-            : `${baseUrl}${currentAvatarUrl.startsWith('/') ? currentAvatarUrl : `/${currentAvatarUrl}`}`
-          : null
+            : `${baseUrl}${currentAvatarUrl.startsWith("/") ? currentAvatarUrl : `/${currentAvatarUrl}`}`
+          : null,
       }));
     }
   };
@@ -203,9 +242,9 @@ const Profile: React.FC = () => {
       let updatedUser: UserData = await profileResponse.json();
       const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       if (updatedUser.avatar_url) {
-        updatedUser.avatar_url = updatedUser.avatar_url.startsWith('http')
+        updatedUser.avatar_url = updatedUser.avatar_url.startsWith("http")
           ? updatedUser.avatar_url
-          : `${baseUrl}${updatedUser.avatar_url.startsWith('/') ? updatedUser.avatar_url : `/${updatedUser.avatar_url}`}`;
+          : `${baseUrl}${updatedUser.avatar_url.startsWith("/") ? updatedUser.avatar_url : `/${updatedUser.avatar_url}`}`;
       }
 
       if (selectedFile) {
@@ -227,10 +266,10 @@ const Profile: React.FC = () => {
         updatedUser = {
           ...updatedUser,
           avatar_url: avatarData.avatar_url
-            ? avatarData.avatar_url.startsWith('http')
+            ? avatarData.avatar_url.startsWith("http")
               ? avatarData.avatar_url
-              : `${baseUrl}${avatarData.avatar_url.startsWith('/') ? avatarData.avatar_url : `/${avatarData.avatar_url}`}`
-            : undefined
+              : `${baseUrl}${avatarData.avatar_url.startsWith("/") ? avatarData.avatar_url : `/${avatarData.avatar_url}`}`
+            : undefined,
         };
       }
 
@@ -274,43 +313,33 @@ const Profile: React.FC = () => {
     requestAnimationFrame(() => window.scrollTo(0, scrollPosition));
   };
 
-  // Варианты анимации для контейнера
   const containerVariants = {
     view: { opacity: 1, transition: { staggerChildren: 0.1 } },
     edit: { opacity: 1, transition: { staggerChildren: 0.1 } },
   };
 
-  // Лёгкая анимация для дочерних элементов (без растягивания)
   const childVariants = {
     view: { opacity: 1, scale: 1 },
     edit: { opacity: 1, scale: 1 },
     hidden: { opacity: 0, scale: 0.95 },
   };
 
-  // Анимация для подсказки (иконки камеры)
   const tooltipVariants = {
     hidden: { opacity: 0, y: 10 },
     visible: { opacity: 1, y: 0 },
   };
 
-  if (authLoading) {
-    return (
-      <div className="container mx-auto px-4 py-10 mt-16">
-        <div className="flex items-center justify-center min-h-[200px]">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
-        </div>
-      </div>
-    );
-  }
+  // Only show loading indicator during initial auth check and first data fetch
+  if (authLoading && !fetchAttempted.current) return null;
 
   return (
-    <div className="container mx-auto px-4 py-10 mt-16 max-w-4xl">
-      <h1 className="text-3xl font-bold mb-6">Ваш профиль</h1>
+    <div className="container mx-auto px-4 sm:px-6 py-10 mt-16 max-w-4xl">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-6">Ваш профиль</h1>
       {fetchError && <ErrorDisplay error={fetchError} />}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-6 justify-start">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6 justify-start">
         <motion.div
           ref={containerRef}
-          className="md:col-span-3 bg-white p-6 rounded-xl shadow-sm border border-gray-100"
+          className="sm:col-span-2 md:col-span-3 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100"
           layout
           initial="view"
           animate={isEditing ? "edit" : "view"}
@@ -318,11 +347,11 @@ const Profile: React.FC = () => {
           transition={{ duration: 0.4, ease: "easeInOut" }}
         >
           <motion.div
-            className="flex items-start justify-between mb-6"
+            className="flex flex-col sm:flex-row items-start justify-between mb-6"
             variants={childVariants}
             transition={{ duration: 0.3 }}
           >
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-4 sm:mb-0">
               <motion.div
                 className="relative"
                 variants={childVariants}
@@ -331,19 +360,20 @@ const Profile: React.FC = () => {
               >
                 {formState.avatarPreview ? (
                   <div
-                    className={`w-16 h-16 rounded-full overflow-hidden ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden ${
+                      isEditing ? "border-2 border-orange-500 cursor-pointer" : ""
+                    }`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                   >
                     <Image
                       src={formState.avatarPreview}
                       alt="Avatar"
-                      width={64}
-                      height={64}
-                      className="w-16 h-16 rounded-full object-cover"
-                      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                      onError={(e) => {
+                      width={80}
+                      height={80}
+                      className="w-full h-full rounded-full object-cover"
+                      onError={() => {
                         console.error("Failed to load avatar:", formState.avatarPreview);
-                        setFormState(prev => ({ ...prev, avatarPreview: null }));
+                        setFormState((prev) => ({ ...prev, avatarPreview: null }));
                       }}
                     />
                     <AnimatePresence>
@@ -363,7 +393,6 @@ const Profile: React.FC = () => {
                         </motion.button>
                       )}
                     </AnimatePresence>
-                    {/* Подсказка при наведении */}
                     <AnimatePresence>
                       {isEditing && isAvatarHovered && (
                         <motion.div
@@ -381,13 +410,16 @@ const Profile: React.FC = () => {
                   </div>
                 ) : (
                   <div
-                    className={`w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${
+                      isEditing ? "border-2 border-orange-500 cursor-pointer" : ""
+                    }`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                     onMouseEnter={() => setIsAvatarHovered(true)}
                     onMouseLeave={() => setIsAvatarHovered(false)}
                   >
-                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : userData?.email.charAt(0).toUpperCase() || ""}
-                    {/* Подсказка при наведении */}
+                    {formState.fio
+                      ? formState.fio.charAt(0).toUpperCase()
+                      : userData?.email.charAt(0).toUpperCase() || ""}
                     <AnimatePresence>
                       {isEditing && isAvatarHovered && (
                         <motion.div
@@ -423,8 +455,8 @@ const Profile: React.FC = () => {
                       variants={childVariants}
                       transition={{ duration: 0.3 }}
                     >
-                      <h2 className="text-lg font-semibold">{formState.fio || "Не указано"}</h2>
-                      <p className="text-gray-600">{userData?.email || "Не указан"}</p>
+                      <h2 className="text-lg sm:text-xl font-semibold">{formState.fio || "Не указано"}</h2>
+                      <p className="text-gray-600 text-base">{userData?.email || "Не указан"}</p>
                     </motion.div>
                   ) : (
                     <motion.div
@@ -434,7 +466,7 @@ const Profile: React.FC = () => {
                       exit="hidden"
                       variants={childVariants}
                       transition={{ duration: 0.3 }}
-                      className="space-y-2"
+                      className="space-y-2 w-full"
                     >
                       <div>
                         <InputField
@@ -446,10 +478,13 @@ const Profile: React.FC = () => {
                           name="fio"
                           required
                           disabled={isFetching}
+                          className="w-full"
                         />
-                        {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
+                        {validationErrors.fio && (
+                          <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
+                        )}
                       </div>
-                      <p className="text-gray-600 text-sm">{userData?.email || "Не указан"}</p>
+                      <p className="text-gray-600 text-base">{userData?.email || "Не указан"}</p>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -460,7 +495,7 @@ const Profile: React.FC = () => {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleEditToggle}
-                className="flex items-center justify-center w-8 h-8 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition"
+                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition min-h-[44px]"
               >
                 {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
               </motion.button>
@@ -468,7 +503,7 @@ const Profile: React.FC = () => {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsChangePasswordOpen(true)}
-                className="flex items-center justify-center w-8 h-8 bg-orange-100 rounded-full text-orange-500 hover:bg-orange-200 transition"
+                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-orange-100 rounded-full text-orange-500 hover:bg-orange-200 transition min-h-[44px]"
                 title="Сменить пароль"
               >
                 <FaLock size={14} />
@@ -488,8 +523,12 @@ const Profile: React.FC = () => {
                   transition={{ duration: 0.3 }}
                   className="space-y-2"
                 >
-                  <p><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
-                  <p><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
+                  <p className="text-base">
+                    <strong>Telegram:</strong> {formState.telegram || "Не указан"}
+                  </p>
+                  <p className="text-base">
+                    <strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}
+                  </p>
                 </motion.div>
               ) : (
                 <motion.form
@@ -517,8 +556,11 @@ const Profile: React.FC = () => {
                       name="telegram"
                       required
                       disabled={isFetching}
+                      className="w-full"
                     />
-                    {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
+                    {validationErrors.telegram && (
+                      <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>
+                    )}
                   </div>
                   <div>
                     <InputField
@@ -530,14 +572,18 @@ const Profile: React.FC = () => {
                       name="whatsapp"
                       required
                       disabled={isFetching}
+                      className="w-full"
                     />
-                    {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
+                    {validationErrors.whatsapp && (
+                      <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
+                    )}
                   </div>
                   {updateError && <ErrorDisplay error={updateError} />}
                   {updateSuccess && <SuccessDisplay message={updateSuccess} />}
                   <ModalButton
                     type="submit"
                     disabled={isFetching || Object.keys(validationErrors).length > 0}
+                    className="w-full sm:w-auto"
                   >
                     {isFetching ? "Сохранение..." : "Сохранить"}
                   </ModalButton>
@@ -546,10 +592,10 @@ const Profile: React.FC = () => {
             </AnimatePresence>
           </motion.div>
         </motion.div>
-        <div className="md:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 min-h-[150px] flex flex-col justify-between">
+        <div className="sm:col-span-2 md:col-span-2 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 min-h-[150px] flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Мои мероприятия</h3>
-            <p className="text-gray-500 text-sm mb-4 whitespace-normal break-words">
+            <p className="text-gray-500 text-base mb-4 whitespace-normal break-words">
               У вас пока нет зарегистрированных мероприятий. Начните с поиска интересных событий!
             </p>
           </div>
@@ -557,17 +603,14 @@ const Profile: React.FC = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigateTo("/events")}
-            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm"
+            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm text-base min-h-[44px]"
           >
             Начать мероприятие
           </motion.button>
         </div>
       </div>
 
-      <ChangePasswordForm
-        isOpen={isChangePasswordOpen}
-        onClose={() => setIsChangePasswordOpen(false)}
-      />
+      <ChangePasswordForm isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
     </div>
   );
 };

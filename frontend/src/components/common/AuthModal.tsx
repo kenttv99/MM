@@ -4,8 +4,6 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { ModalButtonProps, AuthModalProps } from "@/types/index";
 
-
-
 export const ModalButton: React.FC<ModalButtonProps> = ({
   type = "button",
   onClick,
@@ -22,14 +20,10 @@ export const ModalButton: React.FC<ModalButtonProps> = ({
     disabled={disabled}
     className={`
       px-6 py-3 rounded-lg transition-all duration-300 flex items-center justify-center
-      min-w-[150px] // Добавляем минимальную ширину
-      whitespace-nowrap // Запрещаем перенос строки
-      ${
-        variant === "primary"
-          ? `bg-orange-500 text-white ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-orange-600"}`
-          : `bg-gray-100 text-gray-700 ${
-              disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-200"
-            } border border-gray-200`
+      min-w-[150px] min-h-[48px] whitespace-nowrap
+      ${variant === "primary"
+        ? `bg-orange-500 text-white ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-orange-600"}`
+        : `bg-gray-100 text-gray-700 ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-200"} border border-gray-200`
       }
       ${className}
     `}
@@ -46,7 +40,7 @@ const AuthModal: React.FC<AuthModalProps> = ({
   success,
   children,
 }) => {
-  console.log("AuthModal rendering, isOpen:", isOpen); // Отладка
+  console.log("AuthModal rendering, isOpen:", isOpen);
 
   return (
     <AnimatePresence>
@@ -56,22 +50,18 @@ const AuthModal: React.FC<AuthModalProps> = ({
           animate={{ opacity: 1, backdropFilter: "blur(4px)" }}
           exit={{ opacity: 0, backdropFilter: "blur(0px)" }}
           transition={{ duration: 0.3, ease: "easeInOut" }}
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4"
           onClick={onClose}
         >
           <motion.div
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
-            transition={{
-              type: "spring",
-              damping: 25,
-              stiffness: 300,
-            }}
-            className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md border border-gray-100"
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg w-full max-w-md max-h-[90vh] overflow-y-auto border border-gray-100"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 className="text-2xl font-bold mb-6 text-gray-900 tracking-tight">{title}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold mb-6 text-gray-900 tracking-tight">{title}</h2>
 
             {error && (
               <motion.div

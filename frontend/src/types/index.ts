@@ -167,12 +167,6 @@ export interface ChangePasswordFormOptions {
   onSuccess?: () => void;
 }
 
-// From utils/api.ts
-export interface CustomError extends Error {
-  code?: string;
-  isServerError?: boolean;
-}
-
 // From components/ChangePasswordForm.tsx
 export interface ChangePasswordFormProps {
   isOpen: boolean;

@@ -4,7 +4,7 @@
 import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
-import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt, FaFilter, FaTimes } from "react-icons/fa";
+import { FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt, FaFilter, FaTimes, FaCheck} from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
@@ -416,13 +416,14 @@ export default function DashboardPage() {
               <div className="max-h-[400px] overflow-y-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50 sticky top-0">
-                    <tr>
+                  <tr>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опубликовано</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-                    </tr>
+                  </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {events.map((event, index) => {
@@ -433,56 +434,63 @@ export default function DashboardPage() {
 
                       return (
                         <tr
-                          key={event.id ?? index}
-                          ref={index === events.length - 1 ? lastEventElementRef : null}
-                          className="hover:bg-gray-50 transition-colors duration-150"
+                            key={event.id ?? index}
+                            ref={index === events.length - 1 ? lastEventElementRef : null}
+                            className="hover:bg-gray-50 transition-colors duration-150"
                         >
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            {event.status === "registration_open" ? (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
-                            ) : event.status === "registration_closed" ? (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
-                            ) : event.status === "completed" ? (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
-                            ) : (
-                              <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
-                            )}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <div className="w-32 bg-gray-200 rounded-full h-2.5">
-                              <div
-                                className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                                style={{ width: `${fillPercentage}%` }}
-                              ></div>
-                            </div>
-                            <p className="text-xs text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm">
-                            <button
-                              onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
-                              className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
-                            >
-                              Редактировать
-                            </button>
-                            {event.status === "draft" && (
-                              <button
-                                onClick={() => {
-                                  if (event.id) {
-                                    setEventToDelete(event.id);
-                                    setShowDeleteModal(true);
-                                  }
-                                }}
-                                className="text-red-500 hover:text-red-600 transition-colors duration-200"
-                              >
-                                <FaTrashAlt className="w-4 h-4" />
-                              </button>
-                            )}
-                          </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                {event.status === "registration_open" ? (
+                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
+                                ) : event.status === "registration_closed" ? (
+                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
+                                ) : event.status === "completed" ? (
+                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
+                                ) : (
+                                    <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
+                                )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-center">
+                                {event.published ? (
+                                    <FaCheck className="text-green-500 mx-auto" />
+                                ) : (
+                                    <FaTimes className="text-red-500 mx-auto" />
+                                )}
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                <div className="w-32 bg-gray-200 rounded-full h-2.5">
+                                    <div
+                                        className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
+                                        style={{ width: `${fillPercentage}%` }}
+                                    ></div>
+                                </div>
+                                <p className="text-xs text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
+                            </td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm">
+                                <button
+                                    onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
+                                    className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
+                                >
+                                    Редактировать
+                                </button>
+                                {event.status === "draft" && (
+                                    <button
+                                        onClick={() => {
+                                            if (event.id) {
+                                                setEventToDelete(event.id);
+                                                setShowDeleteModal(true);
+                                            }
+                                        }}
+                                        className="text-red-500 hover:text-red-600 transition-colors duration-200"
+                                    >
+                                        <FaTrashAlt className="w-4 h-4" />
+                                    </button>
+                                )}
+                            </td>
                         </tr>
-                      );
-                    })}
+                    );
+                })}
                   </tbody>
                 </table>
                 {isLoading.events && events.length > 0 && (

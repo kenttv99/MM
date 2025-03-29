@@ -34,8 +34,8 @@ INCLUDE_FILES = [
     # "frontend/src/app/(admin)/dashboard/page.tsx",
     # "frontend/src/app/(admin)/edit-events/page.tsx",
     "frontend/src/app/(public)/event/[slug]/page.tsx",
-    "frontend/src/app/(public)/events/page.tsx",
-    # "frontend/src/utils/api.ts"
+    # "frontend/src/app/(public)/events/page.tsx",
+    "frontend/src/utils/api.ts"
 ]
 
 # Исключенные файлы и папки

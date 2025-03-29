@@ -84,13 +84,26 @@ export default function EventPage() {
     setError(null);
     setHasServerError(false);
     const eventId = extractIdFromSlug(slug);
-
+  
     try {
       const res = await apiFetch(`/v1/public/events/${eventId}`, {
         cache: "no-store",
       });
-
+  
       if (!res.ok) {
+        // Check if this is a 404 error due to unpublished event
+        if (res.status === 404) {
+          // Create a placeholder "unpublished" event to display the unavailable message
+          setEvent({
+            id: parseInt(eventId),
+            title: "Недоступное мероприятие",
+            status: "draft",
+            start_date: new Date().toISOString(),
+            published: false
+          });
+          return; // Exit early but don't set error
+        }
+  
         const errorText = await res.text();
         let errorMessage = "Произошла ошибка";
         try {
@@ -108,13 +121,10 @@ export default function EventPage() {
         setError(errorMessage);
         return;
       }
-
+  
       const data: EventData = await res.json();
-      if (!data.published) {
-        throw new Error("Мероприятие не опубликовано");
-      }
       setEvent(data);
-
+  
       const correctSlug = generateSlug(data.title, data.id);
       if (slug !== correctSlug && !hasRedirected) {
         setHasRedirected(true);
@@ -185,9 +195,8 @@ export default function EventPage() {
   if (error || !event) {
     return notFound();
   }
-
-  // Проверка статуса "draft"
-  if (event.status === "draft") {
+  // Проверка статуса "draft" или published: false - оставляем эту проверку здесь
+  if (event.status === "draft" || !event.published) {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />

@@ -80,6 +80,8 @@ class TicketTypeCreate(BaseModel):
     price: float
     available_quantity: int
     free_registration: Optional[bool] = False
+    remaining_quantity: Optional[int] = None  # Новое поле
+    sold_quantity: Optional[int] = None
 
     class Config:
         from_attributes = True

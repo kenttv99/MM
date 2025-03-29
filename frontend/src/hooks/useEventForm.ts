@@ -115,6 +115,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         ticket_type_name: eventData.ticket_type?.name || "standart",
         ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
         ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
+        ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
         registrations_count: eventData.registrations_count || 0,
       });
       

@@ -1,11 +1,10 @@
-// frontend/src/app/(public)/events/page.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
-import { apiFetch, CustomError } from "@/utils/api"; // Импортируем CustomError
+import { apiFetch, CustomError } from "@/utils/api";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription"; 
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
@@ -15,6 +14,7 @@ interface TicketType {
   price: number;
   available_quantity: number;
   free_registration: boolean;
+  remaining_quantity?: number;
 }
 
 export interface EventData {
@@ -224,8 +224,8 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
             </span>
             {event.ticket_type && (
               <span className="bg-orange-100 text-orange-600 text-xs font-semibold px-2 py-1 rounded-full">
-                {event.status === "registration_open" && event.ticket_type.available_quantity > 0
-                  ? `Доступно мест: ${event.ticket_type.available_quantity}`
+                {event.status === "registration_open" && event.ticket_type.remaining_quantity !== undefined && event.ticket_type.remaining_quantity > 0
+                  ? `Осталось мест: ${event.ticket_type.remaining_quantity}`
                   : "Места распределены"}
               </span>
             )}
@@ -314,7 +314,7 @@ const EventsPage = () => {
           setError(err.message || "Не удалось загрузить мероприятия");
         }
       } else {
-        setHasServerError(true); // Неизвестные ошибки считаем серверными
+        setHasServerError(true);
       }
     } finally {
       setIsLoading(false);

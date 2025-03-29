@@ -3,6 +3,7 @@ export interface TicketType {
     name: string;
     price: number;
     available_quantity: number;
+    sold_quantity?: number;
     free_registration: boolean;
   }
   
@@ -23,17 +24,28 @@ export interface TicketType {
     registrations_count?: number;
   }
   
-  export interface EventFormData extends Omit<EventData, "start_date" | "end_date" | "price"> {
+  export interface EventFormData {
+    id?: number;
+    title: string;
+    description?: string;
     start_date: string;
     start_time?: string;
     end_date?: string;
     end_time?: string;
-    price: number;
+    location?: string;
     image_file?: File | null;
-    remove_image?: boolean;
+    image_url?: string | null;
+    price: number;
+    published: boolean;
+    created_at: string;
+    updated_at: string;
+    status: EventStatus;
     ticket_type_name: string;
     ticket_type_available_quantity: number;
     ticket_type_free_registration: boolean;
+    ticket_type_sold_quantity?: number; // Добавляем поле
+    registrations_count?: number;
+    remove_image?: boolean;
   }
 
   export type EventStatus = "draft" | "registration_open" | "registration_closed" | "completed";

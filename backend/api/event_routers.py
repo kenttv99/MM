@@ -58,8 +58,8 @@ async def get_events(
         # Формирование ответа
         event_responses = []
         for event in events:
-            # Берем первый билет из списка tickets, если он есть
             ticket = event.tickets[0] if event.tickets else None
+            remaining_quantity = ticket.available_quantity - ticket.sold_quantity if ticket else 0
             event_response = EventCreate(
                 id=event.id,
                 title=event.title,
@@ -77,8 +77,9 @@ async def get_events(
                     name=ticket.name,
                     price=float(ticket.price),
                     available_quantity=ticket.available_quantity,
-                    free_registration=ticket.free_registration
-                ) if ticket else None  # Условная передача ticket_type
+                    free_registration=ticket.free_registration,
+                    remaining_quantity=remaining_quantity  # Добавляем новое поле
+                ) if ticket else None
             )
             event_responses.append(event_response)
 
@@ -112,13 +113,15 @@ async def get_event(
         event_dict = db_event.__dict__
         if db_event.tickets and len(db_event.tickets) > 0:
             ticket = db_event.tickets[0]
+            remaining_quantity = ticket.available_quantity - ticket.sold_quantity
             event_dict["ticket_type"] = TicketTypeCreate(
                 name=ticket.name,
                 price=ticket.price,
                 available_quantity=ticket.available_quantity,
-                free_registration=ticket.free_registration
+                free_registration=ticket.free_registration,
+                remaining_quantity=remaining_quantity  # Добавляем новое поле
             ).model_dump()
-        
+            
         logger.info(f"Public request for event {actual_event_id}")
         return EventCreate(**event_dict)
     except HTTPException as e:

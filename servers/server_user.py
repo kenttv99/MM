@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from backend.api.user_auth_routers import router as user_auth_router
 from backend.api.event_routers import router as event_router
 from backend.api.user_edit_routers import router as user_edit_routers
+from backend.api.guests_registration_routers import router as guests_registration_routers
 from backend.config.auth import get_user_or_ip_key, get_current_user, create_access_token
 from backend.config.logging_config import logger
 from backend.config.rate_limiter import limiter
@@ -40,6 +41,7 @@ app.mount("/images", StaticFiles(directory="private_media"), name="images")
 app.include_router(user_edit_routers, prefix="/user_edits", tags=["User Edits"])
 app.include_router(user_auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(event_router, prefix="/v1/public/events", tags=["Events"])
+app.include_router(guests_registration_routers, prefix="/user_edits", tags=["Registration"])
 
 @app.middleware("http")
 async def refresh_token_middleware(request: Request, call_next):

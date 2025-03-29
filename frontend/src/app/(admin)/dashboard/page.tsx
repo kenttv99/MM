@@ -9,24 +9,13 @@ import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
 import { AnimatePresence, motion } from "framer-motion";
+import { fetchAdminEvents } from "@/utils/eventService";
+import { EventData } from "@/types/events";
 
 interface User {
   id: number;
   fio: string;
   email: string;
-}
-
-interface Event {
-  id: number;
-  title: string;
-  start_date: string;
-  location?: string;
-  published: boolean;
-  status: string;
-  registrations_count: number;
-  ticket_type?: {
-    available_quantity: number;
-  };
 }
 
 async function fetchData<U>(
@@ -40,10 +29,8 @@ async function fetchData<U>(
   setLoading(true);
   setError(null);
   try {
-    if (!token) {
-      throw new Error("Отсутствует токен авторизации");
-    }
-    
+    if (!token) throw new Error("Отсутствует токен авторизации");
+
     const response = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -57,12 +44,8 @@ async function fetchData<U>(
       throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
     }
 
-    const data = await response.json();
-    if (append) {
-      setData((prev) => [...prev, ...(Array.isArray(data) ? data : [])]);
-    } else {
-      setData(Array.isArray(data) ? data : []);
-    }
+    const data: U[] = await response.json();
+    setData((prev: U[]) => (append ? [...prev, ...data] : data));
   } catch (err) {
     setError(err instanceof Error ? err.message : "Не удалось загрузить данные");
     setData(append ? (prev) => prev : []);
@@ -84,7 +67,7 @@ export default function DashboardPage() {
   const [endDate, setEndDate] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [users, setUsers] = useState<User[]>([]);
-  const [events, setEvents] = useState<Event[]>([]);
+  const [events, setEvents] = useState<EventData[]>([]);
   const [isLoading, setIsLoading] = useState({ users: false, events: false });
   const [error, setError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -95,93 +78,36 @@ export default function DashboardPage() {
   const hasFetchedEvents = useRef(false);
   const hasFetchedUsers = useRef(false);
   const observer = useRef<IntersectionObserver | null>(null);
-  
-  // Add useRef for debounce timeouts
   const eventsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const usersTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isLoading: authLoading, checkAuth } = useAdminAuth();
+  const { isLoading: authLoading, isAdminAuth, checkAuth } = useAdminAuth(); // Добавляем isAdminAuth
 
-  // We need to update the fetch function to remove dependency on eventSearch
-  // since we're now passing the search term directly
   const fetchEvents = useCallback(async (search: string, pageNum: number, append: boolean = false) => {
-    let url = `/admin_edits/events?page=${pageNum}&limit=10`;
+    let url = `?page=${pageNum}&limit=10`;
     const params = new URLSearchParams();
     
-    // Add search parameter if not empty
-    if (search && search.trim()) {
-      params.append("search", search.trim());
-    }
+    if (search && search.trim()) params.append("search", search.trim());
+    if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) params.append("start_date", startDate);
+    if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) params.append("end_date", endDate);
+    if (statusFilter && statusFilter.trim()) params.append("status", statusFilter);
     
-    // Only add date filters if they're in proper format (YYYY-MM-DD)
-    // This helps prevent backend errors with date parsing
-    if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
-      params.append("start_date", startDate);
-    }
-    
-    if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) {
-      params.append("end_date", endDate);
-    }
-    
-    // Add status filter if present
-    if (statusFilter && statusFilter.trim()) {
-      params.append("status", statusFilter);
-    }
-    
-    // Append parameters to URL if any exist
-    if (params.toString()) {
-      url += `&${params.toString()}`;
-    }
+    if (params.toString()) url += `&${params.toString()}`;
 
-    console.log("Fetching events with URL:", url); // Debug log to trace API calls
+    const data = await fetchAdminEvents(
+      localStorage.getItem("admin_token") || "",
+      setEvents,
+      (value) => setIsLoading((prev) => ({ ...prev, events: value })),
+      setError,
+      url,
+      append
+    );
 
-    try {
-      // Fetch events data
-      await fetchData<Event>(
-        url, 
-        localStorage.getItem("admin_token"), 
-        setEvents,
-        (value) => setIsLoading((prev) => ({ ...prev, events: value })), 
-        setError, 
-        append
-      );
-      
-      // Mark that we've fetched events
-      hasFetchedEvents.current = true;
-
-      // Check if there are more events to load (for pagination)
-      // We'll skip this if we've already encountered an error
-      if (!error) {
-        try {
-          const response = await fetch(url, {
-            headers: { 
-              Authorization: `Bearer ${localStorage.getItem("admin_token")}`,
-              "Accept": "application/json"
-            },
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setHasMore(Array.isArray(data) && data.length === 10);
-          } else {
-            // Handle non-OK responses
-            console.error("Error checking for more data:", response.status);
-            setHasMore(false);
-          }
-        } catch (err) {
-          console.error("Error checking for more data:", err);
-          setHasMore(false);
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching events:", err);
-      // Even if there's an error, mark that we've attempted to fetch events
-      // This prevents infinite retries
-      hasFetchedEvents.current = true;
-    }
-  }, [startDate, endDate, statusFilter, error]);
+    setHasMore(data.length === 10);
+    hasFetchedEvents.current = true;
+  }, [startDate, endDate, statusFilter]);
 
   const fetchUsers = useCallback(async (search: string) => {
     const url = search.trim()
@@ -192,15 +118,12 @@ export default function DashboardPage() {
     hasFetchedUsers.current = true;
   }, []);
 
-  // Fixed debounced functions with proper timeout clearing
-  // Remove the now-unused debounced functions since we've integrated them directly
-  // into the handleUserSearchChange and handleEventSearchChange functions
-
   useEffect(() => {
     const initialize = async () => {
       const isAuthenticated = await checkAuth();
-      if (!isAuthenticated && !authLoading) navigateTo(router, "/admin-login");
-      else {
+      if (!isAuthenticated && !authLoading) {
+        navigateTo(router, "/admin-login");
+      } else if (isAdminAuth && !authLoading) {
         const shouldRefresh = searchParams.get("refresh") === "true";
         if (!hasFetchedEvents.current || shouldRefresh) {
           fetchEvents("", 1);
@@ -211,7 +134,7 @@ export default function DashboardPage() {
       }
     };
     initialize();
-  }, [checkAuth, authLoading, router, searchParams, fetchEvents, fetchUsers]);
+  }, [isAdminAuth, authLoading, searchParams, checkAuth, fetchEvents, fetchUsers, router]); // Добавлены все зависимости
 
   const lastEventElementRef = useCallback((node: HTMLTableRowElement | null) => {
     if (isLoading.events || !hasMore) return;
@@ -228,32 +151,26 @@ export default function DashboardPage() {
   }, [isLoading.events, hasMore, eventSearch, page, fetchEvents]);
 
   const handleUserSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const searchValue = e.target.value; // Capture the current input value
-    setUserSearch(searchValue); // Update state
+    const searchValue = e.target.value;
+    setUserSearch(searchValue);
     
-    // Clear any existing timeout to prevent multiple requests
     if (usersTimeoutRef.current) {
       clearTimeout(usersTimeoutRef.current);
-      usersTimeoutRef.current = null;
     }
     
-    // Set a new timeout for the search request with the captured value
     usersTimeoutRef.current = setTimeout(() => {
       fetchUsers(searchValue);
     }, 500);
   };
 
   const handleEventSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const searchValue = e.target.value; // Capture the current input value
-    setEventSearch(searchValue); // Update state
+    const searchValue = e.target.value;
+    setEventSearch(searchValue);
     
-    // Clear any existing timeout to prevent multiple requests
     if (eventsTimeoutRef.current) {
       clearTimeout(eventsTimeoutRef.current);
-      eventsTimeoutRef.current = null;
     }
     
-    // Set a new timeout for the search request with the captured value
     eventsTimeoutRef.current = setTimeout(() => {
       setPage(1);
       setEvents([]);
@@ -262,7 +179,6 @@ export default function DashboardPage() {
   };
 
   const handleEventFilterSubmit = () => {
-    // Reset everything in case of errors
     setError(null);
     setPage(1);
     setEvents([]);
@@ -290,6 +206,7 @@ export default function DashboardPage() {
       }
 
       setEvents(events.filter((event) => event.id !== eventToDelete));
+      await fetchEvents(eventSearch, page);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось удалить мероприятие");
     } finally {
@@ -299,7 +216,6 @@ export default function DashboardPage() {
     }
   };
 
-  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (eventsTimeoutRef.current) clearTimeout(eventsTimeoutRef.current);
@@ -318,7 +234,6 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-gray-100">
       <style jsx global>{`
-        /* Стилизация полос прокрутки */
         ::-webkit-scrollbar {
           width: 8px;
           height: 8px;
@@ -327,11 +242,11 @@ export default function DashboardPage() {
           background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-          background: rgba(107, 114, 128, 0.5); /* gray-500 с прозрачностью */
+          background: rgba(107, 114, 128, 0.5);
           border-radius: 4px;
         }
         ::-webkit-scrollbar-thumb:hover {
-          background: rgba(107, 114, 128, 0.8); /* gray-500 темнее при hover */
+          background: rgba(107, 114, 128, 0.8);
         }
       `}</style>
       <AdminHeader />
@@ -354,7 +269,6 @@ export default function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Пользователи */}
           <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center">
@@ -413,7 +327,6 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Мероприятия */}
           <div className="bg-white p-6 rounded-xl shadow-md border border-gray-100">
             <div className="flex justify-between items-center mb-3">
               <div className="flex items-center">
@@ -439,7 +352,6 @@ export default function DashboardPage() {
               />
             </div>
 
-            {/* Выпадающая панель фильтров */}
             <AnimatePresence>
               {isFilterOpen && (
                 <motion.div
@@ -514,17 +426,18 @@ export default function DashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-200">
                     {events.map((event, index) => {
-                      const registrationsCount = event.registrations_count || 0;
                       const availableQuantity = event.ticket_type?.available_quantity || 0;
-                      const fillPercentage = availableQuantity > 0 ? (registrationsCount / availableQuantity) * 100 : 0;
+                      const soldQuantity = event.ticket_type?.sold_quantity || 0;
+                      const remainingQuantity = availableQuantity - soldQuantity;
+                      const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
                       return (
                         <tr
-                          key={event.id}
+                          key={event.id ?? index}
                           ref={index === events.length - 1 ? lastEventElementRef : null}
                           className="hover:bg-gray-50 transition-colors duration-150"
                         >
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.id}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             {event.status === "registration_open" ? (
@@ -544,11 +457,11 @@ export default function DashboardPage() {
                                 style={{ width: `${fillPercentage}%` }}
                               ></div>
                             </div>
-                            <p className="text-xs text-gray-600 mt-2">{registrationsCount} / {availableQuantity}</p>
+                            <p className="text-xs text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <button
-                              onClick={() => navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
+                              onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
                               className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
                             >
                               Редактировать
@@ -556,8 +469,10 @@ export default function DashboardPage() {
                             {event.status === "draft" && (
                               <button
                                 onClick={() => {
-                                  setEventToDelete(event.id);
-                                  setShowDeleteModal(true);
+                                  if (event.id) {
+                                    setEventToDelete(event.id);
+                                    setShowDeleteModal(true);
+                                  }
                                 }}
                                 className="text-red-500 hover:text-red-600 transition-colors duration-200"
                               >
@@ -587,7 +502,6 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* Модальное окно удаления */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl shadow-lg max-w-sm w-full border border-gray-100">

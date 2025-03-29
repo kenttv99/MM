@@ -19,6 +19,7 @@ import { ru } from "date-fns/locale";
 import Login from "@/components/Login";
 import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
+import { FaCalendarAlt } from "react-icons/fa";
 
 interface EventData {
   id: number;
@@ -34,6 +35,8 @@ interface EventData {
     price: number;
     available_quantity: number;
     free_registration: boolean;
+    remaining_quantity?: number;
+    sold_quantity?: number;
   };
   published: boolean;
 }
@@ -76,66 +79,66 @@ export default function EventPage() {
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
 
-  useEffect(() => {
-    const fetchEvent = async () => {
-      setIsLoading(true);
-      setError(null);
-      setHasServerError(false);
-      const eventId = extractIdFromSlug(slug);
+  const fetchEvent = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    setHasServerError(false);
+    const eventId = extractIdFromSlug(slug);
 
-      try {
-        const res = await apiFetch(`/v1/public/events/${eventId}`, {
-          cache: "no-store",
-        });
+    try {
+      const res = await apiFetch(`/v1/public/events/${eventId}`, {
+        cache: "no-store",
+      });
 
-        if (!res.ok) {
-          const errorText = await res.text();
-          let errorMessage = "Произошла ошибка";
-          try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.detail || errorMessage;
-          } catch {
-            // Оставляем общее сообщение
-          }
-          if (res.status >= 500) {
-            setHasServerError(true);
-            return;
-          } else if (res.status === 429) {
-            errorMessage = "Частые запросы. Попробуйте немного позже.";
-          }
-          setError(errorMessage);
-          return;
+      if (!res.ok) {
+        const errorText = await res.text();
+        let errorMessage = "Произошла ошибка";
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch {
+          // Оставляем общее сообщение
         }
-
-        const data: EventData = await res.json();
-        if (!data.published) {
-          throw new Error("Мероприятие не опубликовано");
-        }
-        setEvent(data);
-
-        const correctSlug = generateSlug(data.title, data.id);
-        if (slug !== correctSlug && !hasRedirected) {
-          setHasRedirected(true);
-          router.replace(`/event/${correctSlug}`, { scroll: false });
-        }
-      } catch (err: unknown) {
-        if (err instanceof Error) {
-          const customErr = err as CustomError;
-          if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
-            setHasServerError(true);
-          } else {
-            setError(err.message || "Произошла ошибка");
-          }
-        } else {
+        if (res.status >= 500) {
           setHasServerError(true);
+          return;
+        } else if (res.status === 429) {
+          errorMessage = "Частые запросы. Попробуйте немного позже.";
         }
-      } finally {
-        setIsLoading(false);
+        setError(errorMessage);
+        return;
       }
-    };
 
-    if (slug) fetchEvent();
+      const data: EventData = await res.json();
+      if (!data.published) {
+        throw new Error("Мероприятие не опубликовано");
+      }
+      setEvent(data);
+
+      const correctSlug = generateSlug(data.title, data.id);
+      if (slug !== correctSlug && !hasRedirected) {
+        setHasRedirected(true);
+        router.replace(`/event/${correctSlug}`, { scroll: false });
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        const customErr = err as CustomError;
+        if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
+          setHasServerError(true);
+        } else {
+          setError(err.message || "Произошла ошибка");
+        }
+      } else {
+        setHasServerError(true);
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }, [slug, router, hasRedirected]);
+
+  useEffect(() => {
+    if (slug) fetchEvent();
+  }, [slug, fetchEvent]);
 
   useEffect(() => {
     const handleAuthChange = () => checkAuth();
@@ -174,7 +177,7 @@ export default function EventPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></ div>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
       </div>
     );
   }
@@ -183,11 +186,40 @@ export default function EventPage() {
     return notFound();
   }
 
+  // Проверка статуса "draft"
+  if (event.status === "draft") {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-grow container mx-auto px-4 py-12">
+          <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
+            <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+              <FaCalendarAlt className="text-orange-500 w-8 h-8" />
+            </div>
+            <h3 className="text-xl font-semibold mb-2 text-gray-800">Мероприятие недоступно</h3>
+            <p className="text-gray-600 text-center max-w-md mb-6">
+              Это мероприятие пока недоступно для просмотра.
+            </p>
+            <button
+              onClick={() => router.push("/events")}
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+            >
+              Вернуться к мероприятиям
+            </button>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
   const eventDate = format(new Date(event.start_date), "d MMMM yyyy", { locale: ru });
   const eventTime = format(new Date(event.start_date), "HH:mm", { locale: ru });
   const availableQuantity = event.ticket_type?.available_quantity || 0;
+  const remainingQuantity = event.ticket_type?.remaining_quantity || 0;
+  const soldQuantity = availableQuantity - remainingQuantity; // Вычисляем soldQuantity
   const displayStatus =
-    event.status === "registration_open" && availableQuantity === 0
+    event.status === "registration_open" && remainingQuantity === 0
       ? "Регистрация закрыта (мест нет)"
       : event.status === "registration_open"
       ? "Регистрация открыта"
@@ -274,10 +306,12 @@ export default function EventPage() {
                   eventLocation={event.location || "Не указано"}
                   ticketType={event.ticket_type.name || "Стандартный"}
                   availableQuantity={availableQuantity}
+                  soldQuantity={soldQuantity}
                   price={event.ticket_type.price}
                   freeRegistration={event.ticket_type.free_registration}
                   onBookingClick={handleBookingClick}
                   onLoginClick={handleLoginClick}
+                  onBookingSuccess={fetchEvent}
                 />
                 {!isAuth && (
                   <motion.p

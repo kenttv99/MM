@@ -19,6 +19,7 @@ export const ModalButton: React.FC<ModalButtonProps> = ({
   variant = "primary",
   disabled = false,
   children,
+  className = "",
 }) => (
   <motion.button
     whileHover={{ scale: disabled ? 1 : 1.01 }}
@@ -27,7 +28,9 @@ export const ModalButton: React.FC<ModalButtonProps> = ({
     onClick={onClick}
     disabled={disabled}
     className={`
-      px-6 py-3 rounded-lg transition-all duration-300
+      px-6 py-3 rounded-lg transition-all duration-300 flex items-center justify-center
+      min-w-[150px] // Добавляем минимальную ширину
+      whitespace-nowrap // Запрещаем перенос строки
       ${
         variant === "primary"
           ? `bg-orange-500 text-white ${disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-orange-600"}`
@@ -35,6 +38,7 @@ export const ModalButton: React.FC<ModalButtonProps> = ({
               disabled ? "opacity-50 cursor-not-allowed" : "hover:bg-gray-200"
             } border border-gray-200`
       }
+      ${className}
     `}
   >
     {children}

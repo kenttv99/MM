@@ -133,90 +133,76 @@ async def prepare_event_data(form_data: EventFormData):
         raise HTTPException(status_code=422, detail=str(e))
 
 # Маршрут для создания мероприятия (переработанный)
-@router.post("", response_model=EventCreate, status_code=status.HTTP_201_CREATED)
-async def create_event(
-    form_data: EventFormData = Depends(),
-    image_file: Optional[UploadFile] = File(None),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+@router.get("/events", response_model=list[EventCreate])
+async def get_admin_events(
+    search: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    status_param: str = None,  # Renamed to avoid conflict with status module
     db: AsyncSession = Depends(get_async_db),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Создание нового мероприятия."""
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
-        
-        # Подготовка данных с валидацией
-        processed_data = await prepare_event_data(form_data)
-        
-        # Обработка изображения
-        image_url = await process_image(image_file, processed_data["remove_image"])
-        
-        # Создание мероприятия
-        new_event = Event(
-            title=form_data.title,
-            description=form_data.description,
-            start_date=processed_data["start_date_dt"],
-            end_date=processed_data["end_date_dt"],
-            location=form_data.location,
-            image_url=image_url,
-            price=processed_data["price_float"],
-            published=form_data.published,
-            created_at=processed_data["created_at_dt"],
-            updated_at=processed_data["updated_at_dt"],
-            status=form_data.status,
+        await log_admin_activity(db, current_admin.id, request, action="access_events")
+
+        query = select(Event).options(
+            selectinload(Event.tickets),
+            selectinload(Event.registrations)
         )
-        db.add(new_event)
-        await db.flush()
-        
-        # Создание ticket_type
-        ticket = TicketType(
-            event_id=new_event.id,
-            name=form_data.ticket_type_name,
-            price=processed_data["price_float"],
-            available_quantity=processed_data["available_quantity"],
-            free_registration=processed_data["free_registration"],
-            sold_quantity=0,
-        )
-        db.add(ticket)
-        
-        await db.commit()
-        await db.refresh(new_event)
-        
-        # Логирование действия
-        await log_admin_activity(db, current_admin.id, request, action="create_event")
-        
-        # Формирование ответа
-        ticket_data = ticket
-        response_data = EventCreate(
-            id=new_event.id,
-            title=new_event.title,
-            description=new_event.description,
-            start_date=new_event.start_date,
-            end_date=new_event.end_date,
-            location=new_event.location,
-            image_url=new_event.image_url,
-            price=float(new_event.price),
-            published=new_event.published,
-            created_at=new_event.created_at,
-            updated_at=new_event.updated_at,
-            status=new_event.status,
-            ticket_type=TicketTypeCreate(
-                name=ticket_data.name,
-                price=float(ticket_data.price),
-                available_quantity=ticket_data.available_quantity,
-                free_registration=ticket_data.free_registration,
-            ),
-        )
-        return response_data
-    except ValueError as e:
-        logger.error(f"Validation error in create_event: {str(e)}")
-        await db.rollback()
-        raise HTTPException(status_code=422, detail=str(e))
+        if search:
+            query = query.where(Event.title.ilike(f"%{search}%"))
+        if start_date:
+            query = query.where(Event.start_date >= start_date)
+        if end_date:
+            query = query.where(Event.start_date <= end_date)
+        if status_param:  # Using renamed parameter
+            query = query.where(Event.status == status_param)
+
+        result = await db.execute(query)
+        events = result.scalars().all()
+
+        event_responses = []
+        for event in events:
+            registrations_count = len(event.registrations)
+            event_dict = {
+                "id": event.id,
+                "title": event.title,
+                "description": event.description,
+                "start_date": event.start_date,
+                "end_date": event.end_date,
+                "location": event.location,
+                "image_url": event.image_url,
+                "price": float(event.price) if event.price is not None else 0.0,
+                "published": event.published,
+                "created_at": event.created_at,
+                "updated_at": event.updated_at,
+                "status": event.status,
+                "registrations_count": registrations_count
+            }
+            if event.tickets:
+                ticket = event.tickets[0]
+                event_dict["ticket_type"] = {
+                    "name": ticket.name,
+                    "price": float(ticket.price),
+                    "available_quantity": ticket.available_quantity,
+                    "free_registration": ticket.free_registration,
+                    "sold_quantity": ticket.sold_quantity  # Добавлено sold_quantity
+                }
+            event_responses.append(EventCreate(**event_dict))
+
+        logger.info(f"Admin {current_admin.email} accessed events list")
+        return event_responses
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        logger.error(f"Error creating event: {str(e)}")
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Не удалось создать мероприятие: {str(e)}")
+        logger.error(f"Error retrieving events for admin: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve events"
+        )
 
 # Маршрут для обновления мероприятия (переработанный)
 @router.put("/{event_id}", response_model=EventCreate)
@@ -323,75 +309,75 @@ async def update_event(
 
 # Маршрут для получения списка мероприятий
 # backend/api/admin_edit_routers.py
-@router.get("/events", response_model=list[EventCreate])
-async def get_admin_events(
-    search: str = None,
-    start_date: str = None,
-    end_date: str = None,
-    status_param: str = None,  # Renamed to avoid conflict with status module
-    db: AsyncSession = Depends(get_async_db),
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    request: Request = None
-):
-    try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-        await log_admin_activity(db, current_admin.id, request, action="access_events")
+# @router.get("/events", response_model=list[EventCreate])
+# async def get_admin_events(
+#     search: str = None,
+#     start_date: str = None,
+#     end_date: str = None,
+#     status_param: str = None,  # Renamed to avoid conflict with status module
+#     db: AsyncSession = Depends(get_async_db),
+#     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+#     request: Request = None
+# ):
+#     try:
+#         token = credentials.credentials
+#         current_admin = await get_current_admin(token, db)
+#         await log_admin_activity(db, current_admin.id, request, action="access_events")
 
-        query = select(Event).options(
-            selectinload(Event.tickets),
-            selectinload(Event.registrations)
-        )
-        if search:
-            query = query.where(Event.title.ilike(f"%{search}%"))
-        if start_date:
-            query = query.where(Event.start_date >= start_date)
-        if end_date:
-            query = query.where(Event.start_date <= end_date)
-        if status_param:  # Using renamed parameter
-            query = query.where(Event.status == status_param)
+#         query = select(Event).options(
+#             selectinload(Event.tickets),
+#             selectinload(Event.registrations)
+#         )
+#         if search:
+#             query = query.where(Event.title.ilike(f"%{search}%"))
+#         if start_date:
+#             query = query.where(Event.start_date >= start_date)
+#         if end_date:
+#             query = query.where(Event.start_date <= end_date)
+#         if status_param:  # Using renamed parameter
+#             query = query.where(Event.status == status_param)
 
-        result = await db.execute(query)
-        events = result.scalars().all()
+#         result = await db.execute(query)
+#         events = result.scalars().all()
 
-        event_responses = []
-        for event in events:
-            registrations_count = len(event.registrations)
-            event_dict = {
-                "id": event.id,
-                "title": event.title,
-                "description": event.description,
-                "start_date": event.start_date,
-                "end_date": event.end_date,
-                "location": event.location,
-                "image_url": event.image_url,
-                "price": float(event.price) if event.price is not None else 0.0,
-                "published": event.published,
-                "created_at": event.created_at,
-                "updated_at": event.updated_at,
-                "status": event.status,
-                "registrations_count": registrations_count
-            }
-            if event.tickets:
-                ticket = event.tickets[0]
-                event_dict["ticket_type"] = {
-                    "name": ticket.name,
-                    "price": float(ticket.price),
-                    "available_quantity": ticket.available_quantity,
-                    "free_registration": ticket.free_registration
-                }
-            event_responses.append(EventCreate(**event_dict))
+#         event_responses = []
+#         for event in events:
+#             registrations_count = len(event.registrations)
+#             event_dict = {
+#                 "id": event.id,
+#                 "title": event.title,
+#                 "description": event.description,
+#                 "start_date": event.start_date,
+#                 "end_date": event.end_date,
+#                 "location": event.location,
+#                 "image_url": event.image_url,
+#                 "price": float(event.price) if event.price is not None else 0.0,
+#                 "published": event.published,
+#                 "created_at": event.created_at,
+#                 "updated_at": event.updated_at,
+#                 "status": event.status,
+#                 "registrations_count": registrations_count
+#             }
+#             if event.tickets:
+#                 ticket = event.tickets[0]
+#                 event_dict["ticket_type"] = {
+#                     "name": ticket.name,
+#                     "price": float(ticket.price),
+#                     "available_quantity": ticket.available_quantity,
+#                     "free_registration": ticket.free_registration
+#                 }
+#             event_responses.append(EventCreate(**event_dict))
 
-        logger.info(f"Admin {current_admin.email} accessed events list")
-        return event_responses
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Error retrieving events for admin: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve events"
-        )
+#         logger.info(f"Admin {current_admin.email} accessed events list")
+#         return event_responses
+#     except HTTPException as e:
+#         raise e
+#     except Exception as e:
+#         logger.error(f"Error retrieving events for admin: {str(e)}")
+#         raise HTTPException(
+#             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             detail="Failed to retrieve events"
+#         )
         
 
 # Маршрут для получения списка пользователей
@@ -609,6 +595,7 @@ async def get_admin_event(
                 "name": ticket.name,
                 "price": float(ticket.price),
                 "available_quantity": ticket.available_quantity,
+                "sold_quantity": ticket.sold_quantity,
                 "free_registration": ticket.free_registration
             }
 

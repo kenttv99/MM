@@ -1,19 +1,9 @@
 // frontend/src/hooks/useChangePasswordForm.ts
 import { useState, useCallback, FormEvent, ChangeEvent } from "react";
-
-interface FormValues {
-  currentPassword: string;
-  newPassword: string;
-  confirmPassword: string;
-}
-
-interface ChangePasswordFormOptions {
-  initialValues: FormValues;
-  onSuccess?: () => void;
-}
+import { ChangePasswordFormValues, ChangePasswordFormOptions } from "@/types/index";
 
 export const useChangePasswordForm = ({ initialValues, onSuccess }: ChangePasswordFormOptions) => {
-  const [formValues, setFormValues] = useState<FormValues>(initialValues);
+  const [formValues, setFormValues] = useState<ChangePasswordFormValues>(initialValues);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);

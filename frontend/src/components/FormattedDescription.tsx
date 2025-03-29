@@ -3,11 +3,8 @@
 
 import React, { useEffect, useState } from 'react';
 import DOMPurify from 'dompurify';
+import { FormattedDescriptionProps } from "@/types/index";
 
-interface FormattedDescriptionProps {
-  content: string;
-  className?: string;
-}
 
 /**
  * Component to safely render HTML content from the description field

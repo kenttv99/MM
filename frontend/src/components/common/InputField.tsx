@@ -1,19 +1,7 @@
 // frontend/src/components/common/InputField.tsx
-import React, { useState, ChangeEvent, FocusEvent } from "react"; // Добавляем FocusEvent
-import { IconType } from "react-icons";
+import React, { useState } from "react"; 
+import { InputFieldProps } from "@/types/index";
 
-interface InputFieldProps {
-  type: string;
-  value: string;
-  onChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  placeholder: string;
-  icon: IconType;
-  required?: boolean;
-  name?: string;
-  disabled?: boolean;
-  onBlur?: (e: FocusEvent<HTMLInputElement>) => void; // Добавляем новый проп
-  className?: string; // Добавляем className
-}
 
 const InputField: React.FC<InputFieldProps> = ({
   type,

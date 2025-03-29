@@ -6,23 +6,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-
-interface EventRegistrationProps {
-  eventId: number;
-  eventTitle: string;
-  eventDate: string;
-  eventTime: string;
-  eventLocation: string;
-  ticketType: string;
-  availableQuantity: number;
-  soldQuantity: number;
-  price: number;
-  freeRegistration: boolean;
-  onBookingClick: () => void;
-  onLoginClick: () => void;
-  onBookingSuccess?: () => void;
-  displayStatus?: string; // Добавлен новый проп
-}
+import { EventRegistrationProps } from "@/types/index";
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventId,

@@ -4,15 +4,9 @@
 import { useState, ChangeEvent, FormEvent, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/utils/api";
+import { UseAuthFormProps } from "@/types/index";
 
 type AuthFormValues = Record<string, string>;
-
-interface UseAuthFormProps {
-  initialValues: AuthFormValues;
-  endpoint: string;
-  onSuccess?: () => void;
-  isLogin?: boolean;
-}
 
 export const useAuthForm = ({
   initialValues,

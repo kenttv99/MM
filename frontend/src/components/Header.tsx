@@ -10,12 +10,7 @@ import Registration from "./Registration";
 import { useAuth } from "@/contexts/AuthContext";
 import Image from "next/image";
 import AuthModal from "./common/AuthModal";
-
-interface NavItem {
-  href?: string;
-  label: string;
-  onClick?: () => void;
-}
+import { NavItem } from "@/types/index";
 
 const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
   const [imgError, setImgError] = useState<boolean>(false);

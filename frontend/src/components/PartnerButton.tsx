@@ -1,9 +1,6 @@
 import React from 'react';
 import Link from 'next/link';
-
-interface PartnerButtonProps {
-  onClick?: () => void;
-}
+import { PartnerButtonProps } from "@/types/index";
 
 const PartnerButton = ({ onClick }: PartnerButtonProps) => {
   return (

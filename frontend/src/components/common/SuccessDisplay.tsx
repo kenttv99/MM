@@ -1,11 +1,8 @@
 // frontend/src/components/common/SuccessDisplay.tsx
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SuccessDisplayProps } from "@/types/index";
 
-interface SuccessDisplayProps {
-  message: string | null;
-  className?: string;
-}
 
 const SuccessDisplay: React.FC<SuccessDisplayProps> = ({ message, className = '' }) => {
   return (

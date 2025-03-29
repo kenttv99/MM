@@ -7,13 +7,7 @@ import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
 import { motion, AnimatePresence } from "framer-motion";
-
-interface LoginProps {
-  isOpen: boolean;
-  onClose: () => void;
-  toggleMode?: () => void;
-  isAdminLogin?: boolean;
-}
+import { LoginProps } from "@/types/index";
 
 const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin = false }) => {
   const endpoint = isAdminLogin ? "/admin/login" : "/auth/login";

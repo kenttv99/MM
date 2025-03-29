@@ -2,11 +2,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-
-interface PageTransitionWrapperProps {
-  children: React.ReactNode;
-  disableLoading?: boolean;
-}
+import { PageTransitionWrapperProps } from "@/types/index";
 
 const PageTransitionWrapper: React.FC<PageTransitionWrapperProps> = ({
   children,

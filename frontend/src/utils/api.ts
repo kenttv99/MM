@@ -1,8 +1,5 @@
 // frontend/src/utils/api.ts
-export interface CustomError extends Error {
-  code?: string;
-  isServerError?: boolean;
-}
+import { CustomError } from "@/types/index";
 
 export async function apiFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const token = localStorage.getItem("token") || localStorage.getItem("admin_token");
@@ -63,3 +60,5 @@ export async function apiFetch(url: string, options: RequestInit = {}): Promise<
   
   return response;
 }
+
+export { CustomError };

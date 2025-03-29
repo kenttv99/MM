@@ -5,15 +5,7 @@ import React from "react";
 import Link from "next/link";
 import Footer from "@/components/Footer";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
-import { IconType } from "react-icons";
-
-interface FeatureCardProps {
-  href: string;
-  icon: IconType;
-  title: string;
-  description: string;
-  ctaText: string;
-}
+import { FeatureCardProps } from "@/types/index";
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, description, ctaText }) => (
   <Link href={href} className="group">

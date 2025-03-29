@@ -6,11 +6,7 @@ import { FaLock } from "react-icons/fa";
 import InputField from "./common/InputField";
 import { useChangePasswordForm } from "@/hooks/useChangePasswordForm";
 import AuthModal, { ModalButton } from "./common/AuthModal";
-
-interface ChangePasswordFormProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+import { ChangePasswordFormProps } from "@/types/index";
 
 const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose }) => {
   const {

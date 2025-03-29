@@ -1,17 +1,10 @@
 // frontend/src/components/common/AuthModal.tsx
 "use client";
 
-import React, { ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ModalButtonProps, AuthModalProps } from "@/types/index";
 
-interface ModalButtonProps {
-  type?: "button" | "submit" | "reset";
-  onClick?: () => void;
-  variant?: string;
-  disabled?: boolean;
-  children: ReactNode;
-  className?: string;
-}
+
 
 export const ModalButton: React.FC<ModalButtonProps> = ({
   type = "button",
@@ -44,15 +37,6 @@ export const ModalButton: React.FC<ModalButtonProps> = ({
     {children}
   </motion.button>
 );
-
-interface AuthModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  title: string;
-  error?: string;
-  success?: string;
-  children: ReactNode;
-}
 
 const AuthModal: React.FC<AuthModalProps> = ({
   isOpen,

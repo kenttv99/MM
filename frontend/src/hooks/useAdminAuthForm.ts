@@ -2,21 +2,10 @@
 import { useState, useCallback, FormEvent, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { AdminFormValues, AdminAuthFormOptions } from "@/types/index";
 
-interface FormValues {
-  email: string;
-  password: string;
-  [key: string]: string;
-}
-
-interface AuthFormOptions {
-  initialValues: FormValues;
-  endpoint: string;
-  redirectTo: string;
-}
-
-export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AuthFormOptions) => {
-  const [formValues, setFormValues] = useState<FormValues>(initialValues);
+export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AdminAuthFormOptions) => {
+  const [formValues, setFormValues] = useState<AdminFormValues>(initialValues);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);

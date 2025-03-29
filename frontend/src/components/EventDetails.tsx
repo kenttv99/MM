@@ -4,14 +4,7 @@
 import React from "react";
 import { FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion } from "framer-motion";
-
-interface EventDetailsProps {
-  date: string;
-  time: string;
-  location: string;
-  price: number;
-  freeRegistration: boolean;
-}
+import { EventDetailsProps } from "@/types/index";
 
 const EventDetails: React.FC<EventDetailsProps> = ({
   date,

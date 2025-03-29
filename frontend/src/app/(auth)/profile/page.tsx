@@ -12,28 +12,8 @@ import Image from "next/image";
 import { apiFetch } from "@/utils/api";
 import { ModalButton } from "@/components/common/AuthModal";
 import { motion, AnimatePresence } from "framer-motion";
+import { UserData, FormState, ValidationErrors } from "@/types/index";
 
-interface UserData {
-  id: number;
-  fio: string;
-  email: string;
-  telegram: string;
-  whatsapp: string;
-  avatar_url?: string;
-}
-
-interface FormState {
-  fio: string;
-  telegram: string;
-  whatsapp: string;
-  avatarPreview: string | null;
-}
-
-interface ValidationErrors {
-  fio?: string;
-  telegram?: string;
-  whatsapp?: string;
-}
 
 const Profile: React.FC = () => {
   const { isAuth, userData: contextUserData, isLoading: authLoading, updateUserData } = useAuth();

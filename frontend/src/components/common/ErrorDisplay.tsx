@@ -1,11 +1,7 @@
 // frontend/src/components/common/ErrorDisplay.tsx
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-interface ErrorDisplayProps {
-  error: string | null;
-  className?: string;
-}
+import { ErrorDisplayProps } from "@/types/index";
 
 const ErrorDisplay: React.FC<ErrorDisplayProps> = ({ error, className = '' }) => {
   return (

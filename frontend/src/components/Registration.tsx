@@ -3,33 +3,16 @@
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/fa";
-import { IconType } from "react-icons";
 import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
 import { motion, AnimatePresence } from "framer-motion";
+import { FieldConfig, FormErrors, TouchedFields } from "@/types/index";
 
 interface RegistrationProps {
   isOpen: boolean;
   onClose: () => void;
   toggleMode: () => void;
-}
-
-interface FieldConfig {
-  name: string;
-  type: string;
-  placeholder: string;
-  icon: IconType;
-  validate: (value: string) => string | null;
-  required?: boolean;
-}
-
-interface FormErrors {
-  [key: string]: string | null;
-}
-
-interface TouchedFields {
-  [key: string]: boolean;
 }
 
 const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode }) => {

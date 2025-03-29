@@ -11,12 +11,7 @@ import { apiFetch } from "@/utils/api";
 import { AnimatePresence, motion } from "framer-motion";
 import { fetchAdminEvents } from "@/utils/eventService";
 import { EventData } from "@/types/events";
-
-interface User {
-  id: number;
-  fio: string;
-  email: string;
-}
+import { User } from "@/types/index";
 
 async function fetchData<U>(
   url: string,

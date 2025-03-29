@@ -7,19 +7,13 @@ import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
+import { AdminProfile } from "@/types/index";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
   router.push(url.pathname + url.search);
 };
-
-interface AdminProfile {
-  id: number;
-  fio: string;
-  email: string;
-  avatar_url?: string;
-}
 
 const AdminProfilePage: React.FC = () => {
   const [profile, setProfile] = useState<AdminProfile | null>(null);

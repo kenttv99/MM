@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useContext } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
@@ -8,7 +8,7 @@ import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuthForm } from "@/hooks/useAdminAuthForm";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
-import { PageLoadContext } from "@/contexts/PageLoadContext";
+import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -19,7 +19,7 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 export default function AdminLoginPage() {
   const router = useRouter();
   const { checkAuth } = useAdminAuth();
-  const { setPageLoaded } = useContext(PageLoadContext);
+  const { setPageLoading } = usePageLoad();
 
   useEffect(() => {
     const initialLoad = async () => {
@@ -31,13 +31,12 @@ export default function AdminLoginPage() {
       } catch (err) {
         console.error("AdminLoginPage: checkAuth failed:", err);
       } finally {
-        // Always mark the page as loaded, regardless of authentication status
-        setPageLoaded(true);
+        setPageLoading(false);
       }
     };
     
     initialLoad();
-  }, [checkAuth, router, setPageLoaded]);
+  }, [checkAuth, router, setPageLoading]);
 
   const {
     formValues,
@@ -89,12 +88,25 @@ export default function AdminLoginPage() {
             )}
             {isSuccess && (
               <div className="text-green-600 bg-green-50 p-3 rounded-lg border-l-4 border-green-500 text-sm mb-6">
-                Вход выполнен успешно! Перенаправление...
+                Вход успешен!
               </div>
             )}
-            <ModalButton type="submit" disabled={formLoading || isSuccess}>
-              {formLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
-            </ModalButton>
+            <div className="flex justify-end space-x-4">
+              <ModalButton
+                variant="secondary"
+                onClick={() => navigateTo(router, "/")}
+                disabled={formLoading || isSuccess}
+              >
+                На главную
+              </ModalButton>
+              <ModalButton
+                type="submit"
+                variant="primary"
+                disabled={formLoading || isSuccess}
+              >
+                {formLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
+              </ModalButton>
+            </div>
           </form>
         </div>
       </div>

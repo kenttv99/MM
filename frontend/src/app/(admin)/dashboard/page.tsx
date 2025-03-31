@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, ChangeEvent, useEffect, useRef, useCallback, useContext } from "react";
+import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import {
@@ -15,48 +15,10 @@ import {
 } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import { apiFetch } from "@/utils/api";
 import { AnimatePresence, motion } from "framer-motion";
-import { fetchAdminEvents } from "@/utils/eventService";
 import { EventData } from "@/types/events";
 import { User } from "@/types/index";
-import { PageLoadContext } from "@/contexts/PageLoadContext";
-
-async function fetchData<U>(
-  url: string,
-  token: string | null,
-  setData: React.Dispatch<React.SetStateAction<U[]>>,
-  setLoading: (value: boolean) => void,
-  setError: (value: string | null) => void,
-  append: boolean = false
-) {
-  setLoading(true);
-  setError(null);
-  try {
-    if (!token) throw new Error("Отсутствует токен авторизации");
-
-    const response = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Accept": "application/json",
-      },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
-    }
-
-    const data: U[] = await response.json();
-    setData((prev: U[]) => (append ? [...prev, ...data] : data));
-  } catch (err) {
-    setError(err instanceof Error ? err.message : "Не удалось загрузить данные");
-    setData(append ? (prev) => prev : []);
-  } finally {
-    setLoading(false);
-  }
-}
+import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -72,100 +34,106 @@ export default function DashboardPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<EventData[]>([]);
-  const [isLoading, setIsLoading] = useState({ users: false, events: false });
   const [error, setError] = useState<string | null>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<number | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const hasFetchedEvents = useRef(false);
-  const hasFetchedUsers = useRef(false);
+  const hasFetched = useRef(false);
   const observer = useRef<IntersectionObserver | null>(null);
-  const eventsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const usersTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isLoading: authLoading, isAdminAuth, checkAuth } = useAdminAuth();
-  const { setPageLoaded } = useContext(PageLoadContext);
+  const { checkAuth } = useAdminAuth();
+  const { wrapAsync, apiFetch } = usePageLoad();
 
   const fetchEvents = useCallback(
     async (search: string, pageNum: number, append: boolean = false) => {
-      let url = `?page=${pageNum}&limit=10`;
+      let url = `/admin_edits/events?page=${pageNum}&limit=10`;
       const params = new URLSearchParams();
 
-      if (search && search.trim()) params.append("search", search.trim());
+      if (search.trim()) params.append("search", search.trim());
       if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) params.append("start_date", startDate);
       if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) params.append("end_date", endDate);
-      if (statusFilter && statusFilter.trim()) params.append("status", statusFilter);
+      if (statusFilter.trim()) params.append("status", statusFilter);
 
       if (params.toString()) url += `&${params.toString()}`;
 
-      const data = await fetchAdminEvents(
-        localStorage.getItem("admin_token") || "",
-        setEvents,
-        (value) => setIsLoading((prev) => ({ ...prev, events: value })),
-        setError,
-        url,
-        append
-      );
-
-      setHasMore(data.length === 10);
-      hasFetchedEvents.current = true;
+      try {
+        const data = await wrapAsync<EventData[]>(apiFetch(url));
+        setHasMore(data.length === 10);
+        setEvents((prev) => (append ? [...prev, ...data] : data));
+      } catch (err) {
+        console.error("Fetch events failed:", err);
+        setError(err instanceof Error ? err.message : "Не удалось загрузить мероприятия");
+        if (!append) setEvents([]);
+      }
     },
-    [startDate, endDate, statusFilter]
+    [startDate, endDate, statusFilter, wrapAsync, apiFetch]
   );
 
-  const fetchUsers = useCallback(async (search: string) => {
-    const url = search.trim()
-      ? `/admin_edits/users?search=${encodeURIComponent(search)}`
-      : "/admin_edits/users";
-    await fetchData<User>(
-      url,
-      localStorage.getItem("admin_token"),
-      setUsers,
-      (value) => setIsLoading((prev) => ({ ...prev, users: value })),
-      setError
-    );
-    hasFetchedUsers.current = true;
-  }, []);
+  const fetchUsers = useCallback(
+    async (search: string) => {
+      const url = search.trim()
+        ? `/admin_edits/users?search=${encodeURIComponent(search)}`
+        : "/admin_edits/users";
+      try {
+        const data = await wrapAsync<User[]>(apiFetch(url));
+        setUsers(data);
+      } catch (err) {
+        console.error("Fetch users failed:", err);
+        setError(err instanceof Error ? err.message : "Не удалось загрузить пользователей");
+        setUsers([]);
+      }
+    },
+    [wrapAsync, apiFetch]
+  );
 
   useEffect(() => {
     const initialize = async () => {
-      const isAuthenticated = await checkAuth();
-      if (!isAuthenticated && !authLoading) {
-        navigateTo(router, "/admin-login");
-      } else if (isAdminAuth && !authLoading) {
+      if (hasFetched.current) return;
+
+      try {
+        const isAuthenticated = await wrapAsync(checkAuth());
+        console.log("Authentication check result:", isAuthenticated);
+        if (!isAuthenticated) {
+          console.log("Not authenticated, redirecting to /admin-login");
+          navigateTo(router, "/admin-login");
+          return;
+        }
+
         const shouldRefresh = searchParams.get("refresh") === "true";
-        if (!hasFetchedEvents.current || shouldRefresh) {
-          fetchEvents("", 1);
-        }
-        if (!hasFetchedUsers.current || shouldRefresh) {
-          fetchUsers("");
-        }
+        console.log("Fetching initial data, shouldRefresh:", shouldRefresh);
+        await Promise.all([fetchEvents("", 1), fetchUsers("")]);
+        hasFetched.current = true;
+      } catch (err) {
+        console.error("Initialization failed:", err);
+        setError(err instanceof Error ? err.message : "Ошибка инициализации дашборда");
+        hasFetched.current = true; // Завершаем загрузку даже при ошибке
       }
     };
-    initialize();
-  }, [isAdminAuth, authLoading, searchParams, checkAuth, fetchEvents, fetchUsers, router]);
 
-  useEffect(() => {
-    // Уведомляем layout о готовности страницы
-    if (!authLoading && !isLoading.events && !isLoading.users && (events.length > 0 || users.length > 0 || error)) {
-      setPageLoaded(true);
-    }
-  }, [authLoading, isLoading, events, users, error, setPageLoaded]);
+    initialize();
+
+    return () => {
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (observer.current) observer.current.disconnect();
+    };
+  }, [checkAuth, router, searchParams, wrapAsync, fetchEvents, fetchUsers]);
 
   const lastEventElementRef = useCallback(
     (node: HTMLDivElement | null) => {
-      if (isLoading.events || !hasMore) return;
+      if (!hasMore || !hasFetched.current) return;
       if (observer.current) observer.current.disconnect();
 
       observer.current = new IntersectionObserver(
         (entries) => {
           if (entries[0].isIntersecting) {
-            setPage((prev) => prev + 1);
-            fetchEvents(eventSearch, page + 1, true);
+            const nextPage = page + 1;
+            setPage(nextPage);
+            fetchEvents(eventSearch, nextPage, true);
           }
         },
         { threshold: 1.0 }
@@ -173,34 +141,24 @@ export default function DashboardPage() {
 
       if (node) observer.current.observe(node);
     },
-    [isLoading.events, hasMore, eventSearch, page, fetchEvents]
+    [hasMore, eventSearch, page, fetchEvents]
   );
 
-  const handleUserSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleSearchChange = (e: ChangeEvent<HTMLInputElement>, type: "users" | "events") => {
     const searchValue = e.target.value;
-    setUserSearch(searchValue);
+    if (type === "users") setUserSearch(searchValue);
+    else setEventSearch(searchValue);
 
-    if (usersTimeoutRef.current) {
-      clearTimeout(usersTimeoutRef.current);
-    }
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
 
-    usersTimeoutRef.current = setTimeout(() => {
-      fetchUsers(searchValue);
-    }, 500);
-  };
-
-  const handleEventSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const searchValue = e.target.value;
-    setEventSearch(searchValue);
-
-    if (eventsTimeoutRef.current) {
-      clearTimeout(eventsTimeoutRef.current);
-    }
-
-    eventsTimeoutRef.current = setTimeout(() => {
-      setPage(1);
-      setEvents([]);
-      fetchEvents(searchValue, 1, false);
+    searchTimeoutRef.current = setTimeout(() => {
+      if (type === "users") {
+        fetchUsers(searchValue);
+      } else {
+        setPage(1);
+        setEvents([]);
+        fetchEvents(searchValue, 1);
+      }
     }, 500);
   };
 
@@ -215,42 +173,20 @@ export default function DashboardPage() {
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
 
-    setIsLoading((prev) => ({ ...prev, events: true }));
     setError(null);
     try {
-      const token = localStorage.getItem("admin_token");
-      if (!token) throw new Error("Отсутствует токен авторизации");
-
-      const response = await apiFetch(`/admin_edits/${eventToDelete}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Ошибка API: ${response.status} - ${errorText}`);
-      }
-
-      setEvents(events.filter((event) => event.id !== eventToDelete));
-      await fetchEvents(eventSearch, page);
+      await wrapAsync(apiFetch(`/admin_edits/${eventToDelete}`, { method: "DELETE" }));
+      setEvents((prev) => prev.filter((event) => event.id !== eventToDelete));
+      await fetchEvents(eventSearch, 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Не удалось удалить мероприятие");
     } finally {
-      setIsLoading((prev) => ({ ...prev, events: false }));
       setShowDeleteModal(false);
       setEventToDelete(null);
     }
   };
 
-  useEffect(() => {
-    return () => {
-      if (eventsTimeoutRef.current) clearTimeout(eventsTimeoutRef.current);
-      if (usersTimeoutRef.current) clearTimeout(usersTimeoutRef.current);
-    };
-  }, []);
-
-  if (authLoading || (isLoading.events && events.length === 0) || (isLoading.users && users.length === 0))
-    return null; // Не рендерим ничего, пока данные не готовы
+  if (!hasFetched.current) return null;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -302,35 +238,21 @@ export default function DashboardPage() {
               <InputField
                 type="text"
                 value={userSearch}
-                onChange={handleUserSearchChange}
+                onChange={(e) => handleSearchChange(e, "users")}
                 placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
                 icon={FaSearch}
                 name="userSearch"
                 className="w-full"
               />
             </div>
-            {isLoading.users ? (
-              <div className="text-center py-6">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
-              </div>
-            ) : users.length > 0 ? (
+            {users.length > 0 ? (
               <>
-                {/* Mobile View: Cards */}
                 <div className="md:hidden flex flex-col gap-4 max-h-[400px] overflow-y-auto">
                   {users.map((user) => (
-                    <div
-                      key={user.id}
-                      className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200"
-                    >
-                      <p className="text-base text-gray-900">
-                        <strong>ID:</strong> {user.id}
-                      </p>
-                      <p className="text-base text-gray-900">
-                        <strong>ФИО:</strong> {user.fio}
-                      </p>
-                      <p className="text-base text-gray-900">
-                        <strong>Email:</strong> {user.email}
-                      </p>
+                    <div key={user.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
+                      <p className="text-base text-gray-900"><strong>ID:</strong> {user.id}</p>
+                      <p className="text-base text-gray-900"><strong>ФИО:</strong> {user.fio}</p>
+                      <p className="text-base text-gray-900"><strong>Email:</strong> {user.email}</p>
                       <button
                         onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
                         className="mt-2 w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base min-h-[44px]"
@@ -340,45 +262,25 @@ export default function DashboardPage() {
                     </div>
                   ))}
                 </div>
-                {/* Desktop View: Table */}
                 <div className="hidden md:block max-h-[400px] overflow-y-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          ID
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          ФИО
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Email
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Действия
-                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {users.map((user) => (
-                        <tr
-                          key={user.id}
-                          className="hover:bg-gray-50 transition-colors duration-150"
-                        >
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                            {user.id}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                            {user.fio}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                            {user.email}
-                          </td>
+                        <tr key={user.id} className="hover:bg-gray-50 transition-colors duration-150">
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{user.id}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{user.fio}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{user.email}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-base">
                             <button
-                              onClick={() =>
-                                navigateTo(router, "/edit-user", { user_id: user.id.toString() })
-                              }
+                              onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
                               className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200"
                             >
                               Управлять
@@ -416,7 +318,7 @@ export default function DashboardPage() {
               <InputField
                 type="text"
                 value={eventSearch}
-                onChange={handleEventSearchChange}
+                onChange={(e) => handleSearchChange(e, "events")}
                 placeholder="Поиск по названию..."
                 icon={FaSearch}
                 name="eventSearch"
@@ -484,7 +386,6 @@ export default function DashboardPage() {
 
             {events.length > 0 ? (
               <>
-                {/* Mobile View: Cards */}
                 <div className="md:hidden flex flex-col gap-4 max-h-[400px] overflow-y-auto">
                   {events.map((event, index) => {
                     const availableQuantity = event.ticket_type?.available_quantity || 0;
@@ -498,59 +399,34 @@ export default function DashboardPage() {
                         ref={index === events.length - 1 ? lastEventElementRef : null}
                         className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200"
                       >
-                        <p className="text-base text-gray-900">
-                          <strong>ID:</strong> {event.id ?? "N/A"}
-                        </p>
-                        <p className="text-base text-gray-900">
-                          <strong>Название:</strong> {event.title}
-                        </p>
+                        <p className="text-base text-gray-900"><strong>ID:</strong> {event.id ?? "N/A"}</p>
+                        <p className="text-base text-gray-900"><strong>Название:</strong> {event.title}</p>
                         <p className="text-base">
                           <strong>Статус:</strong>{" "}
                           {event.status === "registration_open" ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
-                              Регистрация открыта
-                            </span>
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
                           ) : event.status === "registration_closed" ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">
-                              Регистрация закрыта
-                            </span>
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
                           ) : event.status === "completed" ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
-                              Завершено
-                            </span>
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
                           ) : (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">
-                              Черновик
-                            </span>
+                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
                           )}
                         </p>
                         <p className="text-base">
                           <strong>Опубликовано:</strong>{" "}
-                          {event.published ? (
-                            <FaCheck className="inline text-green-500" />
-                          ) : (
-                            <FaTimes className="inline text-red-500" />
-                          )}
+                          {event.published ? <FaCheck className="inline text-green-500" /> : <FaTimes className="inline text-red-500" />}
                         </p>
                         <div className="mt-2">
-                          <p className="text-base">
-                            <strong>Заполненность:</strong>
-                          </p>
+                          <p className="text-base"><strong>Заполненность:</strong></p>
                           <div className="w-32 bg-gray-200 rounded-full h-2.5">
-                            <div
-                              className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                              style={{ width: `${fillPercentage}%` }}
-                            ></div>
+                            <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${fillPercentage}%` }}></div>
                           </div>
-                          <p className="text-sm text-gray-600 mt-2">
-                            {soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})
-                          </p>
+                          <p className="text-sm text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
                         </div>
                         <div className="mt-2 flex flex-col gap-2">
                           <button
-                            onClick={() =>
-                              event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })
-                            }
+                            onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
                             className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base min-h-[44px]"
                           >
                             Редактировать
@@ -573,35 +449,17 @@ export default function DashboardPage() {
                       </div>
                     );
                   })}
-                  {isLoading.events && (
-                    <div className="text-center py-4">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
-                    </div>
-                  )}
                 </div>
-                {/* Desktop View: Table */}
                 <div className="hidden md:block max-h-[400px] overflow-y-auto">
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          ID
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Название
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Статус
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Опубликовано
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Заполненность
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Действия
-                        </th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опубликовано</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -612,58 +470,32 @@ export default function DashboardPage() {
                         const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
                         return (
-                          <tr
-                            key={event.id ?? index}
-                            className="hover:bg-gray-50 transition-colors duration-150"
-                          >
-                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                              {event.id ?? "N/A"}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">
-                              {event.title}
-                            </td>
+                          <tr key={event.id ?? index} className="hover:bg-gray-50 transition-colors duration-150">
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.id ?? "N/A"}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.title}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-base">
                               {event.status === "registration_open" ? (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">
-                                  Регистрация открыта
-                                </span>
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
                               ) : event.status === "registration_closed" ? (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">
-                                  Регистрация закрыта
-                                </span>
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
                               ) : event.status === "completed" ? (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">
-                                  Завершено
-                                </span>
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
                               ) : (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">
-                                  Черновик
-                                </span>
+                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
                               )}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-base text-center">
-                              {event.published ? (
-                                <FaCheck className="text-green-500 mx-auto" />
-                              ) : (
-                                <FaTimes className="text-red-500 mx-auto" />
-                              )}
+                              {event.published ? <FaCheck className="text-green-500 mx-auto" /> : <FaTimes className="text-red-500 mx-auto" />}
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-base">
                               <div className="w-32 bg-gray-200 rounded-full h-2.5">
-                                <div
-                                  className="bg-blue-600 h-2.5 rounded-full transition-all duration-300"
-                                  style={{ width: `${fillPercentage}%` }}
-                                ></div>
+                                <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${fillPercentage}%` }}></div>
                               </div>
-                              <p className="text-sm text-gray-600 mt-2">
-                                {soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})
-                              </p>
+                              <p className="text-sm text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-base">
                               <button
-                                onClick={() =>
-                                  event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })
-                                }
+                                onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
                                 className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
                               >
                                 Редактировать
@@ -687,18 +519,11 @@ export default function DashboardPage() {
                       })}
                     </tbody>
                   </table>
-                  {isLoading.events && (
-                    <div className="text-center py-4">
-                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500 mx-auto"></div>
-                    </div>
-                  )}
                 </div>
               </>
             ) : (
               <p className="text-gray-500 text-center py-6 text-base">
-                {eventSearch.trim() || startDate || endDate || statusFilter
-                  ? "Мероприятия не найдены"
-                  : "Нет доступных мероприятий"}
+                {eventSearch.trim() || startDate || endDate || statusFilter ? "Мероприятия не найдены" : "Нет доступных мероприятий"}
               </p>
             )}
           </div>
@@ -709,9 +534,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
           <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-sm border border-gray-100">
             <h2 className="text-lg font-semibold text-gray-800 mb-4">Подтверждение удаления</h2>
-            <p className="text-gray-600 mb-6 text-base">
-              Вы уверены, что хотите удалить это мероприятие? Это действие нельзя отменить.
-            </p>
+            <p className="text-gray-600 mb-6 text-base">Вы уверены, что хотите удалить это мероприятие? Это действие нельзя отменить.</p>
             <div className="flex flex-col sm:flex-row justify-end space-y-4 sm:space-y-0 sm:space-x-4">
               <button
                 onClick={() => {
@@ -725,9 +548,8 @@ export default function DashboardPage() {
               <button
                 onClick={handleDeleteEvent}
                 className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-200 text-base min-h-[44px]"
-                disabled={isLoading.events}
               >
-                {isLoading.events ? "Удаление..." : "Удалить"}
+                Удалить
               </button>
             </div>
           </div>

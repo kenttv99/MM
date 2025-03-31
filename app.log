@@ -258,3 +258,144 @@ FROM events
 WHERE events.start_date <= $1::VARCHAR]
 [parameters: ('2025-03-29',)]
 (Background on this error at: https://sqlalche.me/e/20/f405)
+2025-03-30 02:06:14,548 - asyncio - ERROR - Exception in callback _ProactorReadPipeTransport._loop_reading(<_OverlappedF...d result=1078>)
+handle: <Handle _ProactorReadPipeTransport._loop_reading(<_OverlappedF...d result=1078>)>
+Traceback (most recent call last):
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 325, in _loop_reading
+    self._data_received(data, length)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 274, in _data_received
+    self._protocol.data_received(data)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 172, in data_received
+    self.handle_events()
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 181, in handle_events
+    self.send_400_response(msg)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 298, in send_400_response
+    output = self.conn.send(event)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 512, in send
+    data_list = self.send_with_data_passthrough(event)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 537, in send_with_data_passthrough
+    self._process_event(self.our_role, event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 272, in _process_event
+    self._cstate.process_event(role, type(event), server_switch_event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 293, in process_event
+    self._fire_event_triggered_transitions(role, _event_type)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 311, in _fire_event_triggered_transitions
+    raise LocalProtocolError(
+h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=CLOSED
+2025-03-30 02:09:26,250 - asyncio - ERROR - Exception in callback _ProactorReadPipeTransport._loop_reading(<_OverlappedF...d result=1078>)
+handle: <Handle _ProactorReadPipeTransport._loop_reading(<_OverlappedF...d result=1078>)>
+Traceback (most recent call last):
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 325, in _loop_reading
+    self._data_received(data, length)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 274, in _data_received
+    self._protocol.data_received(data)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 172, in data_received
+    self.handle_events()
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 181, in handle_events
+    self.send_400_response(msg)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 298, in send_400_response
+    output = self.conn.send(event)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 512, in send
+    data_list = self.send_with_data_passthrough(event)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 537, in send_with_data_passthrough
+    self._process_event(self.our_role, event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 272, in _process_event
+    self._cstate.process_event(role, type(event), server_switch_event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 293, in process_event
+    self._fire_event_triggered_transitions(role, _event_type)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 311, in _fire_event_triggered_transitions
+    raise LocalProtocolError(
+h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=CLOSED
+2025-03-30 02:49:34,093 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-03-30 03:22:50,037 - asyncio - ERROR - Exception in callback _ProactorReadPipeTransport._loop_reading(<_OverlappedF...d result=1078>)
+handle: <Handle _ProactorReadPipeTransport._loop_reading(<_OverlappedF...d result=1078>)>
+Traceback (most recent call last):
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 325, in _loop_reading
+    self._data_received(data, length)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 274, in _data_received
+    self._protocol.data_received(data)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 172, in data_received
+    self.handle_events()
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 181, in handle_events
+    self.send_400_response(msg)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 298, in send_400_response
+    output = self.conn.send(event)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 512, in send
+    data_list = self.send_with_data_passthrough(event)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 537, in send_with_data_passthrough
+    self._process_event(self.our_role, event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 272, in _process_event
+    self._cstate.process_event(role, type(event), server_switch_event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 293, in process_event
+    self._fire_event_triggered_transitions(role, _event_type)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 311, in _fire_event_triggered_transitions
+    raise LocalProtocolError(
+h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=CLOSED
+2025-03-31 01:12:15,842 - asyncio - ERROR - Exception in callback _ProactorReadPipeTransport._loop_reading(<_OverlappedF...ed result=957>)
+handle: <Handle _ProactorReadPipeTransport._loop_reading(<_OverlappedF...ed result=957>)>
+Traceback (most recent call last):
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 325, in _loop_reading
+    self._data_received(data, length)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 274, in _data_received
+    self._protocol.data_received(data)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 172, in data_received
+    self.handle_events()
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 181, in handle_events
+    self.send_400_response(msg)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 298, in send_400_response
+    output = self.conn.send(event)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 512, in send
+    data_list = self.send_with_data_passthrough(event)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 537, in send_with_data_passthrough
+    self._process_event(self.our_role, event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 272, in _process_event
+    self._cstate.process_event(role, type(event), server_switch_event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 293, in process_event
+    self._fire_event_triggered_transitions(role, _event_type)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 311, in _fire_event_triggered_transitions
+    raise LocalProtocolError(
+h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=CLOSED
+2025-03-31 02:47:14,482 - asyncio - ERROR - Exception in callback _ProactorReadPipeTransport._loop_reading(<_OverlappedF...ed result=781>)
+handle: <Handle _ProactorReadPipeTransport._loop_reading(<_OverlappedF...ed result=781>)>
+Traceback (most recent call last):
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 325, in _loop_reading
+    self._data_received(data, length)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 274, in _data_received
+    self._protocol.data_received(data)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 172, in data_received
+    self.handle_events()
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 181, in handle_events
+    self.send_400_response(msg)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\uvicorn\protocols\http\h11_impl.py", line 298, in send_400_response
+    output = self.conn.send(event)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 512, in send
+    data_list = self.send_with_data_passthrough(event)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 537, in send_with_data_passthrough
+    self._process_event(self.our_role, event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_connection.py", line 272, in _process_event
+    self._cstate.process_event(role, type(event), server_switch_event)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 293, in process_event
+    self._fire_event_triggered_transitions(role, _event_type)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\h11\_state.py", line 311, in _fire_event_triggered_transitions
+    raise LocalProtocolError(
+h11._util.LocalProtocolError: can't handle event type Response when role=SERVER and state=CLOSED

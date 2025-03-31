@@ -1,65 +1,40 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
-import { apiFetch, CustomError } from "@/utils/api";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
-import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
-import { PageLoadContext } from "@/contexts/PageLoadContext";
+import { AnimatePresence } from "framer-motion";
+import { usePageLoad } from "@/contexts/PageLoadContext";
+import { EventData } from "@/types/events";
 
-interface TicketType {
-  name: string;
-  price: number;
-  available_quantity: number;
-  free_registration: boolean;
-  remaining_quantity?: number;
-}
-
-export interface EventData {
-  id: number;
-  title: string;
-  description?: string;
-  status: "draft" | "registration_open" | "registration_closed" | "completed";
-  start_date: string;
-  end_date?: string;
-  image_url?: string;
-  published: boolean;
-  ticket_type?: TicketType;
-}
+const ITEMS_PER_PAGE = 6;
 
 const generateSlug = (title: string, id: number): string => {
-  if (!title || title.trim() === "") {
-    return `event-${id}`;
-  }
+  if (!title || title.trim() === "") return `event-${id}`;
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
     й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
     ю: "yu", я: "ya", " ": "-"
   };
-  const slugifiedTitle = title
-    .toLowerCase()
-    .split("")
-    .map((char) => translitMap[char] || char)
-    .join("")
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return slugifiedTitle ? `${slugifiedTitle}-${id}` : `event-${id}`;
+  return (
+    title
+      .toLowerCase()
+      .split("")
+      .map((char) => translitMap[char] || char)
+      .join("")
+      .replace(/[^a-z0-9-]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-+|-+$/g, "") + `-${id}` || `event-${id}`
+  );
 };
-
-const ITEMS_PER_PAGE = 6;
 
 const formatDateForDisplay = (dateString: string) => {
   try {
-    const options: Intl.DateTimeFormatOptions = {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    };
+    const options: Intl.DateTimeFormatOptions = { day: "numeric", month: "long", year: "numeric" };
     return new Date(dateString).toLocaleDateString("ru-RU", options);
   } catch {
     return dateString;
@@ -78,14 +53,10 @@ const groupEventsByDate = (events: EventData[]) => {
 
 const getStatusStyles = (status: EventData["status"]) => {
   switch (status) {
-    case "registration_open":
-      return "bg-green-500/80 text-white";
-    case "registration_closed":
-      return "bg-red-500/80 text-white";
-    case "completed":
-      return "bg-gray-500/80 text-white";
-    default:
-      return "bg-gray-500/80 text-white";
+    case "registration_open": return "bg-green-500/80 text-white";
+    case "registration_closed": return "bg-red-500/80 text-white";
+    case "completed": return "bg-gray-500/80 text-white";
+    default: return "bg-gray-500/80 text-white";
   }
 };
 
@@ -113,9 +84,7 @@ const DateFilter: React.FC<DateFilterProps> = ({
   endDateRef,
 }) => {
   const handleCalendarClick = (ref: React.RefObject<HTMLInputElement | null>) => {
-    if (ref.current && typeof ref.current.showPicker === "function") {
-      ref.current.showPicker();
-    }
+    if (ref.current && typeof ref.current.showPicker === "function") ref.current.showPicker();
   };
 
   return (
@@ -187,7 +156,7 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
   const isCompleted = event.status === "completed";
 
   return (
-    <Link href={`/event/${generateSlug(event.title, event.id)}`} key={event.id}>
+    <Link href={`/event/${generateSlug(event.title, event.id || 0)}`}>
       <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 overflow-hidden min-h-[300px] flex flex-col">
         <div className="relative h-48">
           {event.image_url ? (
@@ -223,12 +192,7 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
           <div className="text-gray-500 text-sm mt-auto flex flex-col sm:flex-row justify-between items-start sm:items-center">
             <span className="flex items-center mb-2 sm:mb-0">
               <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-                />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
               {formatDateForDisplay(event.start_date)}
             </span>
@@ -247,152 +211,147 @@ const EventCard: React.FC<EventCardProps> = ({ event }) => {
 };
 
 const EventsPage = () => {
-  const [events, setEvents] = useState<EventData[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [hasServerError, setHasServerError] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [isFilterActive, setIsFilterActive] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const { setPageLoaded } = useContext(PageLoadContext);
+  const [page, setPage] = useState(1);
+  const [events, setEvents] = useState<EventData[]>([]);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
+  const { setPageLoading } = usePageLoad();
   const observerRef = useRef<IntersectionObserver | null>(null);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
-  const initialLoadComplete = useRef(false);
   const currentFilters = useRef({ startDate: "", endDate: "" });
+  const isMounted = useRef(false);
 
-  const fetchEvents = useCallback(
-    async (pageNum: number, reset: boolean = false) => {
-      setIsLoading(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      setPageLoading(false);
+    };
+  }, [setPageLoading]);
+
+  const fetchEvents = useCallback(async (pageNum: number, append: boolean = false) => {
+    if (isLoading) {
+      console.log("Fetch skipped: already loading");
+      return;
+    }
+
+    console.log(`Fetching events: page=${pageNum}, append=${append}`);
+    setIsLoading(true);
+    if (!append) setPageLoading(true);
+
+    const abortController = new AbortController();
+    const params = new URLSearchParams({
+      page: pageNum.toString(),
+      limit: ITEMS_PER_PAGE.toString(),
+      _t: Date.now().toString(),
+    });
+
+    if (currentFilters.current.startDate) params.append("start_date", currentFilters.current.startDate);
+    if (currentFilters.current.endDate) params.append("end_date", currentFilters.current.endDate);
+
+    try {
+      const response = await fetch(`/v1/public/events?${params.toString()}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        signal: abortController.signal,
+      });
+
+      console.log(`Response status: ${response.status}`);
+      if (!response.ok) throw new Error(`Ошибка загрузки: ${response.status}`);
+
+      const data = await response.json();
+      console.log(`Received ${data.length} events`);
+
+      if (!isMounted.current) return;
+
+      setEvents((prev) => (append ? [...prev, ...data] : data));
+      setHasMore(data.length === ITEMS_PER_PAGE);
       setError(null);
-      setHasServerError(false);
-      try {
-        const params = new URLSearchParams({
-          page: pageNum.toString(),
-          limit: ITEMS_PER_PAGE.toString(),
-        });
-        if (currentFilters.current.startDate) {
-          params.append("start_date", currentFilters.current.startDate);
-        }
-        if (currentFilters.current.endDate) {
-          params.append("end_date", currentFilters.current.endDate);
-        }
-
-        const response = await apiFetch(`/v1/public/events?${params.toString()}`, {
-          headers: { Accept: "application/json" },
-          cache: "no-store",
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          let errorMessage = "Не удалось загрузить мероприятия";
-          try {
-            const errorData = JSON.parse(errorText);
-            errorMessage = errorData.detail || errorMessage;
-          } catch {
-            // Оставляем общее сообщение
-          }
-          if (response.status >= 500) {
-            setHasServerError(true);
-            return;
-          } else if (response.status === 429) {
-            errorMessage = "Частые запросы. Попробуйте немного позже.";
-          }
-          setError(errorMessage);
-          return;
-        }
-
-        const data: EventData[] = await response.json();
-        const filteredData = data.filter((event) => event.published);
-        setEvents((prev) => {
-          if (reset) return filteredData;
-          const newEvents = filteredData.filter((newEvent) => !prev.some((existing) => existing.id === newEvent.id));
-          return [...prev, ...newEvents];
-        });
-        setHasMore(filteredData.length === ITEMS_PER_PAGE);
-      } catch (err: unknown) {
-        if (err instanceof Error) {
-          const customErr = err as CustomError;
-          if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
-            setHasServerError(true);
-          } else {
-            setError(err.message || "Не удалось загрузить мероприятия");
-          }
-        } else {
-          setHasServerError(true);
-        }
-      } finally {
-        setIsLoading(false);
+    } catch (err) {
+      if (err instanceof Error && err.name !== "AbortError" && isMounted.current) {
+        console.error("Fetch error:", err.message);
+        setError(err.message);
       }
-    },
-    []
-  );
+    } finally {
+      if (isMounted.current) {
+        console.log("Fetch completed");
+        setIsLoading(false);
+        if (!append) setPageLoading(false);
+      }
+    }
+  }, [isLoading, setPageLoading]);
 
   const applyFilters = useCallback(() => {
+    console.log("Applying filters:", { startDate, endDate });
     currentFilters.current = { startDate, endDate };
     setIsFilterActive(startDate !== "" || endDate !== "");
     setPage(1);
     setEvents([]);
-    fetchEvents(1, true);
+    setHasMore(true);
+    setError(null);
+    fetchEvents(1, false);
     setIsFilterOpen(false);
   }, [startDate, endDate, fetchEvents]);
 
   const resetFilters = useCallback(() => {
+    console.log("Resetting filters");
     setStartDate("");
     setEndDate("");
     currentFilters.current = { startDate: "", endDate: "" };
     setIsFilterActive(false);
     setPage(1);
     setEvents([]);
-    fetchEvents(1, true);
+    setHasMore(true);
+    setError(null);
+    fetchEvents(1, false);
     setIsFilterOpen(false);
   }, [fetchEvents]);
 
   useEffect(() => {
-    if (!initialLoadComplete.current) {
-      initialLoadComplete.current = true;
-      fetchEvents(1, true);
-    }
-  }, [fetchEvents]);
+    console.log("Component mounted, triggering initial fetch");
+    fetchEvents(1, false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Пустой массив зависимостей для однократного вызова
 
   useEffect(() => {
-    if (!hasMore || isLoading) return;
+    if (!hasMore || isLoading) {
+      console.log("Observer skipped:", { hasMore, isLoading });
+      return;
+    }
+
+    console.log("Setting up observer for page:", page);
     if (observerRef.current) observerRef.current.disconnect();
-    observerRef.current = new IntersectionObserver(
+
+    const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoading) {
-          setPage((prev) => prev + 1);
+        if (entries[0].isIntersecting && !isLoading) {
+          console.log("Load more triggered");
+          const nextPage = page + 1;
+          setPage(nextPage);
+          fetchEvents(nextPage, true);
         }
       },
-      { threshold: 0.5 }
+      { root: null, rootMargin: "0px", threshold: 0.1 } // Подгрузка только при достижении низа
     );
-    const currentLoadMore = loadMoreRef.current;
-    if (currentLoadMore) observerRef.current.observe(currentLoadMore);
+
+    observerRef.current = observer;
+    const loadMoreElement = loadMoreRef.current;
+    if (loadMoreElement) observer.observe(loadMoreElement);
+
     return () => {
-      if (observerRef.current && currentLoadMore) observerRef.current.unobserve(currentLoadMore);
+      if (observer && loadMoreElement) observer.unobserve(loadMoreElement);
     };
-  }, [hasMore, isLoading]);
-
-  useEffect(() => {
-    if (page > 1 && hasMore) fetchEvents(page);
-  }, [page, fetchEvents, hasMore]);
-
-  useEffect(() => {
-    // Уведомляем layout о готовности страницы
-    if (!isLoading && (events.length > 0 || error || hasServerError)) {
-      setPageLoaded(true);
-    }
-  }, [isLoading, events, error, hasServerError, setPageLoaded]);
+  }, [hasMore, page, isLoading, fetchEvents]);
 
   const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
-
-  if (hasServerError) return <ErrorPlaceholder />;
-  if (isLoading && events.length === 0) return null; // Не рендерим ничего, пока данные не готовы
 
   return (
     <>
@@ -404,29 +363,27 @@ const EventsPage = () => {
             <div className="flex justify-end">
               <button
                 onClick={() => setIsFilterOpen((prev) => !prev)}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 text-base ${
-                  isFilterActive
-                    ? "bg-orange-100 text-orange-700 hover:bg-orange-200"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 text-base ${isFilterActive ? "bg-orange-100 text-orange-700 hover:bg-orange-200" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
               >
                 <FaFilter className={isFilterActive ? "text-orange-500" : "text-gray-500"} />
                 <span>Фильтры {isFilterActive ? "(активны)" : ""}</span>
               </button>
             </div>
-            {isFilterOpen && (
-              <DateFilter
-                startDate={startDate}
-                endDate={endDate}
-                onStartDateChange={setStartDate}
-                onEndDateChange={setEndDate}
-                onApply={applyFilters}
-                onClose={() => setIsFilterOpen(false)}
-                onReset={resetFilters}
-                startDateRef={startDateInputRef}
-                endDateRef={endDateInputRef}
-              />
-            )}
+            <AnimatePresence>
+              {isFilterOpen && (
+                <DateFilter
+                  startDate={startDate}
+                  endDate={endDate}
+                  onStartDateChange={setStartDate}
+                  onEndDateChange={setEndDate}
+                  onApply={applyFilters}
+                  onClose={() => setIsFilterOpen(false)}
+                  onReset={resetFilters}
+                  startDateRef={startDateInputRef}
+                  endDateRef={endDateInputRef}
+                />
+              )}
+            </AnimatePresence>
             {isFilterActive && !isFilterOpen && (
               <div className="mt-3 flex flex-wrap gap-2">
                 <span className="text-sm text-gray-600 mr-2">Активные фильтры:</span>
@@ -436,6 +393,7 @@ const EventsPage = () => {
                     <button
                       onClick={() => {
                         setStartDate("");
+                        currentFilters.current.startDate = "";
                         applyFilters();
                       }}
                       className="ml-1 hover:text-orange-900"
@@ -450,6 +408,7 @@ const EventsPage = () => {
                     <button
                       onClick={() => {
                         setEndDate("");
+                        currentFilters.current.endDate = "";
                         applyFilters();
                       }}
                       className="ml-1 hover:text-orange-900"
@@ -474,7 +433,7 @@ const EventsPage = () => {
             </div>
           )}
 
-          {events.length === 0 ? (
+          {!isLoading && events.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
               <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
                 <FaCalendarAlt className="text-orange-500 w-8 h-8" />
@@ -494,7 +453,9 @@ const EventsPage = () => {
                 </button>
               )}
             </div>
-          ) : (
+          )}
+
+          {events.length > 0 && (
             Object.entries(groupedEvents).map(([date, eventsForDate]) => (
               <div key={date} className="mb-8 animate-fade-in">
                 <h2 className="text-base sm:text-lg font-medium text-gray-500 mb-3">{date}</h2>
@@ -508,15 +469,21 @@ const EventsPage = () => {
           )}
 
           {hasMore && events.length > 0 && (
-            <div ref={loadMoreRef} className="flex justify-center py-8">
-              {isLoading ? (
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-              ) : (
-                <div className="h-8 w-8"></div>
+            <div
+              ref={loadMoreRef}
+              className="flex justify-center py-8 mb-4"
+              style={{ height: "120px", margin: "20px auto" }}
+            >
+              {isLoading && (
+                <div className="flex flex-col items-center">
+                  <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-2"></div>
+                  <p className="text-gray-500 text-sm">Загрузка...</p>
+                </div>
               )}
             </div>
           )}
-          {!hasMore && events.length > 0 && (
+
+          {!hasMore && events.length > 0 && !isLoading && (
             <p className="text-center text-gray-600 py-8 text-base">Все мероприятия загружены</p>
           )}
         </div>

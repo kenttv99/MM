@@ -1,6 +1,6 @@
 // frontend/src/hooks/useEventForm.ts
-import { useState, useCallback } from 'react';
-import { EventFormData, EventData } from '@/types/events'; // Импортируем тип из types/events.ts
+import { useState, useCallback, useRef } from 'react';
+import { EventFormData, EventData } from '@/types/events';
 import { createEvent, updateEvent, fetchEvent } from '@/utils/eventService';
 
 interface UseEventFormOptions {
@@ -17,6 +17,10 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
   const [imagePreview, setImagePreview] = useState<string | null>(
     initialValues.image_url || null
   );
+  
+  // Используем ref для отслеживания текущего запроса
+  const currentRequestRef = useRef<AbortController | null>(null);
+  const loadEventAttempted = useRef<Set<string>>(new Set());
 
   // Установка значения поля формы
   const setFieldValue = useCallback((name: keyof EventFormData, value: unknown) => {
@@ -73,6 +77,14 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     setIsLoading(true);
 
     try {
+      // Отменяем предыдущий запрос, если он существует
+      if (currentRequestRef.current) {
+        currentRequestRef.current.abort();
+      }
+      
+      // Создаем новый контроллер для текущего запроса
+      currentRequestRef.current = new AbortController();
+      
       const result = formData.id 
         ? await updateEvent(formData.id, formData)
         : await createEvent(formData);
@@ -83,6 +95,12 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         onSuccess(result);
       }
     } catch (err) {
+      // Игнорируем ошибки прерванных запросов
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log('Предыдущий запрос был отменен');
+        return;
+      }
+      
       const errorMessage = err instanceof Error ? err.message : "Неизвестная ошибка";
       setError(errorMessage);
       
@@ -91,15 +109,33 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       }
     } finally {
       setIsLoading(false);
+      currentRequestRef.current = null;
     }
   }, [formData, onSuccess, onError]);
 
   // Загрузка данных события
   const loadEvent = useCallback(async (eventId: string) => {
+    // Проверяем, загружали ли мы уже это событие
+    if (loadEventAttempted.current.has(eventId)) {
+      console.log(`Event ${eventId} already attempted to load, skipping`);
+      return;
+    }
+    
+    // Добавляем ID в множество загруженных
+    loadEventAttempted.current.add(eventId);
+    
     setIsLoading(true);
     setError(null);
     
     try {
+      // Отменяем предыдущий запрос, если он существует
+      if (currentRequestRef.current) {
+        currentRequestRef.current.abort();
+      }
+      
+      // Создаем новый контроллер для текущего запроса
+      currentRequestRef.current = new AbortController();
+      
       const eventData = await fetchEvent(eventId);
       
       // Преобразуем даты и время
@@ -124,6 +160,12 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         setImagePreview(eventData.image_url);
       }
     } catch (err) {
+      // Игнорируем ошибки прерванных запросов
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        console.log('Предыдущий запрос был отменен');
+        return;
+      }
+      
       const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки данных";
       setError(errorMessage);
       
@@ -132,6 +174,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       }
     } finally {
       setIsLoading(false);
+      currentRequestRef.current = null;
     }
   }, [onError]);
 

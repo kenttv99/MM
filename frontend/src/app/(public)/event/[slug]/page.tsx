@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useContext } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiFetch, CustomError } from "@/utils/api";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -19,27 +18,8 @@ import Login from "@/components/Login";
 import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { FaCalendarAlt } from "react-icons/fa";
-import { PageLoadContext } from "@/contexts/PageLoadContext";
-
-interface EventData {
-  id: number;
-  title: string;
-  description?: string;
-  status: "draft" | "registration_open" | "registration_closed" | "completed";
-  start_date: string;
-  end_date?: string;
-  location?: string;
-  image_url?: string;
-  ticket_type?: {
-    name: string;
-    price: number;
-    available_quantity: number;
-    free_registration: boolean;
-    remaining_quantity?: number;
-    sold_quantity?: number;
-  };
-  published: boolean;
-}
+import { usePageLoad } from "@/contexts/PageLoadContext";
+import { EventData } from "@/types/events";
 
 const generateSlug = (title: string, id: number): string => {
   if (!title || title.trim() === "") {
@@ -70,17 +50,17 @@ const extractIdFromSlug = (slug: string): string => {
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
-  const [event, setEvent] = useState<EventData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [hasServerError, setHasServerError] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
-  const { setPageLoaded } = useContext(PageLoadContext);
+  const eventFetchedRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const unmountedRef = useRef(false);
+  const { wrapAsync, apiFetch } = usePageLoad();
 
-  // Define all useCallback hooks first, regardless of conditions
   const handleBookingClick = useCallback(() => {
     console.log("Booking click triggered in page.tsx");
   }, []);
@@ -106,87 +86,74 @@ export default function EventPage() {
   }, []);
 
   const fetchEvent = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
+    if (unmountedRef.current || eventFetchedRef.current) return null;
+    
     setHasServerError(false);
+    setFetchError(null);
     const eventId = extractIdFromSlug(slug);
-
+    
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    abortControllerRef.current = new AbortController();
+    
     try {
-      const res = await apiFetch(`/v1/public/events/${eventId}`, {
-        cache: "no-store",
-      });
-
-      if (!res.ok) {
-        if (res.status === 404) {
-          setEvent({
-            id: parseInt(eventId),
-            title: "Недоступное мероприятие",
-            status: "draft",
-            start_date: new Date().toISOString(),
-            published: false,
-          });
-          setPageLoaded(true); // Устанавливаем, что загрузка завершена
-          return;
+      const data = await wrapAsync<EventData>(
+        apiFetch(`/v1/public/events/${eventId}`, {
+          cache: "no-store",
+          signal: abortControllerRef.current.signal,
+        })
+      );
+      if (data) {
+        const correctSlug = generateSlug(data.title, data.id || parseInt(eventId));
+        if (slug !== correctSlug && !hasRedirected) {
+          setHasRedirected(true);
+          router.replace(`/event/${correctSlug}`, { scroll: false });
         }
-
-        const errorText = await res.text();
-        let errorMessage = "Произошла ошибка";
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorMessage;
-        } catch {
-          // Оставляем общее сообщение
-        }
-        if (res.status >= 500) {
-          setHasServerError(true);
-          setPageLoaded(true); // Устанавливаем, что загрузка завершена
-          return;
-        } else if (res.status === 429) {
-          errorMessage = "Частые запросы. Попробуйте немного позже.";
-        }
-        setError(errorMessage);
-        setPageLoaded(true); // Устанавливаем, что загрузка завершена
-        return;
+        eventFetchedRef.current = true;
+        return data;
       }
-
-      const data: EventData = await res.json();
-      setEvent(data);
-
-      const correctSlug = generateSlug(data.title, data.id);
-      if (slug !== correctSlug && !hasRedirected) {
-        setHasRedirected(true);
-        router.replace(`/event/${correctSlug}`, { scroll: false });
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        const customErr = err as CustomError;
-        if (customErr.code === "ECONNREFUSED" || customErr.isServerError) {
+    } catch (err: unknown) { // Используем unknown вместо CustomError
+      const error = err instanceof Error ? err : new Error("Неизвестная ошибка");
+      if (error instanceof Error && "isServerError" in error && error.isServerError) {
+        if (!unmountedRef.current) {
           setHasServerError(true);
-        } else {
-          setError(err.message || "Произошла ошибка");
         }
       } else {
-        setHasServerError(true);
+        setFetchError(error.message || "Не удалось загрузить мероприятие");
       }
-    } finally {
-      setIsLoading(false);
-      setPageLoaded(true); // Устанавливаем, что загрузка завершена
     }
-  }, [slug, router, hasRedirected, setPageLoaded]);
+    return null;
+  }, [slug, router, hasRedirected, wrapAsync, apiFetch]);
+
+  const [event, setEvent] = useState<EventData | null>(null);
 
   useEffect(() => {
-    if (slug) fetchEvent();
+    if (slug) {
+      fetchEvent().then((data) => setEvent(data || null));
+    }
+    
+    return () => {
+      unmountedRef.current = true;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+    };
   }, [slug, fetchEvent]);
 
   useEffect(() => {
     const handleAuthChange = () => checkAuth();
     window.addEventListener("auth-change", handleAuthChange);
-    return () => window.removeEventListener("auth-change", handleAuthChange);
+    
+    return () => {
+      window.removeEventListener("auth-change", handleAuthChange);
+    };
   }, [checkAuth]);
 
   if (hasServerError) return <ErrorPlaceholder />;
-  if (error) return notFound();
-  if (isLoading || !event) return null;
+  if (fetchError) return notFound();
+  if (!event) return null;
 
   if (event.status === "draft" || !event.published) {
     return (
@@ -217,8 +184,8 @@ export default function EventPage() {
   const eventDate = format(new Date(event.start_date), "d MMMM yyyy", { locale: ru });
   const eventTime = format(new Date(event.start_date), "HH:mm", { locale: ru });
   const availableQuantity = event.ticket_type?.available_quantity || 0;
-  const remainingQuantity = event.ticket_type?.remaining_quantity || 0;
-  const soldQuantity = availableQuantity - remainingQuantity;
+  const remainingQuantity = availableQuantity - (event.ticket_type?.sold_quantity || 0);
+  const soldQuantity = event.ticket_type?.sold_quantity || 0;
   const displayStatus =
     event.status === "registration_open" && remainingQuantity === 0
       ? "Регистрация закрыта (мест нет)"
@@ -280,7 +247,7 @@ export default function EventPage() {
                 date={eventDate}
                 time={eventTime}
                 location={event.location || "Не указано"}
-                price={event.ticket_type.price}
+                price={event.price}
                 freeRegistration={event.ticket_type.free_registration}
               />
             </motion.section>
@@ -301,7 +268,7 @@ export default function EventPage() {
                   {displayStatus}
                 </h2>
                 <EventRegistration
-                  eventId={event.id}
+                  eventId={event.id || parseInt(extractIdFromSlug(slug))}
                   eventTitle={event.title}
                   eventDate={eventDate}
                   eventTime={eventTime}
@@ -309,7 +276,7 @@ export default function EventPage() {
                   ticketType={event.ticket_type.name || "Стандартный"}
                   availableQuantity={availableQuantity}
                   soldQuantity={soldQuantity}
-                  price={event.ticket_type.price}
+                  price={event.price}
                   freeRegistration={event.ticket_type.free_registration}
                   onBookingClick={handleBookingClick}
                   onLoginClick={handleLoginClick}

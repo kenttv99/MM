@@ -32,6 +32,7 @@ export interface FormState {
   telegram: string;
   whatsapp: string;
   avatarPreview: string | null;
+  email: string;
 }
 
 export interface ValidationErrors {

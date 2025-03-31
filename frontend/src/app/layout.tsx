@@ -1,8 +1,9 @@
+// frontend\src\app\layout.tsx
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { PageLoadProvider } from "@/contexts/PageLoadContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
-// import Breadcrumbs from "@/components/Breadcrumbs";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,12 +28,14 @@ export default function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        <AuthProvider>
-          <ErrorBoundary>
-          {/* <Breadcrumbs /> */}
-          {children}
-          </ErrorBoundary>
-        </AuthProvider>
+        {/* PageLoadProvider must be the outermost provider since AuthProvider uses it */}
+        <PageLoadProvider initialState={false}>
+          <AuthProvider>
+            <ErrorBoundary>
+              {children}
+            </ErrorBoundary>
+          </AuthProvider>
+        </PageLoadProvider>
       </body>
     </html>
   );

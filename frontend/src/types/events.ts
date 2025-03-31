@@ -5,6 +5,7 @@ export interface TicketType {
     available_quantity: number;
     sold_quantity?: number;
     free_registration: boolean;
+    remaining_quantity?: number;
   }
   
   export interface EventData {

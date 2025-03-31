@@ -1,11 +1,11 @@
 "use client";
 
-import React, { useContext, useEffect } from "react";
+import React, { useEffect } from "react";
 import Link from "next/link";
 import Footer from "@/components/Footer";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
 import { FeatureCardProps } from "@/types/index";
-import { PageLoadContext } from "@/contexts/PageLoadContext";
+import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, description, ctaText }) => (
   <Link href={href} className="group">
@@ -24,12 +24,11 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, desc
 );
 
 const PublicHomePage: React.FC = () => {
-  const { setPageLoaded } = useContext(PageLoadContext);
+  const { setPageLoading } = usePageLoad();
 
-  // This is a static page that can be marked as loaded immediately
   useEffect(() => {
-    setPageLoaded(true);
-  }, [setPageLoaded]);
+    setPageLoading(false); // Статическая страница, загружается сразу
+  }, [setPageLoading]);
 
   const features: FeatureCardProps[] = [
     {

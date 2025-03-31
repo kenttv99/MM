@@ -3,7 +3,7 @@
 
 import { useState, ChangeEvent, FormEvent, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
-import { apiFetch } from "@/utils/api";
+import { apiFetch } from "@/utils/api"; // Импортируем из утилит
 import { UseAuthFormProps } from "@/types/index";
 
 type AuthFormValues = Record<string, string>;
@@ -38,7 +38,7 @@ export const useAuthForm = ({
       setIsSuccess(false);
 
       try {
-        const response = await apiFetch(endpoint, {
+        const response = await apiFetch<Response>(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(formValues),
@@ -69,7 +69,6 @@ export const useAuthForm = ({
             }, 1000);
           }
         } else {
-          // Обрабатываем все ошибки, включая 429
           const errorText = await response.text();
           let errorMessage = "Произошла ошибка";
           try {
@@ -78,14 +77,12 @@ export const useAuthForm = ({
           } catch {
             errorMessage = "Произошла ошибка";
           }
-          // Проверяем статус ответа, чтобы перехватить 429
           if (response.status === 429) {
             errorMessage = "Частые запросы. Попробуйте немного позже.";
           }
           setError(errorMessage);
         }
       } catch (err) {
-        // Обрабатываем только сетевые ошибки или 500-е ошибки
         setError(err instanceof Error ? err.message : "Неизвестная ошибка");
       } finally {
         setIsLoading(false);

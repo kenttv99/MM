@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef, useContext } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import InputField from "@/components/common/InputField";
@@ -18,133 +18,66 @@ import {
   FaCamera,
 } from "react-icons/fa";
 import Image from "next/image";
-import { apiFetch } from "@/utils/api";
 import { ModalButton } from "@/components/common/AuthModal";
 import { motion, AnimatePresence } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
-import { PageLoadContext } from "@/contexts/PageLoadContext";
+import { usePageLoad } from "@/contexts/PageLoadContext";
 
-const Profile: React.FC = () => {
-  const { isAuth, userData: contextUserData, isLoading: authLoading, updateUserData } = useAuth();
-  const [userData, setUserData] = useState<UserData | null>(null);
-  const [formState, setFormState] = useState<FormState>({ fio: "", telegram: "", whatsapp: "", avatarPreview: null });
+const ProfilePage: React.FC = () => {
+  const { isAuth, updateUserData } = useAuth();
+  const [formState, setFormState] = useState<FormState>({
+    fio: "",
+    telegram: "",
+    whatsapp: "",
+    avatarPreview: null,
+    email: "", // Добавляем email в начальное состояние
+  });
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
-  const [fetchError, setFetchError] = useState<string | null>(null);
-  const [updateError, setUpdateError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [isFetching, setIsFetching] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isAvatarHovered, setIsAvatarHovered] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
-  const fetchAttempted = useRef(false);
-  const containerRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
-  const { setPageLoaded } = useContext(PageLoadContext);
+  const { wrapAsync, apiFetch } = usePageLoad();
 
-  const navigateTo = useCallback((path: string) => router.push(path), [router]);
+  const navigateTo = useCallback((path: string) => {
+    router.push(path);
+  }, [router]);
 
-  const fetchUserProfile = useCallback(async () => {
-    if (!isAuth || isFetching) return;
+  useEffect(() => {
+    if (!isAuth) {
+      navigateTo("/");
+      return;
+    }
 
-    setIsFetching(true);
-    fetchAttempted.current = true;
-    setFetchError(null);
-    try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Токен авторизации отсутствует");
-
-      const response = await apiFetch("/user_edits/me", {
-        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        if (response.status === 401) {
-          localStorage.removeItem("token");
-          navigateTo("/login");
-          throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
+    if (!hasFetched.current) {
+      const fetchProfile = async () => {
+        try {
+          const data = await wrapAsync<UserData>(
+            apiFetch("/user_edits/me", { headers: { Accept: "application/json" } })
+          );
+          if (data) {
+            setFormState({
+              fio: data.fio || "",
+              telegram: data.telegram || "",
+              whatsapp: data.whatsapp || "",
+              avatarPreview: data.avatar_url || null,
+              email: data.email || "", // Устанавливаем email
+            });
+            updateUserData(data, true);
+          }
+        } catch (err) {
+          setFetchError(err instanceof Error ? err.message : "Не удалось загрузить профиль");
         }
-        throw new Error(`Ошибка API: ${errorText}`);
-      }
-
-      const freshData: UserData = await response.json();
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      if (freshData.avatar_url) {
-        freshData.avatar_url = freshData.avatar_url.startsWith("http")
-          ? freshData.avatar_url
-          : `${baseUrl}${freshData.avatar_url.startsWith("/") ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
-      }
-
-      setUserData(freshData);
-      setFormState({
-        fio: freshData.fio || "",
-        telegram: freshData.telegram || "",
-        whatsapp: freshData.whatsapp || "",
-        avatarPreview: freshData.avatar_url || null,
-      });
-      updateUserData(freshData, true);
-      localStorage.setItem("user_data", JSON.stringify(freshData));
-      hasFetched.current = true;
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
-      if (contextUserData) {
-        setUserData(contextUserData);
-        setFormState({
-          fio: contextUserData.fio || "",
-          telegram: contextUserData.telegram || "",
-          whatsapp: contextUserData.whatsapp || "",
-          avatarPreview: contextUserData.avatar_url || null,
-        });
-      }
-    } finally {
-      setIsFetching(false);
-      // Signal that the page has finished loading, even if there was an error
-      setPageLoaded(true);
+        hasFetched.current = true;
+      };
+      fetchProfile();
     }
-  }, [isAuth, isFetching, contextUserData, navigateTo, updateUserData, setPageLoaded]);
-
-  useEffect(() => {
-    // Initialize - always trying to load user data if authenticated
-    if (!authLoading && !hasFetched.current) {
-      if (!isAuth) {
-        navigateTo("/");
-        setPageLoaded(true); // Signal that redirection is finished
-      } else {
-        fetchUserProfile();
-      }
-    }
-  }, [authLoading, isAuth, fetchUserProfile, navigateTo, setPageLoaded]);
-
-  useEffect(() => {
-    // Make sure page is marked as loaded even if authentication is still loading
-    // This prevents infinite loading screen
-    if (authLoading && !fetchAttempted.current) {
-      const timeout = setTimeout(() => {
-        if (!fetchAttempted.current) {
-          console.log("Auth loading timeout - marking page as loaded");
-          setPageLoaded(true);
-        }
-      }, 3000); // 3 second timeout
-
-      return () => clearTimeout(timeout);
-    }
-  }, [authLoading, setPageLoaded]);
-
-  useEffect(() => {
-    if (userData && userData.avatar_url) {
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      const avatarUrl = userData.avatar_url.startsWith(baseUrl)
-        ? userData.avatar_url
-        : `${baseUrl}${userData.avatar_url.startsWith("/") ? userData.avatar_url : `/${userData.avatar_url}`}`;
-      setFormState((prev) => ({
-        ...prev,
-        avatarPreview: avatarUrl,
-      }));
-    }
-  }, [userData]);
+  }, [isAuth, navigateTo, updateUserData, wrapAsync, apiFetch]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -186,15 +119,9 @@ const Profile: React.FC = () => {
       reader.readAsDataURL(file);
     } else {
       setSelectedFile(null);
-      const currentAvatarUrl = userData?.avatar_url || null;
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
       setFormState((prev) => ({
         ...prev,
-        avatarPreview: currentAvatarUrl
-          ? currentAvatarUrl.startsWith(baseUrl)
-            ? currentAvatarUrl
-            : `${baseUrl}${currentAvatarUrl.startsWith("/") ? currentAvatarUrl : `/${currentAvatarUrl}`}`
-          : null,
+        avatarPreview: null,
       }));
     }
   };
@@ -213,87 +140,46 @@ const Profile: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!userData || !validateForm()) return;
-
-    setIsFetching(true);
-    setUpdateError(null);
-    setUpdateSuccess(null);
+    if (!validateForm()) return;
 
     try {
-      const token = localStorage.getItem("token");
-      if (!token) throw new Error("Токен авторизации отсутствует");
-
-      const profileResponse = await apiFetch("/user_edits/me", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ fio: formState.fio, telegram: formState.telegram, whatsapp: formState.whatsapp }),
-      });
-
-      if (!profileResponse.ok) {
-        const errorText = await profileResponse.text();
-        if (profileResponse.status === 401) {
-          localStorage.removeItem("token");
-          navigateTo("/login");
-          throw new Error("Сессия истекла. Пожалуйста, войдите снова.");
-        }
-        throw new Error(`Ошибка обновления профиля: ${errorText}`);
-      }
-
-      let updatedUser: UserData = await profileResponse.json();
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      if (updatedUser.avatar_url) {
-        updatedUser.avatar_url = updatedUser.avatar_url.startsWith("http")
-          ? updatedUser.avatar_url
-          : `${baseUrl}${updatedUser.avatar_url.startsWith("/") ? updatedUser.avatar_url : `/${updatedUser.avatar_url}`}`;
-      }
-
-      if (selectedFile) {
+      const profileResponse = await wrapAsync<UserData>(
+        apiFetch("/user_edits/me", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fio: formState.fio,
+            telegram: formState.telegram,
+            whatsapp: formState.whatsapp,
+          }),
+        })
+      );
+      if (profileResponse && selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
 
-        const avatarResponse = await apiFetch("/user_edits/upload-avatar", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
-
-        if (!avatarResponse.ok) {
-          const errorText = await avatarResponse.text();
-          throw new Error(`Ошибка загрузки аватарки: ${errorText}`);
+        const updatedUser = await wrapAsync<UserData>(
+          apiFetch("/user_edits/upload-avatar", {
+            method: "POST",
+            body: formData,
+          })
+        );
+        if (updatedUser) {
+          setFormState((prev) => ({
+            ...prev,
+            avatarPreview: updatedUser.avatar_url || null,
+          }));
+          updateUserData(updatedUser, true);
         }
-
-        const avatarData: UserData = await avatarResponse.json();
-        updatedUser = {
-          ...updatedUser,
-          avatar_url: avatarData.avatar_url
-            ? avatarData.avatar_url.startsWith("http")
-              ? avatarData.avatar_url
-              : `${baseUrl}${avatarData.avatar_url.startsWith("/") ? avatarData.avatar_url : `/${avatarData.avatar_url}`}`
-            : undefined,
-        };
       }
-
-      setFormState({
-        fio: updatedUser.fio || "",
-        telegram: updatedUser.telegram || "",
-        whatsapp: updatedUser.whatsapp || "",
-        avatarPreview: updatedUser.avatar_url || null,
-      });
-      setUserData(updatedUser);
-
       setUpdateSuccess("Профиль успешно обновлен!");
       setTimeout(() => {
         setSelectedFile(null);
         setUpdateSuccess(null);
         setIsEditing(false);
       }, 1500);
-
-      updateUserData(updatedUser, true);
-      localStorage.setItem("user_data", JSON.stringify(updatedUser));
     } catch (err) {
-      setUpdateError(err instanceof Error ? err.message : "Не удалось обновить профиль");
-    } finally {
-      setIsFetching(false);
+      setFetchError(err instanceof Error ? err.message : "Не удалось обновить профиль");
     }
   };
 
@@ -301,15 +187,6 @@ const Profile: React.FC = () => {
     const scrollPosition = window.scrollY;
     setIsEditing((prev) => !prev);
     setUpdateSuccess(null);
-    setUpdateError(null);
-    if (!isEditing && userData) {
-      setFormState({
-        fio: userData.fio || "",
-        telegram: userData.telegram || "",
-        whatsapp: userData.whatsapp || "",
-        avatarPreview: userData.avatar_url || null,
-      });
-    }
     requestAnimationFrame(() => window.scrollTo(0, scrollPosition));
   };
 
@@ -319,6 +196,7 @@ const Profile: React.FC = () => {
   };
 
   const childVariants = {
+    closed: { opacity: 0, scale: 0.95 },
     view: { opacity: 1, scale: 1 },
     edit: { opacity: 1, scale: 1 },
     hidden: { opacity: 0, scale: 0.95 },
@@ -329,16 +207,12 @@ const Profile: React.FC = () => {
     visible: { opacity: 1, y: 0 },
   };
 
-  // Only show loading indicator during initial auth check and first data fetch
-  if (authLoading && !fetchAttempted.current) return null;
-
   return (
     <div className="container mx-auto px-4 sm:px-6 py-10 mt-16 max-w-4xl">
       <h1 className="text-2xl sm:text-3xl font-bold mb-6">Ваш профиль</h1>
       {fetchError && <ErrorDisplay error={fetchError} />}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6 justify-start">
         <motion.div
-          ref={containerRef}
           className="sm:col-span-2 md:col-span-3 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100"
           layout
           initial="view"
@@ -360,9 +234,7 @@ const Profile: React.FC = () => {
               >
                 {formState.avatarPreview ? (
                   <div
-                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden ${
-                      isEditing ? "border-2 border-orange-500 cursor-pointer" : ""
-                    }`}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                   >
                     <Image
@@ -382,9 +254,10 @@ const Profile: React.FC = () => {
                           initial={{ opacity: 0, scale: 0 }}
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0 }}
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedFile(null);
-                            setFormState((prev) => ({ ...prev, avatarPreview: userData?.avatar_url || null }));
+                            setFormState((prev) => ({ ...prev, avatarPreview: null }));
                             if (fileInputRef.current) fileInputRef.current.value = "";
                           }}
                           className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
@@ -410,16 +283,12 @@ const Profile: React.FC = () => {
                   </div>
                 ) : (
                   <div
-                    className={`w-16 h-16 sm:w-20 sm:h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${
-                      isEditing ? "border-2 border-orange-500 cursor-pointer" : ""
-                    }`}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                     onMouseEnter={() => setIsAvatarHovered(true)}
                     onMouseLeave={() => setIsAvatarHovered(false)}
                   >
-                    {formState.fio
-                      ? formState.fio.charAt(0).toUpperCase()
-                      : userData?.email.charAt(0).toUpperCase() || ""}
+                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : ""}
                     <AnimatePresence>
                       {isEditing && isAvatarHovered && (
                         <motion.div
@@ -456,7 +325,6 @@ const Profile: React.FC = () => {
                       transition={{ duration: 0.3 }}
                     >
                       <h2 className="text-lg sm:text-xl font-semibold">{formState.fio || "Не указано"}</h2>
-                      <p className="text-gray-600 text-base">{userData?.email || "Не указан"}</p>
                     </motion.div>
                   ) : (
                     <motion.div
@@ -477,14 +345,12 @@ const Profile: React.FC = () => {
                           icon={FaUser}
                           name="fio"
                           required
-                          disabled={isFetching}
                           className="w-full"
                         />
                         {validationErrors.fio && (
                           <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
                         )}
                       </div>
-                      <p className="text-gray-600 text-base">{userData?.email || "Не указан"}</p>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -524,6 +390,9 @@ const Profile: React.FC = () => {
                   className="space-y-2"
                 >
                   <p className="text-base">
+                    <strong>Email:</strong> {formState.email || "Не указан"}
+                  </p>
+                  <p className="text-base">
                     <strong>Telegram:</strong> {formState.telegram || "Не указан"}
                   </p>
                   <p className="text-base">
@@ -541,11 +410,6 @@ const Profile: React.FC = () => {
                   onSubmit={handleSubmit}
                   className="space-y-4 relative"
                 >
-                  {isFetching && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-80 z-10">
-                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
-                    </div>
-                  )}
                   <div>
                     <InputField
                       type="text"
@@ -555,7 +419,6 @@ const Profile: React.FC = () => {
                       icon={FaTelegramPlane}
                       name="telegram"
                       required
-                      disabled={isFetching}
                       className="w-full"
                     />
                     {validationErrors.telegram && (
@@ -571,21 +434,20 @@ const Profile: React.FC = () => {
                       icon={FaWhatsapp}
                       name="whatsapp"
                       required
-                      disabled={isFetching}
                       className="w-full"
                     />
                     {validationErrors.whatsapp && (
                       <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
                     )}
                   </div>
-                  {updateError && <ErrorDisplay error={updateError} />}
+                  {fetchError && <ErrorDisplay error={fetchError} />}
                   {updateSuccess && <SuccessDisplay message={updateSuccess} />}
                   <ModalButton
                     type="submit"
-                    disabled={isFetching || Object.keys(validationErrors).length > 0}
+                    disabled={Object.keys(validationErrors).length > 0}
                     className="w-full sm:w-auto"
                   >
-                    {isFetching ? "Сохранение..." : "Сохранить"}
+                    Сохранить
                   </ModalButton>
                 </motion.form>
               )}
@@ -615,4 +477,4 @@ const Profile: React.FC = () => {
   );
 };
 
-export default Profile;
+export default ProfilePage;

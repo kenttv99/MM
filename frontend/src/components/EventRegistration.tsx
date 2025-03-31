@@ -1,4 +1,3 @@
-// frontend/src/components/EventRegistration.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -7,6 +6,7 @@ import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import { EventRegistrationProps } from "@/types/index";
+import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventId,
@@ -25,8 +25,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   displayStatus,
 }) => {
   const { userData, isAuth } = useAuth();
+  const { wrapAsync } = usePageLoad();
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isBooking, setIsBooking] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
 
@@ -41,23 +41,24 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     displayStatus === "Регистрация закрыта" || displayStatus === "Мероприятие завершено";
 
   const handleConfirmBooking = async () => {
-    setIsBooking(true);
     setError(undefined);
     setSuccess(undefined);
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch("/user_edits/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          event_id: eventId,
-          user_id: userData!.id,
-        }),
-      });
+      const response = await wrapAsync(
+        fetch("/user_edits/register", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            event_id: eventId,
+            user_id: userData!.id,
+          }),
+        })
+      );
 
       if (response.ok) {
         setSuccess("Вы успешно забронировали билет!");
@@ -72,19 +73,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     } catch (err) {
       setError("Произошла ошибка при бронировании. Попробуйте позже.");
       console.error(err);
-    } finally {
-      setIsBooking(false);
     }
   };
 
   const handleButtonClick = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.stopPropagation();
-    console.log("Button clicked, isAuth:", isAuth);
     if (isAuth && userData) {
-      console.log("Opening booking modal");
       setIsModalOpen(true);
     } else {
-      console.log("Triggering login modal");
       onLoginClick();
     }
     onBookingClick();
@@ -106,14 +102,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={handleButtonClick}
-            disabled={remainingQuantity === 0 || isBooking}
+            disabled={remainingQuantity === 0}
             className={`px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-base ${
-              remainingQuantity === 0 || isBooking
+              remainingQuantity === 0
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg"
             }`}
           >
-            {isBooking ? "Бронирование..." : "Забронировать"}
+            Забронировать
           </motion.button>
         </div>
         {!isRegistrationClosedOrCompleted && remainingQuantity > 0 ? (
@@ -127,12 +123,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.3, delay: seat * 0.05 }}
                   onClick={handleButtonClick}
-                  disabled={isBooking}
-                  className={`w-10 h-10 rounded-md transition-all duration-200 text-base ${
-                    isBooking
-                      ? "bg-gray-200 cursor-not-allowed"
-                      : "bg-orange-100 hover:bg-orange-200 text-orange-600"
-                  } flex items-center justify-center font-medium`}
+                  className="w-10 h-10 rounded-md transition-all duration-200 text-base bg-orange-100 hover:bg-orange-200 text-orange-600 flex items-center justify-center font-medium"
                   title={`Место ${seat + 1}`}
                 >
                   {seat + 1}
@@ -227,16 +218,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             <ModalButton
               variant="secondary"
               onClick={() => setIsModalOpen(false)}
-              disabled={isBooking}
             >
               Отмена
             </ModalButton>
             <ModalButton
               variant="primary"
               onClick={handleConfirmBooking}
-              disabled={isBooking}
             >
-              {isBooking ? "Бронирование..." : "Подтвердить"}
+              Подтвердить
             </ModalButton>
           </div>
         </div>

@@ -1,9 +1,10 @@
-// frontend/src/contexts/AuthContext.tsx
+// Modifications to frontend/src/contexts/AuthContext.tsx
 "use client";
 
 import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/utils/api";
+import { usePageLoad } from "@/contexts/PageLoadContext"; // Add PageLoad context
 
 interface UserData {
   id: number;
@@ -62,6 +63,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
   const isChecking = useRef(false);
+  const { wrapAsync, setPageLoading } = usePageLoad(); // Use page load context
 
   const checkAuth = useCallback(async () => {
     if (isChecking.current) return;
@@ -107,9 +109,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (!userDataFromCache || !userDataFromCache.avatar_url) {
       try {
-        const response = await apiFetch("/user_edits/me", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const response = await wrapAsync(
+          apiFetch<Response>("/user_edits/me", {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+        );
         if (response.ok) {
           const freshData = await response.json();
           if (freshData.avatar_url) {
@@ -139,7 +143,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     setIsLoading(false);
     isChecking.current = false;
-  }, []);
+    
+    // Ensure page loading is reset
+    setPageLoading(false);
+  }, [wrapAsync, setPageLoading]);
 
   const handleLoginSuccess = useCallback((token: string, user: UserData) => {
     localStorage.setItem(STORAGE_KEYS.TOKEN, token);
@@ -147,8 +154,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuth(true);
     setUserData(user);
     setIsLoading(false);
+    // Reset page loading when login completes
+    setPageLoading(false);
     window.dispatchEvent(new Event('auth-change'));
-  }, []);
+  }, [setPageLoading]);
 
   const logout = useCallback(() => {
     localStorage.removeItem(STORAGE_KEYS.TOKEN);
@@ -170,8 +179,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
+    // Add a timeout to prevent infinite loading
+    const timeout = setTimeout(() => {
+      if (isLoading) {
+        console.warn("AuthContext: Force resetting loading state after timeout");
+        setIsLoading(false);
+        // Also ensure page loading is reset
+        setPageLoading(false);
+        isChecking.current = false;
+      }
+    }, 5000);
+    
     checkAuth();
-  }, [checkAuth]);
+    
+    return () => clearTimeout(timeout);
+  }, [checkAuth, isLoading, setPageLoading]);
 
   const contextValue = {
     isAuth: isAuth,

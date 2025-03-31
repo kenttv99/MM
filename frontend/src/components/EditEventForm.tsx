@@ -81,8 +81,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
       setPageLoading(true);
       console.log("EditEventForm initializing with:", { initialEventId, isNewEvent });
   
-      if (initialEventId && !hasLoadedEvent.current && !isNewEvent) {
-        hasLoadedEvent.current = true;
+      if (initialEventId && !isNewEvent) {
         try {
           console.log("Calling loadEvent with ID:", initialEventId);
           await loadEvent(initialEventId);
@@ -90,15 +89,13 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
         } catch (err) {
           console.error("Failed to load event:", err);
         }
-      } else {
-        console.log("No loadEvent call: isNewEvent =", isNewEvent, "initialEventId =", initialEventId);
       }
   
       setPageLoading(false);
     };
   
     initialize();
-  }, [initialEventId, isNewEvent, loadEvent, isAdminAuth, router, setPageLoading, formData]);
+  }, [initialEventId, isNewEvent, loadEvent, isAdminAuth, router, setPageLoading]);
 
   useEffect(() => {
     if (shouldNavigate && success && !isPageLoading) {

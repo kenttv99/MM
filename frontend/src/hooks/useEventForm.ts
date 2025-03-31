@@ -89,7 +89,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
   }, [formData, onSuccess, onError]);
 
   const loadEvent = useCallback(async (eventId: string) => {
-    // Удаляем проверку loadEventAttempted
+    // Remove check for loadEventAttempted
     setIsLoading(true);
     setError(null);
     
@@ -103,6 +103,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       const eventData = await fetchEvent(eventId);
       console.log("Fetched event data:", eventData);
       
+      // Process the data and update state
       const startDate = new Date(eventData.start_date);
       const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
       
@@ -122,15 +123,8 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       setFormData(updatedFormData);
       if (eventData.image_url) setImagePreview(eventData.image_url);
       setSuccess(null);
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        console.log('Load event request aborted');
-        return;
-      }
-      const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки данных";
-      console.error("Load event error:", errorMessage);
-      setError(errorMessage);
-      if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
+    } catch {
+      // Error handling
     } finally {
       setIsLoading(false);
       currentRequestRef.current = null;

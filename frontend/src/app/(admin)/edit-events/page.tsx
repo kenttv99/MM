@@ -13,6 +13,7 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
   router.push(url.pathname + url.search);
 };
 
+// In src/app/(admin)/edit-events/page.tsx
 export default function EditEventsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -28,30 +29,32 @@ export default function EditEventsPage() {
 
       setPageLoading(true);
 
-      const isAuthenticated = await checkAuth();
-      if (!isAuthenticated) {
-        navigateTo(router, "/admin-login");
-        return;
+      try {
+        const isAuthenticated = await checkAuth();
+        if (!isAuthenticated) {
+          navigateTo(router, "/admin-login");
+          return;
+        }
+
+        const newEventParam = searchParams.get("new");
+        const eventIdParam = searchParams.get("event_id");
+
+        console.log("EditEventsPage params:", { newEventParam, eventIdParam });
+
+        if (newEventParam === "true") {
+          setIsNewEvent(true);
+          setEventId(null);
+        } else if (eventIdParam) {
+          setEventId(eventIdParam);
+          setIsNewEvent(false);
+        } else {
+          setIsNewEvent(true);
+          setEventId(null);
+        }
+      } finally {
+        setIsInitialized(true);
+        setPageLoading(false);
       }
-
-      const newEventParam = searchParams.get("new");
-      const eventIdParam = searchParams.get("event_id"); // Изменено на event_id
-
-      console.log("EditEventsPage params:", { newEventParam, eventIdParam });
-
-      if (newEventParam === "true") {
-        setIsNewEvent(true);
-        setEventId(null);
-      } else if (eventIdParam) {
-        setEventId(eventIdParam);
-        setIsNewEvent(false);
-      } else {
-        setIsNewEvent(true);
-        setEventId(null);
-      }
-
-      setIsInitialized(true);
-      setPageLoading(false);
     };
 
     initialLoad();
@@ -61,6 +64,5 @@ export default function EditEventsPage() {
     return null;
   }
 
-  console.log("Rendering EditEventForm with:", { eventId, isNewEvent });
   return <EditEventForm initialEventId={eventId} isNewEvent={isNewEvent} />;
 }

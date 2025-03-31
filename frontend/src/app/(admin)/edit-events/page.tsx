@@ -1,3 +1,4 @@
+// frontend/src/app/(admin)/edit-events/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -19,37 +20,47 @@ export default function EditEventsPage() {
   const { setPageLoading } = usePageLoad();
   const [eventId, setEventId] = useState<string | null>(null);
   const [isNewEvent, setIsNewEvent] = useState(false);
+  const [isInitialized, setIsInitialized] = useState(false);
 
   useEffect(() => {
     const initialLoad = async () => {
-      try {
-        const isAuthenticated = await checkAuth();
-        if (!isAuthenticated) {
-          navigateTo(router, "/admin-login");
-          return;
-        }
+      if (isInitialized) return;
 
-        const newEventParam = searchParams.get("new");
-        const eventIdParam = searchParams.get("eventId");
+      setPageLoading(true);
 
-        if (newEventParam === "true") {
-          setIsNewEvent(true);
-        } else if (eventIdParam) {
-          setEventId(eventIdParam);
-        } else {
-          navigateTo(router, "/dashboard");
-        }
-      } catch (err) {
-        console.error("EditEventsPage: initial load failed:", err);
-      } finally {
-        setPageLoading(false);
+      const isAuthenticated = await checkAuth();
+      if (!isAuthenticated) {
+        navigateTo(router, "/admin-login");
+        return;
       }
+
+      const newEventParam = searchParams.get("new");
+      const eventIdParam = searchParams.get("event_id"); // Изменено на event_id
+
+      console.log("EditEventsPage params:", { newEventParam, eventIdParam });
+
+      if (newEventParam === "true") {
+        setIsNewEvent(true);
+        setEventId(null);
+      } else if (eventIdParam) {
+        setEventId(eventIdParam);
+        setIsNewEvent(false);
+      } else {
+        setIsNewEvent(true);
+        setEventId(null);
+      }
+
+      setIsInitialized(true);
+      setPageLoading(false);
     };
 
     initialLoad();
-  }, [checkAuth, router, searchParams, setPageLoading]);
+  }, [checkAuth, router, searchParams, setPageLoading, isInitialized]);
 
-  if (!isAdminAuth) return null;
+  if (!isAdminAuth || !isInitialized) {
+    return null;
+  }
 
+  console.log("Rendering EditEventForm with:", { eventId, isNewEvent });
   return <EditEventForm initialEventId={eventId} isNewEvent={isNewEvent} />;
 }

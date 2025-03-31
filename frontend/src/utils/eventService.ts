@@ -41,13 +41,14 @@ export const fetchAdminEvents = async (
   setLoading: (value: boolean) => void,
   setError: (value: string | null) => void,
   urlParams: string = "",
-  append: boolean = false // Добавляем параметр append
+  append: boolean = false
 ): Promise<EventData[]> => {
   setLoading(true);
   setError(null);
   try {
     if (!token) throw new Error("Не авторизован");
 
+    console.log(`Fetching admin events from: /admin_edits/events${urlParams}`);
     const response = await fetch(`/admin_edits/events${urlParams}`, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -58,17 +59,17 @@ export const fetchAdminEvents = async (
 
     if (!response.ok) {
       const errorData = await response.json();
+      console.error("Fetch admin events error:", errorData);
       throw new Error(errorData.detail || "Не удалось загрузить мероприятия");
     }
 
     const data: EventData[] = await response.json();
-    console.log("Raw data from server:", data); // Логируем сырые данные с сервера
+    console.log("Received admin events data:", data);
     setData((prevEvents) => {
       const mappedData = data.map((event) => ({
         ...event,
         ticket_type: event.ticket_type ? {
           ...event.ticket_type,
-          // Убираем принудительное установление sold_quantity в 0
           sold_quantity: event.ticket_type.sold_quantity,
         } : undefined
       }));
@@ -76,6 +77,7 @@ export const fetchAdminEvents = async (
     });
     return data;
   } catch (err) {
+    console.error("Fetch admin events failed:", err);
     setError(err instanceof Error ? err.message : "Неизвестная ошибка");
     setData((prev) => append ? prev : []);
     return [];
@@ -86,12 +88,11 @@ export const fetchAdminEvents = async (
 
 export const createEvent = async (eventData: EventFormData): Promise<EventData> => {
   const token = localStorage.getItem("admin_token");
-  if (!token) {
-    throw new Error("Не авторизован");
-  }
+  if (!token) throw new Error("Не авторизован");
   
   const formData = prepareEventFormData(eventData);
   
+  console.log("Creating event at: /admin_edits");
   const response = await fetch("/admin_edits", {
     method: "POST",
     headers: {
@@ -102,20 +103,22 @@ export const createEvent = async (eventData: EventFormData): Promise<EventData> 
   
   if (!response.ok) {
     const errorData = await response.json();
+    console.error("Create event error:", errorData);
     throw new Error(errorData.detail || "Ошибка при создании мероприятия");
   }
   
-  return response.json();
+  const data = await response.json();
+  console.log("Created event data:", data);
+  return data;
 };
 
 export const updateEvent = async (eventId: number, eventData: EventFormData): Promise<EventData> => {
   const token = localStorage.getItem("admin_token");
-  if (!token) {
-    throw new Error("Не авторизован");
-  }
+  if (!token) throw new Error("Не авторизован");
   
   const formData = prepareEventFormData(eventData);
   
+  console.log(`Updating event at: /admin_edits/${eventId}`);
   const response = await fetch(`/admin_edits/${eventId}`, {
     method: "PUT",
     headers: {
@@ -126,31 +129,36 @@ export const updateEvent = async (eventId: number, eventData: EventFormData): Pr
   
   if (!response.ok) {
     const errorData = await response.json();
+    console.error("Update event error:", errorData);
     throw new Error(errorData.detail || "Ошибка при обновлении мероприятия");
   }
   
-  return response.json();
+  const data = await response.json();
+  console.log("Updated event data:", data);
+  return data;
 };
 
 export const fetchEvent = async (eventId: string): Promise<EventData> => {
   const token = localStorage.getItem("admin_token");
-  if (!token) {
-    throw new Error("Не авторизован");
-  }
+  if (!token) throw new Error("Не авторизован");
 
+  console.log(`Fetching event from: /admin_edits/${eventId}`);
   const response = await fetch(`/admin_edits/${eventId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       "Accept": "application/json",
     },
+    cache: "no-store", // Отключаем кэширование для свежести данных
   });
 
   if (!response.ok) {
     const errorData = await response.json();
+    console.error("Fetch event error:", errorData);
     throw new Error(errorData.detail || "Ошибка при загрузке мероприятия");
   }
 
   const data = await response.json();
+  console.log("Received event data:", data);
   data.registrations_count = data.registrations_count || 0;
   return data;
 };

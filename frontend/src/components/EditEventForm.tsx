@@ -1,3 +1,4 @@
+// frontend/src/components/EditEventForm.tsx
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
@@ -12,6 +13,7 @@ import {
   FaListOl, FaHeading, FaQuoteRight, FaUsers, FaTicketAlt as FaTicket
 } from "react-icons/fa";
 import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
@@ -25,7 +27,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
   const router = useRouter();
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [shouldNavigate, setShouldNavigate] = useState(false);
-  const { wrapAsync } = usePageLoad();
+  const { wrapAsync, setPageLoading, isPageLoading } = usePageLoad();
+  const { isAdminAuth } = useAdminAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const hasLoadedEvent = useRef(false);
@@ -46,6 +49,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
     status: "draft",
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
+    registrations_count: 0,
+    ticket_type_sold_quantity: 0,
   };
 
   const { 
@@ -61,9 +66,48 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
   } = useEventForm({
     initialValues,
     onSuccess: () => {
-      setTimeout(() => setShouldNavigate(true), 1500);
+      setShouldNavigate(true);
     }
   });
+
+  useEffect(() => {
+    if (!isAdminAuth) {
+      console.log("User not authenticated, redirecting to /admin-login");
+      router.push("/admin-login");
+      return;
+    }
+  
+    const initialize = async () => {
+      setPageLoading(true);
+      console.log("EditEventForm initializing with:", { initialEventId, isNewEvent });
+  
+      if (initialEventId && !hasLoadedEvent.current && !isNewEvent) {
+        hasLoadedEvent.current = true;
+        try {
+          console.log("Calling loadEvent with ID:", initialEventId);
+          await loadEvent(initialEventId);
+          console.log("Event data after loadEvent:", formData);
+        } catch (err) {
+          console.error("Failed to load event:", err);
+        }
+      } else {
+        console.log("No loadEvent call: isNewEvent =", isNewEvent, "initialEventId =", initialEventId);
+      }
+  
+      setPageLoading(false);
+    };
+  
+    initialize();
+  }, [initialEventId, isNewEvent, loadEvent, isAdminAuth, router, setPageLoading, formData]);
+
+  useEffect(() => {
+    if (shouldNavigate && success && !isPageLoading) {
+      const timer = setTimeout(() => {
+        router.push("/dashboard?refresh=true");
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [shouldNavigate, success, isPageLoading, router]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -76,30 +120,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
       reader.readAsDataURL(file);
     }
   };
-
-  useEffect(() => {
-    if ((initialEventId && !hasLoadedEvent.current) || isNewEvent) {
-      const initializeEvent = async () => {
-        if (initialEventId) {
-          hasLoadedEvent.current = true;
-          try {
-            await wrapAsync(
-              loadEvent(initialEventId)
-            );
-          } catch (error) {
-            console.error("Failed to load event:", error);
-          }
-        }
-      };
-      initializeEvent();
-    }
-  }, [initialEventId, isNewEvent, loadEvent, wrapAsync]);
-
-  useEffect(() => {
-    if (shouldNavigate) {
-      router.push("/dashboard?refresh=true");
-    }
-  }, [shouldNavigate, router]);
 
   const handleRemoveImage = () => {
     handleFileChange(null, true);
@@ -126,7 +146,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
   };
 
   const handlePreview = () => {
-    console.log("Preview event:", formData);
     alert("Функция предварительного просмотра находится в разработке.");
   };
 
@@ -569,14 +588,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
                       className="hidden"
                       ref={fileInputRef}
                     />
-                    <p className="text-gray-600 text-sm mb-2">Рекомендуемые размеры: 1200x630px</p>
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
-                    >
-                      Выбрать изображение
-                    </button>
+                    <p className="text-gray-600 text-sm mb-2">Рекомендуемые размеры: 1200x630                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                      >
+                        Выбрать изображение
+                      </button>
+                    </p>
                   </div>
                 </div>
               </div>
@@ -635,8 +654,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
                     Предпросмотр
                   </button>
                 </div>
-                <ModalButton type="submit">
-                  Сохранить
+                <ModalButton type="submit" disabled={isPageLoading}>
+                  {isPageLoading ? "Сохранение..." : "Сохранить"}
                 </ModalButton>
               </div>
             </form>

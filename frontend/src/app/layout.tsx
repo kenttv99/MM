@@ -1,4 +1,4 @@
-// frontend\src\app\layout.tsx
+// src/app/layout.tsx
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { PageLoadProvider } from "@/contexts/PageLoadContext";
@@ -28,7 +28,7 @@ export default function RootLayout({
   return (
     <html lang="ru" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {/* PageLoadProvider must be the outermost provider since AuthProvider uses it */}
+        {/* PageLoadProvider must be the outermost provider since other providers use it */}
         <PageLoadProvider initialState={false}>
           <AuthProvider>
             <ErrorBoundary>

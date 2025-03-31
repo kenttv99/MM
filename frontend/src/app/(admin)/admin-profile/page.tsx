@@ -1,3 +1,4 @@
+// src/app/(admin)/admin-profile/page.tsx
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -23,14 +24,26 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 
 export default function AdminProfilePage() {
   const router = useRouter();
-  const { checkAuth, updateAdminData, isAdminAuth } = useAdminAuth();
-  const { wrapAsync, apiFetch } = usePageLoad();
+  const { checkAuth, updateAdminData, adminData } = useAdminAuth();
+  const { wrapAsync, apiFetch, setPageLoading } = usePageLoad();
   const [formValues, setFormValues] = useState<AdminData>({ email: "", fio: "", id: 0 });
   const [isEditing, setIsEditing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const hasFetched = useRef(false);
   const isLoadingRef = useRef(false);
+
+  // Initialize form values from adminData when it becomes available
+  useEffect(() => {
+    if (adminData && !hasFetched.current) {
+      setFormValues({
+        id: adminData.id,
+        email: adminData.email,
+        fio: adminData.fio,
+      });
+      hasFetched.current = true;
+    }
+  }, [adminData]);
 
   useEffect(() => {
     const initialLoad = async () => {
@@ -44,7 +57,15 @@ export default function AdminProfilePage() {
           return;
         }
 
-        if (!hasFetched.current) {
+        if (!hasFetched.current && adminData) {
+          setFormValues({
+            id: adminData.id, 
+            email: adminData.email,
+            fio: adminData.fio
+          });
+          hasFetched.current = true;
+        } else if (!hasFetched.current) {
+          // Only fetch if we don't have data
           const data = await wrapAsync<AdminData>(
             apiFetch("/admin/me", { headers: { Accept: "application/json" } })
           );
@@ -59,15 +80,23 @@ export default function AdminProfilePage() {
         setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
       } finally {
         isLoadingRef.current = false;
+        setPageLoading(false);
       }
     };
 
     initialLoad();
-  }, [checkAuth, router, updateAdminData, wrapAsync, apiFetch]);
+    
+    // Safety reset of loading state
+    const timer = setTimeout(() => {
+      setPageLoading(false);
+    }, 2000);
+    
+    return () => clearTimeout(timer);
+  }, [checkAuth, router, updateAdminData, wrapAsync, apiFetch, adminData, setPageLoading]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormValues((prev) => ({ ...prev, [name]: value }));
+    setFormValues(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -98,8 +127,6 @@ export default function AdminProfilePage() {
       isLoadingRef.current = false;
     }
   };
-
-  if (!isAdminAuth || (isLoadingRef.current && !hasFetched.current)) return null;
 
   return (
     <div className="min-h-screen bg-gray-50">

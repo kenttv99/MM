@@ -1,3 +1,4 @@
+// src/app/(admin)/dashboard/page.tsx
 "use client";
 
 import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
@@ -12,6 +13,7 @@ import {
   FaFilter,
   FaTimes,
   FaCheck,
+  FaInfoCircle,
 } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
@@ -40,17 +42,52 @@ export default function DashboardPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [isBrowser, setIsBrowser] = useState(false);
+  
   const hasFetched = useRef(false);
   const observer = useRef<IntersectionObserver | null>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const initAttempted = useRef(false);
 
   const router = useRouter();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const searchParams = useSearchParams();
-  const { checkAuth } = useAdminAuth();
-  const { wrapAsync, apiFetch } = usePageLoad();
+  const { checkAuth, isAdminAuth } = useAdminAuth();
+  const { wrapAsync, setPageLoading } = usePageLoad();
+
+  useEffect(() => {
+    setIsBrowser(true);
+  }, []);
+
+  const getAdminToken = useCallback(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem("admin_token");
+    }
+    return null;
+  }, []);
+
+  const fetchWithErrorHandling = async <T,>(url: string, options: RequestInit = {}): Promise<T | null> => {
+    try {
+      const response = await fetch(url, options);
+      if (!response.ok) {
+        const errorText = await response.text();
+        setError(`Ошибка ${response.status}: ${errorText || 'Неизвестная ошибка'}`);
+        return null;
+      }
+      return await response.json() as T;
+    } catch {
+      setError('Ошибка сети. Проверьте подключение и попробуйте снова.');
+      return null;
+    }
+  };
 
   const fetchEvents = useCallback(
     async (search: string, pageNum: number, append: boolean = false) => {
+      if (isLoadingEvents || !isBrowser) return;
+      setIsLoadingEvents(true);
+
       let url = `/admin_edits/events?page=${pageNum}&limit=10`;
       const params = new URLSearchParams();
 
@@ -62,86 +99,124 @@ export default function DashboardPage() {
       if (params.toString()) url += `&${params.toString()}`;
 
       try {
-        const data = await wrapAsync<EventData[]>(apiFetch(url));
-        setHasMore(data.length === 10);
-        setEvents((prev) => (append ? [...prev, ...data] : data));
-      } catch (err) {
-        console.error("Fetch events failed:", err);
-        setError(err instanceof Error ? err.message : "Не удалось загрузить мероприятия");
-        if (!append) setEvents([]);
+        const token = getAdminToken();
+        if (!token) {
+          setError("Токен администратора не найден");
+          return;
+        }
+        
+        const data = await wrapAsync(fetchWithErrorHandling<EventData[]>(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          }
+        }));
+        
+        if (data) {
+          setHasMore(data.length === 10);
+          setEvents((prev) => (append ? [...prev, ...data] : data));
+        } else if (!append) {
+          setEvents([]);
+        }
+      } finally {
+        setIsLoadingEvents(false);
       }
     },
-    [startDate, endDate, statusFilter, wrapAsync, apiFetch]
+    [startDate, endDate, statusFilter, isLoadingEvents, isBrowser, getAdminToken, wrapAsync]
   );
 
   const fetchUsers = useCallback(
     async (search: string) => {
+      if (isLoadingUsers || !isBrowser) return;
+      setIsLoadingUsers(true);
+
       const url = search.trim()
         ? `/admin_edits/users?search=${encodeURIComponent(search)}`
         : "/admin_edits/users";
+      
       try {
-        const data = await wrapAsync<User[]>(apiFetch(url));
-        setUsers(data);
-      } catch (err) {
-        console.error("Fetch users failed:", err);
-        setError(err instanceof Error ? err.message : "Не удалось загрузить пользователей");
-        setUsers([]);
+        const token = getAdminToken();
+        if (!token) {
+          setError("Токен администратора не найден");
+          return;
+        }
+        
+        const data = await wrapAsync(fetchWithErrorHandling<User[]>(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json",
+          }
+        }));
+        
+        if (data) {
+          setUsers(data);
+        } else {
+          setUsers([]);
+        }
+      } finally {
+        setIsLoadingUsers(false);
       }
     },
-    [wrapAsync, apiFetch]
+    [isLoadingUsers, isBrowser, getAdminToken, wrapAsync]
   );
 
   useEffect(() => {
+    if (!isBrowser) return;
+    
     const initialize = async () => {
-      if (hasFetched.current) return;
+      if (hasFetched.current || initAttempted.current) return;
+      initAttempted.current = true;
 
       try {
-        const isAuthenticated = await wrapAsync(checkAuth());
-        console.log("Authentication check result:", isAuthenticated);
-        if (!isAuthenticated) {
-          console.log("Not authenticated, redirecting to /admin-login");
+        // const isAuthenticated = await checkAuth();
+        if (!isAdminAuth) {
           navigateTo(router, "/admin-login");
           return;
         }
 
-        const shouldRefresh = searchParams.get("refresh") === "true";
-        console.log("Fetching initial data, shouldRefresh:", shouldRefresh);
-        await Promise.all([fetchEvents("", 1), fetchUsers("")]);
+        await Promise.all([
+          fetchEvents("", 1),
+          fetchUsers("")
+        ]);
+        
         hasFetched.current = true;
-      } catch (err) {
-        console.error("Initialization failed:", err);
-        setError(err instanceof Error ? err.message : "Ошибка инициализации дашборда");
-        hasFetched.current = true; // Завершаем загрузку даже при ошибке
+      } catch {
+        setError("Ошибка инициализации дашборда");
+      } finally {
+        setPageLoading(false);
       }
     };
 
-    initialize();
+    const timer = setTimeout(() => {
+      initialize();
+    }, 100);
 
     return () => {
+      clearTimeout(timer);
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
       if (observer.current) observer.current.disconnect();
     };
-  }, [checkAuth, router, searchParams, wrapAsync, fetchEvents, fetchUsers]);
+  }, [isBrowser, checkAuth, router, fetchEvents, fetchUsers, setPageLoading, isAdminAuth]);
 
   const lastEventElementRef = useCallback(
     (node: HTMLDivElement | null) => {
-      if (!hasMore || !hasFetched.current) return;
+      if (!hasMore || !hasFetched.current || isLoadingEvents || !isBrowser) return;
       if (observer.current) observer.current.disconnect();
 
       observer.current = new IntersectionObserver(
         (entries) => {
-          if (entries[0].isIntersecting) {
+          if (entries[0].isIntersecting && !isLoadingEvents) {
             const nextPage = page + 1;
             setPage(nextPage);
             fetchEvents(eventSearch, nextPage, true);
           }
         },
-        { threshold: 1.0 }
+        { threshold: 0.5 }
       );
 
       if (node) observer.current.observe(node);
     },
-    [hasMore, eventSearch, page, fetchEvents]
+    [hasMore, eventSearch, page, fetchEvents, isLoadingEvents, isBrowser]
   );
 
   const handleSearchChange = (e: ChangeEvent<HTMLInputElement>, type: "users" | "events") => {
@@ -171,22 +246,38 @@ export default function DashboardPage() {
   };
 
   const handleDeleteEvent = async () => {
-    if (!eventToDelete) return;
+    if (!eventToDelete || !isBrowser) return;
 
     setError(null);
     try {
-      await wrapAsync(apiFetch(`/admin_edits/${eventToDelete}`, { method: "DELETE" }));
+      const token = getAdminToken();
+      if (!token) {
+        setError("Токен администратора не найден");
+        return;
+      }
+      
+      const response = await fetch(`/admin_edits/${eventToDelete}`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || `Ошибка ${response.status}`);
+      }
+      
       setEvents((prev) => prev.filter((event) => event.id !== eventToDelete));
       await fetchEvents(eventSearch, 1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Не удалось удалить мероприятие");
+    } catch {
+      setError("Не удалось удалить мероприятие");
     } finally {
       setShowDeleteModal(false);
       setEventToDelete(null);
     }
   };
-
-  if (!hasFetched.current) return null;
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -206,8 +297,30 @@ export default function DashboardPage() {
           background: rgba(107, 114, 128, 0.8);
         }
       `}</style>
-      <AdminHeader />
+            <AdminHeader />
       <main className="container mx-auto px-4 sm:px-6 pt-24 pb-12">
+        {/* Общая информация */}
+        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100 mb-8">
+          <div className="flex items-center mb-4">
+            <FaInfoCircle className="text-blue-500 text-xl mr-3" />
+            <h2 className="text-xl font-semibold text-gray-800">Общая статистика</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="flex items-center">
+              <FaUsers className="text-blue-500 mr-2" />
+              <p className="text-base text-gray-700">
+                Всего пользователей: <span className="font-bold">{users.length}</span>
+              </p>
+            </div>
+            <div className="flex items-center">
+              <FaCalendarAlt className="text-blue-500 mr-2" />
+              <p className="text-base text-gray-700">
+                Всего мероприятий: <span className="font-bold">{events.length}</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row justify-between items-center mb-8">
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">Панель управления</h1>
           <button
@@ -233,6 +346,9 @@ export default function DashboardPage() {
                 <FaUsers className="text-blue-500 text-xl mr-3" />
                 <h2 className="text-xl font-semibold text-gray-800">Пользователи</h2>
               </div>
+              {isLoadingUsers && (
+                <div className="text-sm text-blue-500">Загрузка...</div>
+              )}
             </div>
             <div className="mb-6">
               <InputField
@@ -294,7 +410,7 @@ export default function DashboardPage() {
               </>
             ) : (
               <p className="text-gray-500 text-center py-6 text-base">
-                {userSearch.trim() ? "Пользователи не найдены" : "Нет доступных пользователей"}
+                {userSearch.trim() ? "Пользователи не найдены" : (isLoadingUsers ? "Загрузка пользователей..." : "Нет доступных пользователей")}
               </p>
             )}
           </div>
@@ -306,13 +422,18 @@ export default function DashboardPage() {
                 <FaCalendarAlt className="text-blue-500 text-xl mr-3" />
                 <h2 className="text-xl font-semibold text-gray-800">Мероприятия</h2>
               </div>
-              <button
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 shadow-sm min-h-[44px] text-base"
-              >
-                <FaFilter className="mr-2" />
-                Фильтры
-              </button>
+              <div className="flex items-center">
+                {isLoadingEvents && (
+                  <div className="text-sm text-blue-500 mr-3">Загрузка...</div>
+                )}
+                <button
+                  onClick={() => setIsFilterOpen(!isFilterOpen)}
+                  className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 shadow-sm min-h-[44px] text-base"
+                >
+                  <FaFilter className="mr-2" />
+                  Фильтры
+                </button>
+              </div>
             </div>
             <div className="mb-6">
               <InputField
@@ -470,7 +591,11 @@ export default function DashboardPage() {
                         const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
                         return (
-                          <tr key={event.id ?? index} className="hover:bg-gray-50 transition-colors duration-150">
+                          <tr 
+                            key={event.id ?? index} 
+                            ref={index === events.length - 1 ? lastEventElementRef : null}
+                            className="hover:bg-gray-50 transition-colors duration-150"
+                          >
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.id ?? "N/A"}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.title}</td>
                             <td className="px-6 py-4 whitespace-nowrap text-base">
@@ -523,13 +648,16 @@ export default function DashboardPage() {
               </>
             ) : (
               <p className="text-gray-500 text-center py-6 text-base">
-                {eventSearch.trim() || startDate || endDate || statusFilter ? "Мероприятия не найдены" : "Нет доступных мероприятий"}
+                {eventSearch.trim() || startDate || endDate || statusFilter ? 
+                  "Мероприятия не найдены" : 
+                  (isLoadingEvents ? "Загрузка мероприятий..." : "Нет доступных мероприятий")}
               </p>
             )}
           </div>
         </div>
       </main>
 
+      {/* Delete confirmation modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
           <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-sm border border-gray-100">

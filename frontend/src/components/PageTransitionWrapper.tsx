@@ -1,7 +1,7 @@
-// frontend/src/components/PageTransitionWrapper.tsx
+// src/components/PageTransitionWrapper.tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePageLoad } from "@/contexts/PageLoadContext";
 import Loading from "@/components/Loading";
@@ -16,25 +16,33 @@ export default function PageTransitionWrapper({
   disableLoading = false,
 }: PageTransitionWrapperProps) {
   const { isPageLoading, setPageLoading } = usePageLoad();
+  const hasInitialized = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // Reset loading state after component mount
   useEffect(() => {
+    // Mark as initialized
+    hasInitialized.current = true;
+    
     // If disableLoading is true, immediately set loading to false
     if (disableLoading) {
       setPageLoading(false);
     }
     
-    // Add a safety timeout to ensure loading state resets
-    const safetyTimeout = setTimeout(() => {
+    // Safety timeout to ensure loading state resets
+    timeoutRef.current = setTimeout(() => {
       if (isPageLoading) {
         console.warn("PageTransitionWrapper: Safety timeout triggered to reset loading state");
         setPageLoading(false);
       }
     }, 5000);
     
-    // Cleanup timeout on unmount
+    // Cleanup timeout on unmount and make sure loading is reset
     return () => {
-      clearTimeout(safetyTimeout);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      setPageLoading(false);
     };
   }, [disableLoading, setPageLoading, isPageLoading]);
 

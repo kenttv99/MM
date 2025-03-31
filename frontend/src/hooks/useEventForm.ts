@@ -18,41 +18,28 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     initialValues.image_url || null
   );
   
-  // Используем ref для отслеживания текущего запроса
   const currentRequestRef = useRef<AbortController | null>(null);
-  const loadEventAttempted = useRef<Set<string>>(new Set());
+  // Удаляем loadEventAttempted, так как он блокирует повторные запросы
+  // const loadEventAttempted = useRef<Set<string>>(new Set());
 
-  // Установка значения поля формы
   const setFieldValue = useCallback((name: keyof EventFormData, value: unknown) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   }, []);
 
-  // Обработчик изменений полей формы
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked;
-      setFormData(prev => ({ ...prev, [name]: checked }));
+      setFieldValue(name as keyof EventFormData, checked);
     } else if (type === "number") {
       const numericValue = parseFloat(value) || 0;
-      
-      if (name === "ticket_type_available_quantity") {
-        setFormData(prev => ({
-          ...prev,
-          ticket_type_available_quantity: numericValue
-        }));
-      } else if (name === "price") {
-        setFormData(prev => ({ ...prev, price: numericValue }));
-      } else {
-        setFormData(prev => ({ ...prev, [name]: numericValue }));
-      }
+      setFieldValue(name as keyof EventFormData, numericValue);
     } else {
-      setFormData(prev => ({ ...prev, [name]: value }));
+      setFieldValue(name as keyof EventFormData, value);
     }
-  }, []);
+  }, [setFieldValue]);
 
-  // Обработчик изменения файла изображения
   const handleFileChange = useCallback((file: File | null, isRemoved = false) => {
     setFormData(prev => ({ 
       ...prev, 
@@ -69,7 +56,6 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, []);
 
-  // Отправка формы
   const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError(null);
@@ -77,12 +63,9 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     setIsLoading(true);
 
     try {
-      // Отменяем предыдущий запрос, если он существует
       if (currentRequestRef.current) {
         currentRequestRef.current.abort();
       }
-      
-      // Создаем новый контроллер для текущего запроса
       currentRequestRef.current = new AbortController();
       
       const result = formData.id 
@@ -90,59 +73,40 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         : await createEvent(formData);
       
       setSuccess(formData.id ? "Мероприятие успешно обновлено" : "Мероприятие успешно создано");
-      
-      if (onSuccess) {
-        onSuccess(result);
-      }
+      if (onSuccess) onSuccess(result);
     } catch (err) {
-      // Игнорируем ошибки прерванных запросов
       if (err instanceof DOMException && err.name === 'AbortError') {
-        console.log('Предыдущий запрос был отменен');
+        console.log('Submit request aborted');
         return;
       }
-      
       const errorMessage = err instanceof Error ? err.message : "Неизвестная ошибка";
       setError(errorMessage);
-      
-      if (onError) {
-        onError(err instanceof Error ? err : new Error(errorMessage));
-      }
+      if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
     } finally {
       setIsLoading(false);
       currentRequestRef.current = null;
     }
   }, [formData, onSuccess, onError]);
 
-  // Загрузка данных события
   const loadEvent = useCallback(async (eventId: string) => {
-    // Проверяем, загружали ли мы уже это событие
-    if (loadEventAttempted.current.has(eventId)) {
-      console.log(`Event ${eventId} already attempted to load, skipping`);
-      return;
-    }
-    
-    // Добавляем ID в множество загруженных
-    loadEventAttempted.current.add(eventId);
-    
+    // Удаляем проверку loadEventAttempted
     setIsLoading(true);
     setError(null);
     
     try {
-      // Отменяем предыдущий запрос, если он существует
       if (currentRequestRef.current) {
         currentRequestRef.current.abort();
       }
-      
-      // Создаем новый контроллер для текущего запроса
       currentRequestRef.current = new AbortController();
       
+      console.log(`Fetching event with ID: ${eventId}`);
       const eventData = await fetchEvent(eventId);
+      console.log("Fetched event data:", eventData);
       
-      // Преобразуем даты и время
       const startDate = new Date(eventData.start_date);
       const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
       
-      setFormData({
+      const updatedFormData = {
         ...eventData,
         start_date: startDate.toISOString().split('T')[0],
         start_time: startDate.toTimeString().slice(0, 5),
@@ -153,32 +117,26 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
         ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
         registrations_count: eventData.registrations_count || 0,
-      });
+      };
       
-      // Установка превью изображения
-      if (eventData.image_url) {
-        setImagePreview(eventData.image_url);
-      }
+      setFormData(updatedFormData);
+      if (eventData.image_url) setImagePreview(eventData.image_url);
+      setSuccess(null);
     } catch (err) {
-      // Игнорируем ошибки прерванных запросов
       if (err instanceof DOMException && err.name === 'AbortError') {
-        console.log('Предыдущий запрос был отменен');
+        console.log('Load event request aborted');
         return;
       }
-      
       const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки данных";
+      console.error("Load event error:", errorMessage);
       setError(errorMessage);
-      
-      if (onError) {
-        onError(err instanceof Error ? err : new Error(errorMessage));
-      }
+      if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
     } finally {
       setIsLoading(false);
       currentRequestRef.current = null;
     }
   }, [onError]);
 
-  // Сброс формы
   const resetForm = useCallback(() => {
     setFormData(initialValues);
     setImagePreview(initialValues.image_url || null);

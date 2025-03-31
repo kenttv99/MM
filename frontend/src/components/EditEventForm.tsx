@@ -1,10 +1,9 @@
 // frontend/src/components/EditEventForm.tsx
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
-import { useEventForm } from "@/hooks/useEventForm";
 import { EventFormData } from "@/types/events";
 import { motion } from "framer-motion";
 import { 
@@ -12,101 +11,44 @@ import {
   FaImage, FaTrash, FaEye, FaBold, FaItalic, FaLink, FaListUl,
   FaListOl, FaHeading, FaQuoteRight, FaUsers, FaTicketAlt as FaTicket
 } from "react-icons/fa";
-import { usePageLoad } from "@/contexts/PageLoadContext";
-import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
+import Image from "next/image";
 
 interface EditEventFormProps {
-  initialEventId: string | null;
   isNewEvent: boolean;
+  formData: EventFormData;
+  error: string | null;
+  success: string | null;
+  imagePreview: string | null;
+  handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
+  handleFileChange: (file: File | null, isRemoved?: boolean) => void;
+  handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
+  setFieldValue: (name: keyof EventFormData, value: unknown) => void;
+  isLoading: boolean;
+  isPageLoading: boolean;
 }
 
-const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEvent }) => {
+const EditEventForm: React.FC<EditEventFormProps> = ({
+  isNewEvent,
+  formData,
+  error,
+  success,
+  imagePreview,
+  handleChange,
+  handleFileChange,
+  handleSubmit,
+  setFieldValue,
+  isLoading,
+  isPageLoading,
+}) => {
   const router = useRouter();
   const [filePreview, setFilePreview] = useState<string | null>(null);
-  const [shouldNavigate, setShouldNavigate] = useState(false);
-  const { wrapAsync, setPageLoading, isPageLoading } = usePageLoad();
-  const { isAdminAuth } = useAdminAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
-  const hasLoadedEvent = useRef(false);
 
-  const initialValues: EventFormData = {
-    title: "",
-    description: "",
-    start_date: new Date().toISOString().split("T")[0],
-    start_time: "12:00",
-    end_date: "",
-    end_time: "",
-    location: "",
-    price: 0,
-    ticket_type_name: "standart",
-    ticket_type_available_quantity: 0,
-    ticket_type_free_registration: false,
-    published: false,
-    status: "draft",
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    registrations_count: 0,
-    ticket_type_sold_quantity: 0,
-  };
-
-  const { 
-    formData, 
-    error, 
-    success, 
-    imagePreview,
-    handleChange, 
-    handleFileChange, 
-    handleSubmit,
-    loadEvent,
-    setFieldValue
-  } = useEventForm({
-    initialValues,
-    onSuccess: () => {
-      setShouldNavigate(true);
-    }
-  });
-
-  useEffect(() => {
-    if (!isAdminAuth) {
-      console.log("User not authenticated, redirecting to /admin-login");
-      router.push("/admin-login");
-      return;
-    }
-  
-    const initialize = async () => {
-      setPageLoading(true);
-      console.log("EditEventForm initializing with:", { initialEventId, isNewEvent });
-  
-      if (initialEventId && !isNewEvent) {
-        try {
-          console.log("Calling loadEvent with ID:", initialEventId);
-          await loadEvent(initialEventId);
-          console.log("Event data after loadEvent:", formData);
-        } catch (err) {
-          console.error("Failed to load event:", err);
-        }
-      }
-  
-      setPageLoading(false);
-    };
-  
-    initialize();
-  }, [initialEventId, isNewEvent, loadEvent, isAdminAuth, router, setPageLoading]);
-
-  useEffect(() => {
-    if (shouldNavigate && success && !isPageLoading) {
-      const timer = setTimeout(() => {
-        router.push("/dashboard?refresh=true");
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-  }, [shouldNavigate, success, isPageLoading, router]);
-
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (file) {
       handleFileChange(file);
@@ -116,37 +58,37 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
       };
       reader.readAsDataURL(file);
     }
-  };
+  }, [handleFileChange]);
 
-  const handleRemoveImage = () => {
+  const handleRemoveImage = useCallback(() => {
     handleFileChange(null, true);
     setFilePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
-  };
+  }, [handleFileChange]);
 
-  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleStatusChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const { value } = e.target;
     setFieldValue("status", value);
     if (value === "draft") {
       setFieldValue("published", false);
     }
-  };
+  }, [setFieldValue]);
 
-  const handlePublishedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePublishedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const { checked } = e.target;
     setFieldValue("published", checked);
     if (checked && formData.status === "draft") {
       setFieldValue("status", "registration_open");
     }
-  };
+  }, [formData.status, setFieldValue]);
 
-  const handlePreview = () => {
+  const handlePreview = useCallback(() => {
     alert("Функция предварительного просмотра находится в разработке.");
-  };
+  }, []);
 
-  const insertFormatting = (startTag: string, endTag: string = "") => {
+  const insertFormatting = useCallback((startTag: string, endTag: string = "") => {
     if (!textAreaRef.current) return;
     
     const textArea = textAreaRef.current;
@@ -166,13 +108,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
         start + startTag.length + selectedText.length
       );
     }, 0);
-  };
+  }, [setFieldValue]);
 
-  const addHeading = () => insertFormatting("## ");
-  const addBold = () => insertFormatting("**");
-  const addItalic = () => insertFormatting("*");
-  const addQuote = () => insertFormatting("> ");
-  const addBulletList = () => {
+  const addHeading = useCallback(() => insertFormatting("## "), [insertFormatting]);
+  const addBold = useCallback(() => insertFormatting("**"), [insertFormatting]);
+  const addItalic = useCallback(() => insertFormatting("*"), [insertFormatting]);
+  const addQuote = useCallback(() => insertFormatting("> "), [insertFormatting]);
+
+  const addBulletList = useCallback(() => {
     if (!textAreaRef.current) return;
     
     const textArea = textAreaRef.current;
@@ -194,9 +137,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
       textArea.focus();
       textArea.setSelectionRange(start, start + newText.length);
     }, 0);
-  };
+  }, [setFieldValue]);
 
-  const addNumberedList = () => {
+  const addNumberedList = useCallback(() => {
     if (!textAreaRef.current) return;
     
     const textArea = textAreaRef.current;
@@ -218,9 +161,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
       textArea.focus();
       textArea.setSelectionRange(start, start + newText.length);
     }, 0);
-  };
+  }, [setFieldValue]);
 
-  const addLink = () => {
+  const addLink = useCallback(() => {
     if (!textAreaRef.current) return;
     
     const textArea = textAreaRef.current;
@@ -239,12 +182,16 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
       textArea.focus();
       textArea.setSelectionRange(cursorPosition - 3, cursorPosition);
     }, 0);
-  };
+  }, [setFieldValue]);
 
   const availableQuantity = formData.ticket_type_available_quantity || 0;
   const soldQuantity = formData.ticket_type_sold_quantity || 0;
   const remainingQuantity = availableQuantity - soldQuantity;
   const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
+
+  if (isLoading) {
+    return <div>Loading event data...</div>;
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -556,9 +503,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
                     >
                       {(imagePreview || filePreview) ? (
                         <div className="relative w-full h-full">
-                          <img
+                          <Image
                             src={filePreview || imagePreview || ""}
                             alt="Preview"
+                            width={128}
+                            height={128}
                             className="w-full h-full object-cover"
                           />
                           <button
@@ -585,10 +534,12 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
                       className="hidden"
                       ref={fileInputRef}
                     />
-                    <p className="text-gray-600 text-sm mb-2">Рекомендуемые размеры: 1200x630                      <button
+                    <p className="text-gray-600 text-sm mb-2">
+                      Рекомендуемые размеры: 1200x630
+                      <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                        className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors ml-2"
                       >
                         Выбрать изображение
                       </button>
@@ -633,12 +584,12 @@ const EditEventForm: React.FC<EditEventFormProps> = ({ initialEventId, isNewEven
                 </div>
               </div>
 
-              <div className="flex flex-wrap justify-between gap-4">
-                <div className="flex flex-wrap gap-4">
+              <div className="flex justify-between gap-4 flex-wrap">
+                <div className="flex gap-4 flex-wrap">
                   <button
                     type="button"
                     onClick={() => router.push("/dashboard")}
-                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
                   >
                     Отмена
                   </button>

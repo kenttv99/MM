@@ -1,4 +1,4 @@
-// src/contexts/AdminAuthContext.tsx
+// frontend/src/contexts/AdminAuthContext.tsx
 "use client";
 
 import { useRouter } from "next/navigation";
@@ -10,6 +10,7 @@ interface AdminAuthContextType {
   isAdminAuth: boolean;
   adminData: AdminProfile | null;
   isLoading: boolean;
+  isCheckingAuth: boolean;
   checkAuth: () => Promise<boolean>;
   logoutAdmin: () => void;
   updateAdminData: (data: AdminProfile) => void;
@@ -22,18 +23,11 @@ const STORAGE_KEYS = {
   ADMIN_DATA: "admin_data",
 };
 
-interface JwtPayload {
-  exp: number;
-  sub: string;
-  [key: string]: unknown;
-}
-
-function decodeJwt(token: string): JwtPayload | null {
+function decodeJwt(token: string) {
   try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload;
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    return JSON.parse(window.atob(base64));
   } catch {
     return null;
   }
@@ -42,53 +36,75 @@ function decodeJwt(token: string): JwtPayload | null {
 function isTokenExpired(token: string): boolean {
   const decoded = decodeJwt(token);
   if (!decoded || !decoded.exp) return true;
-  const currentTime = Math.floor(Date.now() / 1000);
-  return decoded.exp < currentTime;
+  return decoded.exp < Math.floor(Date.now() / 1000);
 }
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
   const [adminData, setAdminData] = useState<AdminProfile | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(false);
+  
   const router = useRouter();
-  const hasCheckedAuth = useRef(false);
-  const isChecking = useRef(false);
-  const authCheckPromise = useRef<Promise<boolean> | null>(null);
   const { setPageLoading } = usePageLoad();
+  
+  // Use refs to track state between renders
+  const authCheckPromise = useRef<Promise<boolean> | null>(null);
+  const initialized = useRef(false);
+
+  // Fast synchronous check for token at init
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+    
+    // Only run in browser
+    if (typeof window === 'undefined') return;
+    
+    const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
+    const userData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
+    
+    // Quick token validation
+    if (token && !isTokenExpired(token) && userData) {
+      try {
+        setAdminData(JSON.parse(userData));
+        setIsAdminAuth(true);
+      } catch (e) {
+        console.error("Error parsing admin data", e);
+      }
+    }
+  }, []);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
+    // Return existing promise to prevent duplicate requests
     if (authCheckPromise.current) {
       return authCheckPromise.current;
     }
     
-    authCheckPromise.current = (async () => {
-      if (isChecking.current) {
-        return isAdminAuth;
-      }
-      
-      isChecking.current = true;
-      setIsLoading(true);
-      
+    setIsCheckingAuth(true);
+    setIsLoading(true); // Set loading state when checking auth
+    
+    const newPromise = (async () => {
       try {
         const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
-        const cachedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
-
-        if (!token || !cachedData || isTokenExpired(token)) {
+        
+        // Fast check - invalid token
+        if (!token || isTokenExpired(token)) {
           localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
           localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
           setIsAdminAuth(false);
           setAdminData(null);
           return false;
         }
-
-        // Проверяем токен на сервере
+        
+        // API validation
         const response = await fetch("/admin/me", {
           headers: {
-            Authorization: `Bearer ${token}`,
-            Accept: "application/json",
+            "Authorization": `Bearer ${token}`,
+            "Accept": "application/json",
           },
+          cache: "no-store"
         });
-
+        
         if (!response.ok) {
           localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
           localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
@@ -96,37 +112,58 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           setAdminData(null);
           return false;
         }
-
-        const serverData = await response.json();
-        setAdminData(serverData);
+        
+        const data = await response.json();
+        localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
         setIsAdminAuth(true);
-        localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(serverData));
+        setAdminData(data);
         return true;
-      } catch (err) {
-        console.error("Check auth failed:", err);
+      } catch (error) {
+        console.error("Auth check failed:", error);
         localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
         setIsAdminAuth(false);
         setAdminData(null);
         return false;
       } finally {
-        setIsLoading(false);
-        isChecking.current = false;
+        setIsCheckingAuth(false);
+        setIsLoading(false); // Clear loading state when check is complete
+        
+        // Clear promise reference after completion
         setTimeout(() => {
           authCheckPromise.current = null;
         }, 0);
       }
     })();
     
-    return authCheckPromise.current;
-  }, [isAdminAuth]);
+    // Store promise reference
+    authCheckPromise.current = newPromise;
+    return newPromise;
+  }, []);
+
+  // Initial auth check on mount
+  useEffect(() => {
+    if (initialized.current) return;
+    
+    // Set a safety timeout to prevent infinite loading
+    const safetyTimeout = setTimeout(() => {
+      if (isLoading || isCheckingAuth) {
+        console.warn("AdminAuthContext: Safety timeout triggered");
+        setIsLoading(false);
+        setIsCheckingAuth(false);
+        setPageLoading(false);
+      }
+    }, 5000);
+    
+    return () => clearTimeout(safetyTimeout);
+  }, [isLoading, isCheckingAuth, setPageLoading]);
 
   const logoutAdmin = useCallback(() => {
     localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
     setIsAdminAuth(false);
     setAdminData(null);
-    router.push("/admin-login", { scroll: false });
+    router.push("/admin-login");
   }, [router]);
 
   const updateAdminData = useCallback((data: AdminProfile) => {
@@ -134,43 +171,16 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
   }, []);
 
-  useEffect(() => {
-    if (!hasCheckedAuth.current) {
-      hasCheckedAuth.current = true;
-      checkAuth()
-        .catch((err) => {
-          console.error("Initial checkAuth failed:", err);
-          setIsLoading(false);
-        })
-        .finally(() => {
-          setTimeout(() => {
-            setIsLoading(false);
-            setPageLoading(false);
-          }, 0);
-        });
-    }
-    
-    const timeout = setTimeout(() => {
-      if (isLoading) {
-        console.warn("AdminAuthContext: Force resetting loading state after timeout");
-        setIsLoading(false);
-        setPageLoading(false);
-        isChecking.current = false;
-        authCheckPromise.current = null;
-      }
-    }, 5000);
-    
-    return () => clearTimeout(timeout);
-  }, [checkAuth, isLoading, setPageLoading]);
-
-  const contextValue: AdminAuthContextType = {
+  // Context value with all required properties
+  const contextValue = React.useMemo(() => ({
     isAdminAuth,
     adminData,
     isLoading,
+    isCheckingAuth,
     checkAuth,
     logoutAdmin,
-    updateAdminData,
-  };
+    updateAdminData
+  }), [isAdminAuth, adminData, isLoading, isCheckingAuth, checkAuth, logoutAdmin, updateAdminData]);
 
   return (
     <AdminAuthContext.Provider value={contextValue}>

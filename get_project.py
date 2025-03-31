@@ -14,15 +14,16 @@ INCLUDE_EXTENSIONS = [
 
 # Разрешенные пути
 INCLUDE_PATHS = [
-    "backend/",
+    # "backend/",
     # "frontend/src/",
-    "servers/",
-    "frontend/src/components",
+    # "servers/",
+    "frontend/src/",
+    # "frontend/src/components",
     # "frontend/src/hooks",
     # "frontend/src/utils",
     # "frontend/src/app",
     # "frontend/src/types",
-    "frontend/src/contexts",
+    # "frontend/src/contexts",
     # "frontend/src/app/(admin)/"
 ]
 
@@ -30,15 +31,15 @@ INCLUDE_PATHS = [
 INCLUDE_FILES = [
     # "constants.py",
     # "README.md",
-    "frontend/src/next.config.ts",
-    "frontend/src/app/(admin)/dashboard/page.tsx",
+    # "frontend/src/next.config.ts",
+    # "frontend/src/app/(admin)/dashboard/page.tsx",
     # "frontend/src/app/(admin)/edit-user/page.tsx",
-    "frontend/src/app/(admin)/edit-events/page.tsx",
+    # "frontend/src/app/(admin)/edit-events/page.tsx",
     # "frontend/src/app/(public)/event/[slug]/page.tsx",
     # "frontend/src/app/(public)/events/page.tsx",
-    "frontend/src/utils/api.ts"
+    # "frontend/src/utils/api.ts"
     # "frontend/src/contexts/PageLoadContext.tsx",
-    "frontend/src/hooks/useLoadingReset.ts"
+    # "frontend/src/hooks/useLoadingReset.ts"
 ]
 
 # Исключенные файлы и папки

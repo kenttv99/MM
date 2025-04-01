@@ -406,3 +406,12 @@ FROM events
 WHERE events.start_date >= $1::VARCHAR]
 [parameters: ('2025-03-28',)]
 (Background on this error at: https://sqlalche.me/e/20/f405)
+2025-04-01 01:51:37,621 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-04-02',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+2025-04-01 02:06:15,164 - root - ERROR - Error updating event 13: 422: year 0 is out of range
+2025-04-01 02:06:23,497 - root - ERROR - Error updating event 13: 422: year 0 is out of range

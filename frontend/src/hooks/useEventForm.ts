@@ -19,28 +19,29 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
   const [success, setSuccess] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialValues.image_url || null);
   
-  // Track component lifecycle and prevent duplicate calls
+  // Refs to track state between renders
   const mounted = useRef(true);
+  const isFetching = useRef(false);
   const loadedEventId = useRef<string | null>(null);
-  const pendingRequest = useRef<AbortController | null>(null);
+  const controller = useRef<AbortController | null>(null);
 
-  // Handle component unmount
+  // Handle cleanup on unmount
   useEffect(() => {
     mounted.current = true;
+    
     return () => {
       mounted.current = false;
-      if (pendingRequest.current) {
-        pendingRequest.current.abort();
+      if (controller.current) {
+        controller.current.abort();
+        controller.current = null;
       }
     };
   }, []);
 
-  // Update a single field in the form
   const setFieldValue = useCallback((name: keyof EventFormData, value: unknown) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   }, []);
 
-  // Handle form input changes
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
@@ -55,7 +56,6 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, [setFieldValue]);
 
-  // Handle file upload/removal
   const handleFileChange = useCallback((file: File | null, isRemoved = false) => {
     setFormData(prev => ({
       ...prev,
@@ -72,23 +72,150 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, []);
 
-  // Submit the form
+  // Load event data - with strong protection against duplicate loads
+  const loadEvent = useCallback(async (eventId: string): Promise<void> => {
+    // Skip if same event is already loaded
+    if (loadedEventId.current === eventId) {
+      console.log(`Event ${eventId} already loaded, skipping fetch`);
+      return;
+    }
+    
+    // Skip if a fetch is already in progress
+    if (isFetching.current) {
+      console.log('Fetch already in progress, skipping duplicate request');
+      return;
+    }
+
+    // Mark as fetching to prevent concurrent calls
+    isFetching.current = true;
+    
+    // Check cache first
+    if (eventCache[eventId]) {
+      console.log(`Loading event ${eventId} from cache`);
+      const cachedData = eventCache[eventId];
+      
+      const startDate = new Date(cachedData.start_date);
+      const endDate = cachedData.end_date ? new Date(cachedData.end_date) : undefined;
+      
+      const mappedData: EventFormData = {
+        ...cachedData,
+        start_date: startDate.toISOString().split("T")[0],
+        start_time: startDate.toTimeString().slice(0, 5),
+        end_date: endDate?.toISOString().split("T")[0] || "",
+        end_time: endDate?.toTimeString().slice(0, 5) || "",
+        ticket_type_name: cachedData.ticket_type?.name || "standart",
+        ticket_type_available_quantity: cachedData.ticket_type?.available_quantity || 0,
+        ticket_type_free_registration: cachedData.ticket_type?.free_registration || false,
+        ticket_type_sold_quantity: cachedData.ticket_type?.sold_quantity || 0,
+        registrations_count: cachedData.registrations_count || 0,
+        image_file: null,
+        remove_image: false,
+      };
+      
+      if (mounted.current) {
+        setFormData(mappedData);
+        if (cachedData.image_url) {
+          setImagePreview(cachedData.image_url);
+        }
+        loadedEventId.current = eventId;
+      }
+      
+      isFetching.current = false;
+      return;
+    }
+    
+    if (!mounted.current) {
+      isFetching.current = false;
+      return;
+    }
+    
+    setIsLoading(true);
+    setError(null);
+    
+    // Abort any existing request
+    if (controller.current) {
+      controller.current.abort();
+    }
+    
+    // Create new controller for this request
+    controller.current = new AbortController();
+    
+    try {
+      console.log(`Fetching event with ID: ${eventId}`);
+      const eventData = await fetchEvent(eventId);
+      
+      // Save to cache for future use
+      eventCache[eventId] = eventData;
+      
+      if (!mounted.current) return;
+      
+      const startDate = new Date(eventData.start_date);
+      const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
+      
+      const mappedData: EventFormData = {
+        ...eventData,
+        start_date: startDate.toISOString().split("T")[0],
+        start_time: startDate.toTimeString().slice(0, 5),
+        end_date: endDate?.toISOString().split("T")[0] || "",
+        end_time: endDate?.toTimeString().slice(0, 5) || "",
+        ticket_type_name: eventData.ticket_type?.name || "standart",
+        ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
+        ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
+        ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
+        registrations_count: eventData.registrations_count || 0,
+        image_file: null,
+        remove_image: false,
+      };
+      
+      setFormData(mappedData);
+      if (eventData.image_url) {
+        setImagePreview(eventData.image_url);
+      }
+      
+      // Mark this event as loaded
+      loadedEventId.current = eventId;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        console.log("Fetch request aborted");
+        return;
+      }
+      
+      if (!mounted.current) return;
+      
+      const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятия";
+      setError(errorMessage);
+      
+      if (onError) {
+        onError(err instanceof Error ? err : new Error(errorMessage));
+      }
+    } finally {
+      if (mounted.current) {
+        setIsLoading(false);
+      }
+      
+      isFetching.current = false;
+      controller.current = null;
+    }
+  }, [onError]);
+
   const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
     if (!mounted.current) return;
     
     setError(null);
     setSuccess(null);
     setIsLoading(true);
-
-    // Abort any pending request
-    if (pendingRequest.current) {
-      pendingRequest.current.abort();
+    
+    // Abort any existing request
+    if (controller.current) {
+      controller.current.abort();
     }
-    pendingRequest.current = new AbortController();
-
+    
+    // Create new controller for this request
+    controller.current = new AbortController();
+    
     try {
-      // Create or update event
       const result = formData.id
         ? await updateEvent(formData.id, formData)
         : await createEvent(formData);
@@ -120,114 +247,11 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       if (mounted.current) {
         setIsLoading(false);
       }
-      pendingRequest.current = null;
+      
+      controller.current = null;
     }
   }, [formData, onSuccess, onError]);
 
-  // Load event data
-  const loadEvent = useCallback(async (eventId: string): Promise<void> => {
-    // Skip if already loaded or unmounted
-    if (!mounted.current || loadedEventId.current === eventId) {
-      return;
-    }
-    
-    // Try cache first
-    if (eventCache[eventId]) {
-      console.log(`Loading event ${eventId} from cache`);
-      const eventData = eventCache[eventId];
-      
-      // Parse dates from cached data
-      const startDate = new Date(eventData.start_date);
-      const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
-      
-      const updatedFormData: EventFormData = {
-        ...eventData,
-        start_date: startDate.toISOString().split("T")[0],
-        start_time: startDate.toTimeString().slice(0, 5),
-        end_date: endDate?.toISOString().split("T")[0] || "",
-        end_time: endDate?.toTimeString().slice(0, 5) || "",
-        ticket_type_name: eventData.ticket_type?.name || "standart",
-        ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
-        ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
-        ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
-        registrations_count: eventData.registrations_count || 0,
-        image_file: null,
-        remove_image: false,
-      };
-      
-      setFormData(updatedFormData);
-      setImagePreview(eventData.image_url || null);
-      loadedEventId.current = eventId;
-      return;
-    }
-    
-    // Need to fetch from API
-    if (!mounted.current) return;
-    setIsLoading(true);
-    
-    // Abort any pending request
-    if (pendingRequest.current) {
-      pendingRequest.current.abort();
-    }
-    pendingRequest.current = new AbortController();
-    
-    try {
-      console.log(`Fetching event with ID: ${eventId}`);
-      const eventData = await fetchEvent(eventId);
-      
-      // Cache the result
-      eventCache[eventId] = eventData;
-      
-      if (!mounted.current) return;
-      
-      // Parse dates
-      const startDate = new Date(eventData.start_date);
-      const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
-      
-      const updatedFormData: EventFormData = {
-        ...eventData,
-        start_date: startDate.toISOString().split("T")[0],
-        start_time: startDate.toTimeString().slice(0, 5),
-        end_date: endDate?.toISOString().split("T")[0] || "",
-        end_time: endDate?.toTimeString().slice(0, 5) || "",
-        ticket_type_name: eventData.ticket_type?.name || "standart",
-        ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
-        ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
-        ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
-        registrations_count: eventData.registrations_count || 0,
-        image_file: null,
-        remove_image: false,
-      };
-      
-      setFormData(updatedFormData);
-      if (eventData.image_url) {
-        setImagePreview(eventData.image_url);
-      }
-      
-      loadedEventId.current = eventId;
-    } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        console.log("Fetch request aborted");
-        return;
-      }
-      
-      if (!mounted.current) return;
-      
-      const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятия";
-      setError(errorMessage);
-      
-      if (onError) {
-        onError(err instanceof Error ? err : new Error(errorMessage));
-      }
-    } finally {
-      if (mounted.current) {
-        setIsLoading(false);
-      }
-      pendingRequest.current = null;
-    }
-  }, [onError]);
-
-  // Reset form to initial values
   const resetForm = useCallback(() => {
     if (!mounted.current) return;
     

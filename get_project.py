@@ -33,7 +33,7 @@ INCLUDE_FILES = [
     # "README.md",
     "frontend/src/next.config.ts",
     "frontend/src/app/(admin)/dashboard/page.tsx",
-    # "frontend/src/app/(admin)/edit-user/page.tsx",
+    "frontend/src/app/(admin)/edit-user/page.tsx",
     "frontend/src/components/EditEventForm.tsx",
     "frontend/src/components/PageTransitionWrapper.tsx",
     "frontend/src/app/(admin)/edit-events/page.tsx",

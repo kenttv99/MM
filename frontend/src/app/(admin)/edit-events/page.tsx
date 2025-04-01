@@ -3,7 +3,7 @@
 
 import { useSearchParams } from "next/navigation";
 import EditEventForm from "@/components/EditEventForm";
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { usePageLoad } from "@/contexts/PageLoadContext";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useEventForm } from "@/hooks/useEventForm";
@@ -18,18 +18,14 @@ function EditEventsPage() {
   const isNewEvent = newEventParam === "true";
   const initialEventId = eventIdParam;
 
-  // Auth and navigation hooks
-  const { wrapAsync, setPageLoading } = usePageLoad();
+  const { wrapAsync, setPageLoading, isPageLoading } = usePageLoad();
   const { isAdminAuth, isCheckingAuth, checkAuth } = useAdminAuth();
   const router = useRouter();
   
-  // Local state to control initialization flow
-  const [authVerified, setAuthVerified] = useState(false);
-  const [dataInitialized, setDataInitialized] = useState(false);
-  
-  // Track fetch status to prevent duplicates
-  const isFetching = useRef(false);
-  const hasRedirected = useRef(false);
+  // Prevent duplicate initialization
+  const initialized = useRef(false);
+  const dataLoaded = useRef(false);
+  const redirecting = useRef(false);
 
   // Initial form values
   const initialValues = useMemo<EventFormData>(() => ({
@@ -65,107 +61,82 @@ function EditEventsPage() {
     isLoading
   } = useEventForm({
     initialValues,
-    onSuccess: () => router.push("/dashboard?refresh=true"),
+    onSuccess: () => {
+      redirecting.current = true;
+      router.push("/dashboard?refresh=true");
+    },
     onError: (err) => console.error("Error in useEventForm:", err),
   });
 
-  // Step 1: Verify authentication status first
+  // Main initialization effect
   useEffect(() => {
-    const verifyAuth = async () => {
-      // Skip if already verified or redirected
-      if (authVerified || hasRedirected.current) return;
-
-      // If auth check is in progress, wait for it
+    // Prevent running multiple times
+    if (initialized.current || redirecting.current) return;
+    initialized.current = true;
+    
+    const init = async () => {
+      console.log("EditEventsPage params:", { newEventParam, eventIdParam });
+      
+      // Wait for auth check to complete
       if (isCheckingAuth) {
         console.log("Waiting for auth check to complete...");
         return;
       }
-
-      // We have a definitive auth state
-      if (isAdminAuth) {
-        // Auth is confirmed, mark as verified
-        setAuthVerified(true);
-      } else {
-        // Not authenticated, perform one explicit check
+      
+      // Check auth and redirect if needed
+      if (!isAdminAuth) {
         try {
-          const isAuth = await checkAuth();
-          if (isAuth) {
-            setAuthVerified(true);
-          } else {
-            // Confirmed not authenticated, redirect
+          // Try one explicit auth check
+          const isAuthenticated = await checkAuth();
+          if (!isAuthenticated) {
             console.log("User not authenticated, redirecting to /admin-login");
-            hasRedirected.current = true;
+            redirecting.current = true;
             router.push("/admin-login");
+            return;
           }
-        } catch (error) {
-          console.error("Auth check failed:", error);
-          hasRedirected.current = true;
+        } catch (err) {
+          console.error("Auth check failed:", err);
+          redirecting.current = true;
           router.push("/admin-login");
+          return;
+        }
+      }
+      
+      // Skip data loading for new events
+      if (isNewEvent || !initialEventId) {
+        dataLoaded.current = true;
+        setPageLoading(false);
+        return;
+      }
+      
+      // Only load data if not already loaded
+      if (!dataLoaded.current) {
+        dataLoaded.current = true;
+        setPageLoading(true);
+        try {
+          console.log("Loading event with ID:", initialEventId);
+          await wrapAsync(loadEvent(initialEventId));
+        } catch (err) {
+          console.error("Failed to load event:", err);
+        } finally {
+          setPageLoading(false);
         }
       }
     };
-
-    verifyAuth();
-  }, [isAdminAuth, isCheckingAuth, checkAuth, router, authVerified]);
-
-  // Step 2: Load data only after auth is verified
-  useEffect(() => {
-    // Only run if authenticated and not already initialized
-    if (!authVerified || dataInitialized || hasRedirected.current || isFetching.current) {
-      return;
-    }
-
-    const initializeData = async () => {
-      console.log("EditEventsPage params:", { newEventParam, eventIdParam });
-
-      // New event doesn't need data loading
-      if (isNewEvent || !initialEventId) {
-        setDataInitialized(true);
-        return;
-      }
-
-      // Prevent duplicate fetches
-      isFetching.current = true;
-      setPageLoading(true);
-
-      try {
-        console.log("Loading event with ID:", initialEventId);
-        await wrapAsync(loadEvent(initialEventId));
-        setDataInitialized(true);
-      } catch (error) {
-        console.error("Failed to load event:", error);
-      } finally {
-        setPageLoading(false);
-        isFetching.current = false;
-      }
-    };
-
-    initializeData();
-  }, [
-    authVerified,
-    dataInitialized,
-    isNewEvent,
-    initialEventId,
-    loadEvent,
-    wrapAsync,
-    setPageLoading,
-    newEventParam,
-    eventIdParam
-  ]);
+    
+    init();
+  }, [isAdminAuth, isCheckingAuth, checkAuth, isNewEvent, initialEventId, loadEvent, router, setPageLoading, wrapAsync, newEventParam, eventIdParam]);
 
   // Safety timeout to prevent stuck loading state
   useEffect(() => {
     const timeout = setTimeout(() => {
-      setPageLoading(false);
+      if (isPageLoading) {
+        setPageLoading(false);
+      }
     }, 5000);
-
+    
     return () => clearTimeout(timeout);
-  }, [setPageLoading]);
-
-  // If redirecting, show minimal UI
-  if (hasRedirected.current) {
-    return <div>Redirecting...</div>;
-  }
+  }, [isPageLoading, setPageLoading]);
 
   return (
     <EditEventForm
@@ -178,8 +149,8 @@ function EditEventsPage() {
       handleFileChange={handleFileChange}
       handleSubmit={handleSubmit}
       setFieldValue={setFieldValue}
-      isLoading={isLoading || isCheckingAuth || !authVerified}
-      isPageLoading={false}
+      isLoading={isLoading || isCheckingAuth}
+      isPageLoading={isPageLoading}
     />
   );
 }

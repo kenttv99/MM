@@ -9,11 +9,10 @@ import { usePageLoad } from "@/contexts/PageLoadContext";
 interface AdminAuthContextType {
   isAdminAuth: boolean;
   adminData: AdminProfile | null;
-  isLoading: boolean;
   isCheckingAuth: boolean;
   checkAuth: () => Promise<boolean>;
   logoutAdmin: () => void;
-  updateAdminData: (data: AdminProfile) => void;
+  requireAuth: () => Promise<boolean>;
 }
 
 export const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
@@ -42,17 +41,16 @@ function isTokenExpired(token: string): boolean {
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAdminAuth, setIsAdminAuth] = useState<boolean>(false);
   const [adminData, setAdminData] = useState<AdminProfile | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(false);
   
   const router = useRouter();
   const { setPageLoading } = usePageLoad();
   
-  // Use refs to track state between renders
+  // Use ref to track authentication check promise
   const authCheckPromise = useRef<Promise<boolean> | null>(null);
   const initialized = useRef(false);
 
-  // Fast synchronous check for token at init
+  // Fast synchronous check for token at initialization
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -68,12 +66,20 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       try {
         setAdminData(JSON.parse(userData));
         setIsAdminAuth(true);
-      } catch (e) {
-        console.error("Error parsing admin data", e);
+      } catch {
+        // Invalid data in storage, will be handled by checkAuth
       }
     }
+    
+    // Safety timeout to reset checking state if it gets stuck
+    const timeout = setTimeout(() => {
+      setIsCheckingAuth(false);
+    }, 5000);
+    
+    return () => clearTimeout(timeout);
   }, []);
 
+  // Main authentication check function
   const checkAuth = useCallback(async (): Promise<boolean> => {
     // Return existing promise to prevent duplicate requests
     if (authCheckPromise.current) {
@@ -81,7 +87,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
     
     setIsCheckingAuth(true);
-    setIsLoading(true); // Set loading state when checking auth
     
     const newPromise = (async () => {
       try {
@@ -127,7 +132,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return false;
       } finally {
         setIsCheckingAuth(false);
-        setIsLoading(false); // Clear loading state when check is complete
         
         // Clear promise reference after completion
         setTimeout(() => {
@@ -141,22 +145,44 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return newPromise;
   }, []);
 
-  // Initial auth check on mount
-  useEffect(() => {
-    if (initialized.current) return;
+  // Helper to require authentication for protected pages
+  const requireAuth = useCallback(async (): Promise<boolean> => {
+    // If already authenticated, return immediately
+    if (isAdminAuth && !isCheckingAuth) {
+      return true;
+    }
     
-    // Set a safety timeout to prevent infinite loading
-    const safetyTimeout = setTimeout(() => {
-      if (isLoading || isCheckingAuth) {
-        console.warn("AdminAuthContext: Safety timeout triggered");
-        setIsLoading(false);
-        setIsCheckingAuth(false);
-        setPageLoading(false);
+    // If checking, wait for it to complete
+    if (isCheckingAuth) {
+      try {
+        const result = await authCheckPromise.current;
+        if (!result) {
+          router.push("/admin-login");
+          return false;
+        }
+        return true;
+      } catch {
+        router.push("/admin-login");
+        return false;
       }
-    }, 5000);
+    }
     
-    return () => clearTimeout(safetyTimeout);
-  }, [isLoading, isCheckingAuth, setPageLoading]);
+    // Need to perform a check
+    try {
+      setPageLoading(true);
+      const isAuthenticated = await checkAuth();
+      if (!isAuthenticated) {
+        router.push("/admin-login");
+        return false;
+      }
+      return true;
+    } catch {
+      router.push("/admin-login");
+      return false;
+    } finally {
+      setPageLoading(false);
+    }
+  }, [isAdminAuth, isCheckingAuth, checkAuth, router, setPageLoading]);
 
   const logoutAdmin = useCallback(() => {
     localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
@@ -166,21 +192,15 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     router.push("/admin-login");
   }, [router]);
 
-  const updateAdminData = useCallback((data: AdminProfile) => {
-    setAdminData(data);
-    localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
-  }, []);
-
   // Context value with all required properties
   const contextValue = React.useMemo(() => ({
     isAdminAuth,
     adminData,
-    isLoading,
     isCheckingAuth,
     checkAuth,
     logoutAdmin,
-    updateAdminData
-  }), [isAdminAuth, adminData, isLoading, isCheckingAuth, checkAuth, logoutAdmin, updateAdminData]);
+    requireAuth
+  }), [isAdminAuth, adminData, isCheckingAuth, checkAuth, logoutAdmin, requireAuth]);
 
   return (
     <AdminAuthContext.Provider value={contextValue}>

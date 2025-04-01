@@ -1,91 +1,98 @@
 // frontend/src/utils/eventService.ts
 import { EventFormData, EventData } from '@/types/events';
 
+// Format form data for API with required fields
 export const prepareEventFormData = (eventData: EventFormData): FormData => {
   const formData = new FormData();
   
+  // Basic event data
   formData.append("title", eventData.title);
   formData.append("description", eventData.description || "");
-  formData.append("start_date", eventData.start_date + (eventData.start_time ? `T${eventData.start_time}:00Z` : ""));
+  
+  // Format date-time properly - without Z timezone suffix
+  if (eventData.start_date) {
+    const startDateStr = eventData.start_date + (eventData.start_time ? `T${eventData.start_time}:00` : "");
+    formData.append("start_date", startDateStr);
+  }
   
   if (eventData.end_date) {
-    formData.append("end_date", eventData.end_date + (eventData.end_time ? `T${eventData.end_time}:00Z` : ""));
+    const endDateStr = eventData.end_date + (eventData.end_time ? `T${eventData.end_time}:00` : "");
+    formData.append("end_date", endDateStr);
   }
   
   if (eventData.location) {
     formData.append("location", eventData.location);
   }
   
+  // Event metadata
   formData.append("price", String(eventData.price));
   formData.append("published", String(eventData.published));
-  formData.append("created_at", eventData.created_at || new Date().toISOString());
-  formData.append("updated_at", eventData.updated_at || new Date().toISOString());
   formData.append("status", eventData.status);
   
+  // REQUIRED: Add created_at and updated_at fields
+  formData.append("created_at", eventData.created_at || new Date().toISOString());
+  formData.append("updated_at", new Date().toISOString()); // Always use current time for updated_at
+  
+  // Ticket data
   formData.append("ticket_type_name", eventData.ticket_type_name);
   formData.append("ticket_type_available_quantity", String(eventData.ticket_type_available_quantity));
   formData.append("ticket_type_free_registration", String(eventData.ticket_type_free_registration));
   
+  // Image handling
   if (eventData.image_file) {
     formData.append("image_file", eventData.image_file);
   }
   
-  formData.append("remove_image", String(!!eventData.remove_image));
+  if (eventData.remove_image) {
+    formData.append("remove_image", "true");
+  } else {
+    formData.append("remove_image", "false");
+  }
+  
+  // Debug the form data
+  console.log("Form data prepared with the following fields:");
+  for (const pair of formData.entries()) {
+    if (pair[0] !== "image_file") { // Skip logging large binary data
+      console.log(`${pair[0]}: ${pair[1]}`);
+    } else {
+      console.log(`${pair[0]}: [binary data]`);
+    }
+  }
   
   return formData;
 };
 
-export const fetchAdminEvents = async (
-  token: string,
-  setData: React.Dispatch<React.SetStateAction<EventData[]>>,
-  setLoading: (value: boolean) => void,
-  setError: (value: string | null) => void,
-  urlParams: string = "",
-  append: boolean = false
-): Promise<EventData[]> => {
-  setLoading(true);
-  setError(null);
+// Log response details for debugging
+const logResponseError = async (response: Response): Promise<string> => {
+  const text = await response.text();
+  console.error(`Error response (${response.status}):`, text);
+  
   try {
-    if (!token) throw new Error("Не авторизован");
-
-    console.log(`Fetching admin events from: /admin_edits/events${urlParams}`);
-    const response = await fetch(`/admin_edits/events${urlParams}`, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Accept": "application/json",
-      },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      console.error("Fetch admin events error:", errorData);
-      throw new Error(errorData.detail || "Не удалось загрузить мероприятия");
+    const json = JSON.parse(text);
+    console.error("Parsed error:", json);
+    if (typeof json === 'object') {
+      // Handle both string and object error formats
+      if (json.detail) {
+        if (Array.isArray(json.detail)) {
+          // Format validation errors in a readable way
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return json.detail.map((err: any) => 
+            `Field ${err.loc.join('.')} error: ${err.msg}`
+          ).join(', ');
+        } else {
+          return json.detail;
+        }
+      } else {
+        return JSON.stringify(json);
+      }
     }
-
-    const data: EventData[] = await response.json();
-    console.log("Received admin events data:", data);
-    setData((prevEvents) => {
-      const mappedData = data.map((event) => ({
-        ...event,
-        ticket_type: event.ticket_type ? {
-          ...event.ticket_type,
-          sold_quantity: event.ticket_type.sold_quantity,
-        } : undefined
-      }));
-      return append ? [...prevEvents, ...mappedData] : mappedData;
-    });
-    return data;
-  } catch (err) {
-    console.error("Fetch admin events failed:", err);
-    setError(err instanceof Error ? err.message : "Неизвестная ошибка");
-    setData((prev) => append ? prev : []);
-    return [];
-  } finally {
-    setLoading(false);
+    return text;
+  } catch {
+    return text || `HTTP Error: ${response.status}`;
   }
 };
 
+// Create a new event
 export const createEvent = async (eventData: EventFormData): Promise<EventData> => {
   const token = localStorage.getItem("admin_token");
   if (!token) throw new Error("Не авторизован");
@@ -102,16 +109,14 @@ export const createEvent = async (eventData: EventFormData): Promise<EventData> 
   });
   
   if (!response.ok) {
-    const errorData = await response.json();
-    console.error("Create event error:", errorData);
-    throw new Error(errorData.detail || "Ошибка при создании мероприятия");
+    const errorMessage = await logResponseError(response);
+    throw new Error(errorMessage);
   }
   
-  const data = await response.json();
-  console.log("Created event data:", data);
-  return data;
+  return await response.json();
 };
 
+// Update an existing event
 export const updateEvent = async (eventId: number, eventData: EventFormData): Promise<EventData> => {
   const token = localStorage.getItem("admin_token");
   if (!token) throw new Error("Не авторизован");
@@ -128,16 +133,14 @@ export const updateEvent = async (eventId: number, eventData: EventFormData): Pr
   });
   
   if (!response.ok) {
-    const errorData = await response.json();
-    console.error("Update event error:", errorData);
-    throw new Error(errorData.detail || "Ошибка при обновлении мероприятия");
+    const errorMessage = await logResponseError(response);
+    throw new Error(errorMessage);
   }
   
-  const data = await response.json();
-  console.log("Updated event data:", data);
-  return data;
+  return await response.json();
 };
 
+// Fetch event data
 export const fetchEvent = async (eventId: string): Promise<EventData> => {
   const token = localStorage.getItem("admin_token");
   if (!token) throw new Error("Не авторизован");
@@ -148,17 +151,26 @@ export const fetchEvent = async (eventId: string): Promise<EventData> => {
       Authorization: `Bearer ${token}`,
       "Accept": "application/json",
     },
-    cache: "no-store", // Отключаем кэширование для свежести данных
+    cache: "no-store",
   });
 
   if (!response.ok) {
-    const errorData = await response.json();
-    console.error("Fetch event error:", errorData);
-    throw new Error(errorData.detail || "Ошибка при загрузке мероприятия");
+    const errorMessage = await logResponseError(response);
+    throw new Error(errorMessage);
   }
 
   const data = await response.json();
   console.log("Received event data:", data);
-  data.registrations_count = data.registrations_count || 0;
-  return data;
+  
+  // Ensure consistent structure
+  return {
+    ...data,
+    registrations_count: data.registrations_count || 0,
+    ticket_type: data.ticket_type || {
+      name: "standart",
+      available_quantity: 0,
+      sold_quantity: 0,
+      free_registration: false
+    }
+  };
 };

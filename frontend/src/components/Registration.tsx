@@ -1,4 +1,3 @@
-// frontend/src/components/Registration.tsx
 "use client";
 
 import React, { useState, useCallback, useMemo, useEffect } from "react";
@@ -18,117 +17,39 @@ interface RegistrationProps {
 const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode }) => {
   const fields: FieldConfig[] = useMemo(
     () => [
-      {
-        name: "fio",
-        type: "text",
-        placeholder: "Введите ваше ФИО",
-        icon: FaUser,
-        required: true,
-        validate: (value) => {
-          if (!value.trim() && !value) return "ФИО обязательно";
-          if (value.length < 2) return "ФИО должно содержать минимум 2 символа";
-          if (!/^[a-zA-Zа-яА-Я\s-]+$/.test(value)) return "Только буквы, пробелы и дефисы";
-          return null;
-        },
-      },
-      {
-        name: "email",
-        type: "email",
-        placeholder: "Введите email",
-        icon: FaEnvelope,
-        required: true,
-        validate: (value) => {
-          if (!value) return "Email обязателен";
-          if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return "Неверный формат email";
-          return null;
-        },
-      },
-      {
-        name: "password",
-        type: "password",
-        placeholder: "Введите пароль",
-        icon: FaLock,
-        required: true,
-        validate: (value) => {
-          if (!value) return "Пароль обязателен";
-          if (value.length < 8) return "Минимум 8 символов";
-          if (!/[A-Za-z]/.test(value) || !/\d/.test(value)) return "Буквы и цифры обязательны";
-          return null;
-        },
-      },
-      {
-        name: "telegram",
-        type: "text",
-        placeholder: "Введите Telegram (например, @username)",
-        icon: FaTelegram,
-        required: false,
-        validate: (value) => {
-          if (!value) return null;
-          if (!/^@[\w]{5,32}$/.test(value)) return "Формат: @username (5-32 символа)";
-          return null;
-        },
-      },
-      {
-        name: "whatsapp",
-        type: "text",
-        placeholder: "Введите WhatsApp (только цифры)",
-        icon: FaWhatsapp,
-        required: false,
-        validate: (value) => {
-          if (!value) return null;
-          if (!/^\d{10,15}$/.test(value)) return "10-15 цифр без пробелов";
-          return null;
-        },
-      },
+      { name: "fio", type: "text", placeholder: "Введите ваше ФИО", icon: FaUser, required: true, validate: (value) => (!value.trim() ? "ФИО обязательно" : value.length < 2 ? "Минимум 2 символа" : !/^[a-zA-Zа-яА-Я\s-]+$/.test(value) ? "Только буквы, пробелы и дефисы" : null) },
+      { name: "email", type: "email", placeholder: "Введите email", icon: FaEnvelope, required: true, validate: (value) => (!value ? "Email обязателен" : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) ? "Неверный формат email" : null) },
+      { name: "password", type: "password", placeholder: "Введите пароль", icon: FaLock, required: true, validate: (value) => (!value ? "Пароль обязателен" : value.length < 8 ? "Минимум 8 символов" : !/[A-Za-z]/.test(value) || !/\d/.test(value) ? "Буквы и цифры обязательны" : null) },
+      { name: "telegram", type: "text", placeholder: "Введите Telegram (например, @username)", icon: FaTelegram, required: false, validate: (value) => (!value ? null : !/^@[\w]{5,32}$/.test(value) ? "Формат: @username (5-32 символа)" : null) },
+      { name: "whatsapp", type: "text", placeholder: "Введите WhatsApp (только цифры)", icon: FaWhatsapp, required: false, validate: (value) => (!value ? null : !/^\d{10,15}$/.test(value) ? "10-15 цифр без пробелов" : null) },
     ],
     []
   );
 
-  const initialValues = useMemo(
-    () => ({
-      fio: "",
-      email: "",
-      password: "",
-      telegram: "",
-      whatsapp: "",
-    }),
-    []
-  );
+  const initialValues = useMemo(() => ({ fio: "", email: "", password: "", telegram: "", whatsapp: "" }), []);
 
-  const [formErrors, setFormErrors] = useState<FormErrors>(
-    Object.fromEntries(fields.map((field) => [field.name, null]))
-  );
-  const [touched, setTouched] = useState<TouchedFields>(
-    Object.fromEntries(fields.map((field) => [field.name, false]))
-  );
+  const [formErrors, setFormErrors] = useState<FormErrors>(Object.fromEntries(fields.map((field) => [field.name, null])));
+  const [touched, setTouched] = useState<TouchedFields>(Object.fromEntries(fields.map((field) => [field.name, false])));
   const [isValid, setIsValid] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const { formValues, isLoading, handleChange: authHandleChange, handleSubmit, isSuccess, error } =
-    useAuthForm({
-      initialValues,
-      endpoint: "/auth/register",
-      onSuccess: useCallback(() => {
-        console.log("Registration: onSuccess called, closing modal");
-        onClose();
-        if (toggleMode) toggleMode();
-      }, [onClose, toggleMode]),
-    });
+  const { formValues, isLoading, handleChange: authHandleChange, handleSubmit, isSuccess, error } = useAuthForm({
+    initialValues,
+    endpoint: "/auth/register",
+    onSuccess: useCallback(() => {
+      console.log("Registration: onSuccess called, closing modal");
+      onClose();
+      if (toggleMode) toggleMode();
+    }, [onClose, toggleMode]),
+  });
 
-  console.log("Registration: isOpen:", isOpen, "isSuccess:", isSuccess, "isLoading:", isLoading);
-
-  const validateField = useCallback(
-    (name: string, value: string) => {
-      const field = fields.find((f) => f.name === name);
-      return field ? field.validate(value) : null;
-    },
-    [fields]
-  );
+  const validateField = useCallback((name: string, value: string) => {
+    const field = fields.find((f) => f.name === name);
+    return field ? field.validate(value) : null;
+  }, [fields]);
 
   const validateForm = useCallback(() => {
-    const errors = Object.fromEntries(
-      fields.map((field) => [field.name, validateField(field.name, formValues[field.name])])
-    );
+    const errors = Object.fromEntries(fields.map((field) => [field.name, validateField(field.name, formValues[field.name])]));
     return errors;
   }, [fields, formValues, validateField]);
 
@@ -142,24 +63,10 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const { name, value } = e.target;
       let formattedValue = value;
-
-      if (name === "telegram") {
-        formattedValue = value.startsWith("@") ? value : value ? `@${value}` : "";
-      } else if (name === "whatsapp") {
-        formattedValue = value.replace(/\D/g, "");
-      }
-
-      const syntheticEvent = {
-        ...e,
-        target: {
-          ...e.target,
-          name: name,
-          value: formattedValue,
-        },
-      } as React.ChangeEvent<HTMLInputElement>;
-
+      if (name === "telegram") formattedValue = value.startsWith("@") ? value : value ? `@${value}` : "";
+      else if (name === "whatsapp") formattedValue = value.replace(/\D/g, "");
+      const syntheticEvent = { ...e, target: { ...e.target, name, value: formattedValue } } as React.ChangeEvent<HTMLInputElement>;
       authHandleChange(syntheticEvent);
-
       const error = validateField(name, formattedValue);
       setFormErrors((prev) => ({ ...prev, [name]: error }));
       setTouched((prev) => ({ ...prev, [name]: true }));
@@ -181,21 +88,15 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
     (e: React.FormEvent<HTMLFormElement>) => {
       e.preventDefault();
       setIsSubmitted(true);
-      setTouched(
-        Object.fromEntries(fields.map((field) => [field.name, true]))
-      );
-      if (isValid) {
-        handleSubmit(e);
-      }
+      setTouched(Object.fromEntries(fields.map((field) => [field.name, true])));
+      if (isValid) handleSubmit(e);
     },
     [isValid, handleSubmit, fields]
   );
 
   const shouldShowError = (field: FieldConfig, error: string | null) => {
     if (!error) return false;
-    if (field.required && !formValues[field.name]) {
-      return isSubmitted;
-    }
+    if (field.required && !formValues[field.name]) return isSubmitted;
     return touched[field.name];
   };
 
@@ -216,6 +117,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               name={field.name}
               disabled={isLoading || isSuccess}
               required={field.required}
+              className="w-full"
             />
             <AnimatePresence>
               {shouldShowError(field, formErrors[field.name]) && (
@@ -223,7 +125,9 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
                   initial={{ opacity: 0, y: -10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -10 }}
-                  className="absolute left-0 -bottom-5 text-red-500 text-xs mt-1"
+                  transition={{ duration: 0.2 }}
+                  className="absolute left-0 -bottom-5 text-red-500 text-xs mt-1 overflow-wrap-break-word max-w-full"
+                  style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
                 >
                   {formErrors[field.name]}
                 </motion.p>
@@ -237,33 +141,39 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="text-red-500 text-sm"
+              transition={{ duration: 0.2 }}
+              className="text-red-500 text-sm overflow-wrap-break-word max-w-full"
+              style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
             >
               {error}
             </motion.p>
           )}
         </AnimatePresence>
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-600" style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}>
           Уже есть аккаунт?{" "}
           <button
             type="button"
-            onClick={() => {
-              if (toggleMode) toggleMode();
-            }}
+            onClick={() => toggleMode && toggleMode()}
             className="text-orange-500 hover:text-orange-600 hover:underline transition-colors duration-300"
             disabled={isLoading || isSuccess}
           >
             Войти
           </button>
         </div>
-        <div className="flex justify-end space-x-4 pt-2">
-          <ModalButton variant="secondary" onClick={onClose} disabled={isLoading || isSuccess}>
+        <div className="flex flex-col sm:flex-row justify-end gap-4 pt-2">
+          <ModalButton
+            variant="secondary"
+            onClick={onClose}
+            disabled={isLoading || isSuccess}
+            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+          >
             Закрыть
           </ModalButton>
           <ModalButton
             type="submit"
             variant="primary"
             disabled={isLoading || isSuccess || !isValid}
+            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
           >
             {isLoading ? "Регистрация..." : isSuccess ? "Успешно!" : "Зарегистрироваться"}
           </ModalButton>

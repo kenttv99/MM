@@ -1,4 +1,3 @@
-// frontend/src/components/ChangePasswordForm.tsx
 "use client";
 
 import React from "react";
@@ -28,6 +27,7 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose
       title="Смена пароля"
       error={error}
       success={isSuccess ? "Пароль успешно изменен!" : undefined}
+      className="max-w-[90vw] min-w-[300px] w-full sm:max-w-md"
     >
       <form onSubmit={handleSubmit} className="space-y-6">
         <InputField
@@ -61,10 +61,20 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose
           className="w-full"
         />
         <div className="flex flex-col sm:flex-row justify-end space-y-4 sm:space-y-0 sm:space-x-4">
-          <ModalButton variant="secondary" onClick={onClose} disabled={isLoading || isSuccess}>
+          <ModalButton
+            variant="secondary"
+            onClick={onClose}
+            disabled={isLoading || isSuccess}
+            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+          >
             Отмена
           </ModalButton>
-          <ModalButton type="submit" variant="primary" disabled={isLoading || isSuccess}>
+          <ModalButton
+            type="submit"
+            variant="primary"
+            disabled={isLoading || isSuccess}
+            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+          >
             {isLoading ? "Смена..." : isSuccess ? "Успешно!" : "Сменить пароль"}
           </ModalButton>
         </div>

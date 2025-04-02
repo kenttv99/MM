@@ -7,13 +7,9 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
-  
-  /* Orange theme colors */
   --primary: #f97316;
   --primary-hover: #ea580c;
   --primary-light: #ffedd5;
-  
-  /* UI colors */
   --success: #22c55e;
   --warning: #f59e0b;
   --error: #ef4444;
@@ -28,10 +24,12 @@
   }
 }
 
+/* Base styles */
 html,
 body {
   max-width: 100vw;
   overflow-x: hidden;
+  width: 100%;
 }
 
 body {
@@ -40,27 +38,36 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-size: clamp(16px, 2vw, 18px); /* Адаптивный базовый шрифт */
 }
 
-/* Input styles */
-input, button, a, select, textarea {
+/* Input and interactive elements */
+input,
+button,
+a,
+select,
+textarea {
   outline: none;
-  transition: all 500ms cubic-bezier(0.25, 0.1, 0.25, 1);
+  transition: all 300ms cubic-bezier(0.25, 0.1, 0.25, 1); /* Уменьшено до 300ms */
   backface-visibility: hidden;
   transform-style: preserve-3d;
   will-change: transform, opacity;
+  min-height: 44px; /* Touch-friendly */
+  min-width: 44px;
+  font-size: 16px; /* Предотвращение масштабирования iOS */
 }
 
 /* Placeholder styles */
 ::placeholder {
-  transition: opacity 500ms ease, color 500ms ease;
+  transition: opacity 300ms ease, color 300ms ease;
+  color: #a1a1aa;
 }
 
 input:focus::placeholder {
   opacity: 0.7;
 }
 
-/* Base styles */
+/* Reset */
 * {
   box-sizing: border-box;
   padding: 0;
@@ -106,6 +113,16 @@ a {
 .animate-spin-slow { animation: spin 2s linear infinite; }
 .animate-pulse { animation: pulse 1.5s ease-in-out infinite; }
 
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
 /* Common layout utilities */
 .full-screen {
   position: fixed;
@@ -129,25 +146,47 @@ a {
   backdrop-filter: blur(8px);
 }
 
-/* Fix for iOS safari scrolling/hiding */
+/* Scroll management */
 body.no-scroll {
   position: fixed;
   width: 100%;
   overflow-y: hidden;
 }
 
+/* Text overflow */
+p,
+span,
+li {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* Small screen adjustments */
+@media (max-width: 640px) {
+  .container {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  input,
+  button,
+  select,
+  textarea {
+    font-size: 16px; /* Предотвращение масштабирования iOS */
+  }
+}
+
 /* Custom component styles */
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg transition-all duration-300 font-medium;
+    @apply px-4 py-2 rounded-lg transition-all duration-300 font-medium min-w-[120px] min-h-[44px];
   }
   
   .btn-primary {
-    @apply bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700;
+    @apply bg-[var(--primary)] text-white hover:bg-[var(--primary-hover)] active:bg-orange-700;
   }
   
   .btn-secondary {
-    @apply bg-white border border-orange-500 text-orange-500 hover:bg-orange-50;
+    @apply bg-white border border-[var(--primary)] text-[var(--primary)] hover:bg-[var(--primary-light)];
   }
   
   .card {
@@ -155,22 +194,22 @@ body.no-scroll {
   }
   
   .form-input {
-    @apply w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent;
+    @apply w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--primary)] focus:border-transparent min-h-[44px];
   }
 }
 
-/* Стили для react-datepicker */
+/* React Datepicker styles */
 .react-datepicker {
   font-family: var(--font-geist-sans), Arial, sans-serif;
   border: 1px solid #e5e7eb;
   border-radius: 0.5rem;
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   background-color: white;
-  width: 280px; /* Фиксированная ширина для сетки */
+  width: clamp(260px, 90vw, 280px); /* Адаптивная ширина */
 }
 
 .react-datepicker__header {
-  background-color: #f97316;
+  background-color: var(--primary);
   border-bottom: none;
   border-top-left-radius: 0.5rem;
   border-top-right-radius: 0.5rem;
@@ -182,6 +221,7 @@ body.no-scroll {
 .react-datepicker__day-name {
   color: white;
   font-weight: 500;
+  font-size: clamp(0.875rem, 2vw, 1rem);
 }
 
 .react-datepicker__navigation {
@@ -196,7 +236,7 @@ body.no-scroll {
 }
 
 .react-datepicker__month-container {
-  float: none; /* Убираем float для корректной сетки */
+  float: none;
 }
 
 .react-datepicker__month {
@@ -211,8 +251,8 @@ body.no-scroll {
 
 .react-datepicker__day-name,
 .react-datepicker__day {
-  width: 2rem;
-  line-height: 2rem;
+  width: clamp(1.75rem, 10%, 2rem);
+  line-height: clamp(1.75rem, 10%, 2rem);
   text-align: center;
   margin: 0.166rem;
   color: #374151;
@@ -221,23 +261,23 @@ body.no-scroll {
 }
 
 .react-datepicker__day:hover {
-  background-color: #ffedd5;
-  color: #f97316;
+  background-color: var(--primary-light);
+  color: var(--primary);
 }
 
 .react-datepicker__day--selected,
 .react-datepicker__day--keyboard-selected {
-  background-color: #f97316;
+  background-color: var(--primary);
   color: white;
 }
 
 .react-datepicker__day--selected:hover,
 .react-datepicker__day--keyboard-selected:hover {
-  background-color: #ea580c;
+  background-color: var(--primary-hover);
 }
 
 .react-datepicker__triangle {
-  display: none; /* Убираем треугольник */
+  display: none;
 }
 
 .react-datepicker-popper {
@@ -245,7 +285,7 @@ body.no-scroll {
 }
 
 .react-datepicker__close-icon::after {
-  background-color: #f97316;
+  background-color: var(--primary);
   color: white;
   border-radius: 50%;
   font-size: 12px;
@@ -263,9 +303,10 @@ body.no-scroll {
 .react-datepicker__year-option {
   padding: 0.5rem;
   color: #374151;
+  font-size: clamp(0.875rem, 2vw, 1rem);
 }
 
 .react-datepicker__year-option:hover {
-  background-color: #ffedd5;
-  color: #f97316;
+  background-color: var(--primary-light);
+  color: var(--primary);
 }

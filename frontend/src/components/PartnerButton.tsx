@@ -1,16 +1,19 @@
-import React from 'react';
-import Link from 'next/link';
-import { PartnerButtonProps } from "@/types/index";
+"use client";
 
-const PartnerButton = ({ onClick }: PartnerButtonProps) => {
+import React from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+
+const PartnerButton: React.FC = () => {
   return (
-    <Link 
-      href="/partner" 
-      className="inline-flex items-center px-5 py-2.5 bg-orange-500 hover:bg-orange-600 text-white font-medium rounded-lg 
-                shadow-md hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-300 ease-in-out"
-      onClick={onClick}
-    >
-      Стать партнером
+    <Link href="/partner" passHref>
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] overflow-hidden text-ellipsis whitespace-nowrap"
+      >
+        <span style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>Стать партнером</span>
+      </motion.button>
     </Link>
   );
 };

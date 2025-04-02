@@ -89,10 +89,10 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   return (
     <>
       <div className="flex flex-col items-center space-y-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between w-full">
+        <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-4">
           <div className="flex items-center mb-2 sm:mb-0">
-            <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5" />
-            <h3 className="text-lg sm:text-xl font-semibold text-gray-800">
+            <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+            <h3 className="text-lg sm:text-xl font-semibold text-gray-800 text-center sm:text-left">
               {isRegistrationClosedOrCompleted
                 ? "Места распределены"
                 : `Доступные места: ${remainingQuantity}`}
@@ -103,7 +103,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             whileTap={{ scale: 0.95 }}
             onClick={handleButtonClick}
             disabled={remainingQuantity === 0}
-            className={`px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-base ${
+            className={`px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-sm sm:text-base ${
               remainingQuantity === 0
                 ? "bg-gray-300 text-gray-500 cursor-not-allowed"
                 : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg"
@@ -123,7 +123,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.3, delay: seat * 0.05 }}
                   onClick={handleButtonClick}
-                  className="w-10 h-10 rounded-md transition-all duration-200 text-base bg-orange-100 hover:bg-orange-200 text-orange-600 flex items-center justify-center font-medium"
+                  className="w-10 h-10 rounded-md transition-all duration-200 text-base bg-orange-100 hover:bg-orange-200 text-orange-600 flex items-center justify-center font-medium min-w-[40px] min-h-[40px]"
                   title={`Место ${seat + 1}`}
                 >
                   {seat + 1}
@@ -131,13 +131,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               ))}
             </AnimatePresence>
             {remainingQuantity > maxVisibleSeats && (
-              <span className="text-gray-500 text-sm mt-2">
-                +{remainingQuantity - maxVisibleSeats} мест
-              </span>
+              <span className="text-gray-500 text-sm mt-2">+{remainingQuantity - maxVisibleSeats} мест</span>
             )}
           </div>
         ) : (
-          <p className="text-gray-500 text-center text-base">
+          <p className="text-gray-500 text-center text-sm sm:text-base">
             {isRegistrationClosedOrCompleted ? "Места распределены" : "Места закончились"}
           </p>
         )}
@@ -149,13 +147,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         title="Бронирование билета"
         error={error}
         success={success}
+        className="max-w-[90vw] min-w-[300px] w-full sm:max-w-md"
       >
         <div className="space-y-6">
           <motion.h3
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className="text-lg sm:text-xl font-semibold text-gray-800"
+            className="text-lg sm:text-xl font-semibold text-gray-800 text-center"
           >
             {eventTitle}
           </motion.h3>
@@ -166,8 +165,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               transition={{ duration: 0.3, delay: 0.1 }}
               className="flex items-center"
             >
-              <FaCalendarAlt className="text-orange-500 mr-2 w-5 h-5" />
-              <span className="text-base">{eventDate}</span>
+              <FaCalendarAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{eventDate}</span>
             </motion.div>
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -175,8 +174,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               transition={{ duration: 0.3, delay: 0.2 }}
               className="flex items-center"
             >
-              <FaClock className="text-orange-500 mr-2 w-5 h-5" />
-              <span className="text-base">{eventTime}</span>
+              <FaClock className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{eventTime}</span>
             </motion.div>
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -184,8 +183,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               transition={{ duration: 0.3, delay: 0.3 }}
               className="flex items-center"
             >
-              <FaMapMarkerAlt className="text-orange-500 mr-2 w-5 h-5" />
-              <span className="text-base">{eventLocation}</span>
+              <FaMapMarkerAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{eventLocation}</span>
             </motion.div>
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -193,8 +192,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               transition={{ duration: 0.3, delay: 0.4 }}
               className="flex items-center"
             >
-              <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5" />
-              <span className="text-base">{ticketType}</span>
+              <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{ticketType}</span>
             </motion.div>
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -202,28 +201,33 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               transition={{ duration: 0.3, delay: 0.5 }}
               className="flex items-center"
             >
-              <FaRubleSign className="text-orange-500 mr-2 w-5 h-5" />
-              <span className="text-base">{freeRegistration ? "Бесплатно" : `${price} ₽`}</span>
+              <FaRubleSign className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
+                {freeRegistration ? "Бесплатно" : `${price} ₽`}
+              </span>
             </motion.div>
           </div>
           <motion.p
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3, delay: 0.6 }}
-            className="text-gray-600 text-base"
+            className="text-gray-600 text-sm sm:text-base text-center"
+            style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
           >
             Вы собираетесь забронировать билет на это мероприятие.
           </motion.p>
-          <div className="flex justify-end space-x-4">
+          <div className="flex flex-col sm:flex-row justify-end space-y-4 sm:space-y-0 sm:space-x-4">
             <ModalButton
               variant="secondary"
               onClick={() => setIsModalOpen(false)}
+              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
             >
               Отмена
             </ModalButton>
             <ModalButton
               variant="primary"
               onClick={handleConfirmBooking}
+              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
             >
               Подтвердить
             </ModalButton>

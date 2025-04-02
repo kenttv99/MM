@@ -1,32 +1,42 @@
-// frontend/src/components/Errors/ErrorPlaceholder.tsx
 "use client";
 
-import React from 'react';
+import React from "react";
+import { motion } from "framer-motion";
 
 const ErrorPlaceholder: React.FC = () => {
   const handleRefresh = () => {
-    // Выполняем полное обновление страницы
     window.location.reload();
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 px-4 sm:px-6">
-      <div className="bg-white p-6 sm:p-8 rounded-xl shadow-lg max-w-md w-full text-center">
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">Технические неполадки</h1>
-        <p className="text-gray-600 mb-6 text-base">
-          Произошла ошибка при загрузке данных. Пожалуйста, попробуйте обновить страницу.
-        </p>
-        <button
-          onClick={handleRefresh}
-          className="w-full px-4 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-md hover:shadow-lg text-base min-h-[44px]"
+    <div className="flex flex-col items-center justify-center min-h-[100vh] bg-gray-100 px-4">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        className="text-center max-w-lg"
+      >
+        <h1
+          className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4"
+          style={{ fontSize: "clamp(1.5rem, 4vw, 1.875rem)" }}
         >
-          Обновить страницу
-        </button>
-        {/* Место для будущих контактов */}
-        <p className="text-gray-500 text-sm mt-4">
-          Если проблема сохраняется, свяжитесь с нами (контакты скоро будут добавлены).
+          Ошибка загрузки
+        </h1>
+        <p
+          className="text-gray-600 mb-6 overflow-wrap-break-word"
+          style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
+        >
+          Произошла ошибка при загрузке страницы. Попробуйте обновить страницу или свяжитесь с поддержкой, если проблема сохраняется.
         </p>
-      </div>
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={handleRefresh}
+          className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 min-w-[120px] min-h-[44px]"
+        >
+          Обновить
+        </motion.button>
+      </motion.div>
     </div>
   );
 };

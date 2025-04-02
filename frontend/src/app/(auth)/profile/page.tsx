@@ -279,19 +279,21 @@ const ProfilePage: React.FC = () => {
   }
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 py-10 mt-16 max-w-4xl">
-      <h1 className="text-2xl sm:text-3xl font-bold mb-6">Ваш профиль</h1>
+    <div className="container mx-auto px-4 sm:px-6 py-10 mt-16 max-w-4xl overflow-hidden">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-6" style={{ fontSize: "clamp(1.5rem, 4vw, 1.875rem)" }}>
+        Ваш профиль
+      </h1>
       {fetchError && <ErrorDisplay error={fetchError} />}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 sm:gap-6 justify-start">
+      <div className="flex flex-col md:grid md:grid-cols-5 gap-4 sm:gap-6">
         <motion.div
-          className="sm:col-span-2 md:col-span-3 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100"
+          className="md:col-span-3 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100"
           layout
           initial="hidden"
           animate="visible"
           variants={containerVariants}
         >
           <motion.div
-            className="flex flex-col sm:flex-row items-start justify-between mb-6"
+            className="flex flex-col sm:flex-row items-start justify-between mb-6 gap-4"
             variants={childVariants}
           >
             <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-4 sm:mb-0">
@@ -303,7 +305,7 @@ const ProfilePage: React.FC = () => {
               >
                 {formState.avatarPreview ? (
                   <div
-                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden min-w-[60px] min-h-[60px] ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                   >
                     <Image
@@ -312,9 +314,7 @@ const ProfilePage: React.FC = () => {
                       width={80}
                       height={80}
                       className="w-full h-full rounded-full object-cover"
-                      onError={() => {
-                        setFormState((prev) => ({ ...prev, avatarPreview: null }));
-                      }}
+                      onError={() => setFormState((prev) => ({ ...prev, avatarPreview: null }))}
                     />
                     <AnimatePresence>
                       {isEditing && (
@@ -328,7 +328,7 @@ const ProfilePage: React.FC = () => {
                             setFormState((prev) => ({ ...prev, avatarPreview: null }));
                             if (fileInputRef.current) fileInputRef.current.value = "";
                           }}
-                          className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                          className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 min-w-[24px] min-h-[24px]"
                         >
                           <FaTrash size={12} />
                         </motion.button>
@@ -350,7 +350,7 @@ const ProfilePage: React.FC = () => {
                   </div>
                 ) : (
                   <div
-                    className={`w-16 h-16 sm:w-20 sm:h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
+                    className={`w-16 h-16 sm:w-20 sm:h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold min-w-[60px] min-h-[60px] ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
                     onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
                     onMouseEnter={() => setIsAvatarHovered(true)}
                     onMouseLeave={() => setIsAvatarHovered(false)}
@@ -382,13 +382,22 @@ const ProfilePage: React.FC = () => {
               <motion.div variants={childVariants} className="flex-grow">
                 {!isEditing ? (
                   <div>
-                    <h2 className="text-lg sm:text-xl font-semibold">{formState.fio || "Не указано"}</h2>
-                    <p className="text-gray-600 text-sm mt-1">{formState.email || "Не указан"}</p>
+                    <h2
+                      className="text-lg sm:text-xl font-semibold"
+                      style={{ fontSize: "clamp(1.125rem, 2.5vw, 1.25rem)" }}
+                    >
+                      {formState.fio || "Не указано"}
+                    </h2>
+                    <p
+                      className="text-gray-600 text-sm mt-1"
+                      style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
+                    >
+                      {formState.email || "Не указан"}
+                    </p>
                   </div>
                 ) : (
-                  <div className="space-y-2 w-full ml-8 sm:ml-10">
+                  <div className="space-y-2 w-full ml-0 sm:ml-4">
                     <div className="w-full">
-                      {/* Пересобранное поле для ввода ФИО */}
                       <div className="relative">
                         <input
                           type="text"
@@ -414,7 +423,7 @@ const ProfilePage: React.FC = () => {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleEditToggle}
-                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition min-h-[44px]"
+                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition min-w-[44px] min-h-[44px]"
               >
                 {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
               </motion.button>
@@ -422,7 +431,7 @@ const ProfilePage: React.FC = () => {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setIsChangePasswordOpen(true)}
-                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-orange-100 rounded-full text-orange-500 hover:bg-orange-200 transition min-h-[44px]"
+                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-orange-100 rounded-full text-orange-500 hover:bg-orange-200 transition min-w-[44px] min-h-[44px]"
                 title="Сменить пароль"
               >
                 <FaLock size={14} />
@@ -441,10 +450,10 @@ const ProfilePage: React.FC = () => {
                   variants={childVariants}
                   className="space-y-2"
                 >
-                  <p className="text-base">
+                  <p style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
                     <strong>Telegram:</strong> {formState.telegram || "Не указан"}
                   </p>
-                  <p className="text-base">
+                  <p style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
                     <strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}
                   </p>
                 </motion.div>
@@ -493,7 +502,7 @@ const ProfilePage: React.FC = () => {
                   <ModalButton
                     type="submit"
                     disabled={Object.keys(validationErrors).length > 0}
-                    className="w-full sm:w-auto"
+                    className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
                   >
                     Сохранить
                   </ModalButton>
@@ -502,10 +511,15 @@ const ProfilePage: React.FC = () => {
             </AnimatePresence>
           </motion.div>
         </motion.div>
-        <div className="sm:col-span-2 md:col-span-2 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 min-h-[150px] flex flex-col justify-between">
+        <div className="md:col-span-2 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 min-h-[150px] flex flex-col justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-2">Мои мероприятия</h3>
-            <p className="text-gray-500 text-base mb-4 whitespace-normal break-words">
+            <h3 className="text-lg font-semibold text-gray-800 mb-2" style={{ fontSize: "clamp(1rem, 2.5vw, 1.125rem)" }}>
+              Мои мероприятия
+            </h3>
+            <p
+              className="text-gray-500 mb-4 whitespace-normal break-words"
+              style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
+            >
               У вас пока нет зарегистрированных мероприятий. Начните с поиска интересных событий!
             </p>
           </div>
@@ -513,7 +527,7 @@ const ProfilePage: React.FC = () => {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => navigateTo("/events")}
-            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm text-base min-h-[44px]"
+            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm min-w-[120px] min-h-[44px]"
           >
             Найти мероприятия
           </motion.button>

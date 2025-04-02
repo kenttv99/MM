@@ -96,6 +96,7 @@ export interface AuthModalProps {
   error?: string;
   success?: string;
   children: ReactNode;
+  className?: string;
 }
 
 // From components/common/ErrorDisplay.tsx

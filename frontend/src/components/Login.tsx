@@ -1,4 +1,3 @@
-// frontend/src/components/Login.tsx
 "use client";
 
 import React from "react";
@@ -23,14 +22,10 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     initialValues: { email: "", password: "" },
     endpoint,
     isLogin: true,
-    onSuccess: () => {
-      onClose();
-    },
+    onSuccess: () => onClose(),
   });
 
-  if (!isOpen) {
-    return null;
-  }
+  if (!isOpen) return null;
 
   return (
     <div className="space-y-6">
@@ -43,6 +38,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
           icon={FaEnvelope}
           name="email"
           disabled={isSuccess}
+          className="w-full"
         />
         <InputField
           type="password"
@@ -52,6 +48,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
           icon={FaLock}
           name="password"
           disabled={isSuccess}
+          className="w-full"
         />
         <AnimatePresence>
           {error && (
@@ -59,30 +56,31 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="text-red-500 text-sm"
+              transition={{ duration: 0.2 }}
+              className="text-red-500 text-sm overflow-wrap-break-word"
+              style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
             >
               {error}
             </motion.p>
           )}
         </AnimatePresence>
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-600" style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}>
           Нет аккаунта?{" "}
           <button
             type="button"
-            onClick={() => {
-              if (toggleMode) toggleMode();
-            }}
+            onClick={() => toggleMode && toggleMode()}
             className="text-orange-500 hover:text-orange-600 hover:underline transition-colors duration-300"
             disabled={isLoading || isSuccess}
           >
             Зарегистрироваться
           </button>
         </div>
-        <div className="flex justify-end space-x-4">
+        <div className="flex flex-col sm:flex-row justify-end gap-4">
           <ModalButton
             variant="secondary"
             onClick={onClose}
             disabled={isLoading || isSuccess}
+            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
           >
             Закрыть
           </ModalButton>
@@ -90,6 +88,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
             type="submit"
             variant="primary"
             disabled={isLoading || isSuccess}
+            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
           >
             {isLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
           </ModalButton>

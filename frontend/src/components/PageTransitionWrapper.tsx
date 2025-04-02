@@ -1,5 +1,3 @@
-// frontend/src/components/PageTransitionWrapper.tsx
-
 "use client";
 
 import React from "react";
@@ -27,12 +25,19 @@ export default function PageTransitionWrapper({ children, disableLoading = false
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 bg-white bg-opacity-70 z-50 flex items-center justify-center"
+          transition={{ duration: 0.2 }}
+          className="fixed inset-0 bg-white bg-opacity-70 z-50 flex items-center justify-center min-h-[100vh] max-w-[100vw]"
         >
-          Загрузка...
+          <span style={{ fontSize: "clamp(1rem, 3vw, 1.25rem)" }}>Загрузка...</span>
         </motion.div>
       ) : (
-        <motion.div key="content" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="w-full">
+        <motion.div
+          key="content"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.2 }}
+          className="w-full min-h-[100vh]"
+        >
           {children}
         </motion.div>
       )}

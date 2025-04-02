@@ -12,6 +12,7 @@ const nextConfig = {
       { source: "/v1/public/events/:path*", destination: `${USER_API_URL}/v1/public/events/:path*` },
       { source: "/register", destination: `${USER_API_URL}/register` },
       { source: "/images/:path*", destination: `${USER_API_URL}/images/:path*` },
+      
 
       // Административный сервер (порт 8001)
       { source: "/admin/:path*", destination: `${ADMIN_API_URL}/admin/:path*` },

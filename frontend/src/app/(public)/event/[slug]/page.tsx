@@ -18,20 +18,17 @@ import Login from "@/components/Login";
 import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { FaCalendarAlt } from "react-icons/fa";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
 
 const generateSlug = (title: string, id: number): string => {
-  if (!title || title.trim() === "") {
-    return `event-${id}`;
-  }
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
     й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
     ю: "yu", я: "ya", " ": "-"
   };
-  const slugifiedTitle = title
+  const slug = title
     .toLowerCase()
     .split("")
     .map((char) => translitMap[char] || char)
@@ -39,117 +36,96 @@ const generateSlug = (title: string, id: number): string => {
     .replace(/[^a-z0-9-]+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return slugifiedTitle ? `${slugifiedTitle}-${id}` : `event-${id}`;
+  return slug ? `${slug}-${id}` : `event-${id}`;
 };
 
-const extractIdFromSlug = (slug: string): string => {
-  const parts = slug.split("-");
-  return parts[parts.length - 1];
-};
+const extractIdFromSlug = (slug: string): string => slug.split("-").pop() || "";
 
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
+  const [event, setEvent] = useState<EventData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [hasServerError, setHasServerError] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const { isAuth, checkAuth } = useAuth();
   const [hasRedirected, setHasRedirected] = useState(false);
   const eventFetchedRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const unmountedRef = useRef(false);
-  const { wrapAsync, apiFetch } = usePageLoad();
-
-  const handleBookingClick = useCallback(() => {
-    console.log("Booking click triggered in page.tsx");
-  }, []);
-
-  const handleLoginClick = useCallback(() => {
-    console.log("Login click triggered, setting isModalOpen to true");
-    setIsRegisterMode(false);
-    setIsModalOpen(true);
-  }, []);
-
-  const handleModalClose = useCallback(() => {
-    console.log("Closing modal");
-    setIsModalOpen(false);
-    setIsRegisterMode(false);
-  }, []);
-
-  const toggleToLogin = useCallback(() => {
-    setIsRegisterMode(false);
-  }, []);
-
-  const toggleToRegister = useCallback(() => {
-    setIsRegisterMode(true);
-  }, []);
 
   const fetchEvent = useCallback(async () => {
-    if (unmountedRef.current || eventFetchedRef.current) return null;
-    
+    if (eventFetchedRef.current) return;
+    setIsLoading(true);
     setHasServerError(false);
     setFetchError(null);
     const eventId = extractIdFromSlug(slug);
-    
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
+
+    if (abortControllerRef.current) abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
-    
+
     try {
-      const data = await wrapAsync<EventData>(
-        apiFetch(`/v1/public/events/${eventId}`, {
-          cache: "no-store",
-          signal: abortControllerRef.current.signal,
-        })
-      );
+      const data = await apiFetch<EventData>(`/v1/public/events/${eventId}`, {
+        cache: "no-store",
+        signal: abortControllerRef.current.signal,
+      });
       if (data) {
         const correctSlug = generateSlug(data.title, data.id || parseInt(eventId));
         if (slug !== correctSlug && !hasRedirected) {
           setHasRedirected(true);
           router.replace(`/event/${correctSlug}`, { scroll: false });
         }
+        setEvent(data);
         eventFetchedRef.current = true;
-        return data;
       }
-    } catch (err: unknown) { // Используем unknown вместо CustomError
+    } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error("Неизвестная ошибка");
-      if (error instanceof Error && "isServerError" in error && error.isServerError) {
-        if (!unmountedRef.current) {
-          setHasServerError(true);
-        }
+      if ("isServerError" in error && error.isServerError) {
+        setHasServerError(true);
+      } else if (error.message === "Не удалось подключиться к серверу. Проверьте соединение.") {
+        setHasServerError(true);  // Обрабатываем сетевую ошибку как серверную
       } else {
         setFetchError(error.message || "Не удалось загрузить мероприятие");
       }
+    } finally {
+      setIsLoading(false);
     }
-    return null;
-  }, [slug, router, hasRedirected, wrapAsync, apiFetch]);
-
-  const [event, setEvent] = useState<EventData | null>(null);
+  }, [slug, router, hasRedirected]);
 
   useEffect(() => {
-    if (slug) {
-      fetchEvent().then((data) => setEvent(data || null));
-    }
-    
+    if (slug) fetchEvent();
     return () => {
-      unmountedRef.current = true;
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
+      if (abortControllerRef.current) abortControllerRef.current.abort();
     };
   }, [slug, fetchEvent]);
 
   useEffect(() => {
     const handleAuthChange = () => checkAuth();
     window.addEventListener("auth-change", handleAuthChange);
-    
-    return () => {
-      window.removeEventListener("auth-change", handleAuthChange);
-    };
+    return () => window.removeEventListener("auth-change", handleAuthChange);
   }, [checkAuth]);
+
+  const handleBookingClick = useCallback(() => console.log("Booking click triggered"), []);
+  const handleLoginClick = useCallback(() => {
+    setIsRegisterMode(false);
+    setIsModalOpen(true);
+  }, []);
+  const handleModalClose = useCallback(() => setIsModalOpen(false), []);
+  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
+  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-grow flex items-center justify-center">
+          <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   if (hasServerError) return <ErrorPlaceholder />;
   if (fetchError) return notFound();
@@ -159,18 +135,18 @@ export default function EventPage() {
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-grow container mx-auto px-4 sm:px-6 py-12">
+        <main className="flex-grow container mx-auto px-4 py-12">
           <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
             <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
               <FaCalendarAlt className="text-orange-500 w-8 h-8" />
             </div>
-            <h3 className="text-xl font-semibold mb-2 text-gray-800">Мероприятие недоступно</h3>
+            <h3 className="text-xl font-semibold mb-2">Мероприятие недоступно</h3>
             <p className="text-gray-600 text-center max-w-md mb-6">
               Это мероприятие пока недоступно для просмотра.
             </p>
             <button
               onClick={() => router.push("/events")}
-              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors duration-300 min-h-[44px]"
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
             >
               Вернуться к мероприятиям
             </button>
@@ -204,30 +180,21 @@ export default function EventPage() {
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, ease: "easeOut" }}
-          className="relative h-[300px] sm:h-[400px] w-full px-4 sm:px-6 lg:px-8 mt-16 mb-6 sm:mb-8"
+          className="relative h-[400px] w-full px-6 mt-16 mb-8"
         >
           <div className="relative h-full w-full rounded-xl overflow-hidden">
             {event.image_url ? (
-              <Image
-                src={event.image_url}
-                alt={event.title}
-                fill
-                className="object-cover"
-                priority
-                sizes="(max-width: 640px) 100vw, (max-width: 1024px) 80vw, 1200px"
-              />
+              <Image src={event.image_url} alt={event.title} fill className="object-cover" priority />
             ) : (
               <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                <span className="text-gray-500 text-lg">Нет изображения</span>
+                <span className="text-gray-500">Нет изображения</span>
               </div>
             )}
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
               <motion.h1
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.2, duration: 0.5 }}
-                className="text-2xl sm:text-4xl md:text-5xl font-bold text-white text-center px-4 max-w-3xl"
+                className="text-4xl font-bold text-white text-center px-4 max-w-3xl"
               >
                 {event.title}
               </motion.h1>
@@ -235,14 +202,9 @@ export default function EventPage() {
           </div>
         </motion.section>
 
-        <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12">
+        <div className="container mx-auto px-6 py-12">
           {event.ticket_type && (
-            <motion.section
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2, duration: 0.5 }}
-              className="mb-8 sm:mb-12"
-            >
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
               <EventDetails
                 date={eventDate}
                 time={eventTime}
@@ -252,97 +214,62 @@ export default function EventPage() {
               />
             </motion.section>
           )}
-          <motion.section
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-            className="mb-8 sm:mb-12"
-          >
-            {event.ticket_type && (
-              <div
-                className={`bg-white p-5 sm:p-6 rounded-xl shadow-lg border border-gray-100 max-w-2xl mx-auto ${
-                  displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""
-                }`}
-              >
-                <h2 className="text-xl sm:text-2xl font-semibold mb-4 text-gray-800 text-center">
-                  {displayStatus}
-                </h2>
-                <EventRegistration
-                  eventId={event.id || parseInt(extractIdFromSlug(slug))}
-                  eventTitle={event.title}
-                  eventDate={eventDate}
-                  eventTime={eventTime}
-                  eventLocation={event.location || "Не указано"}
-                  ticketType={event.ticket_type.name || "Стандартный"}
-                  availableQuantity={availableQuantity}
-                  soldQuantity={soldQuantity}
-                  price={event.price}
-                  freeRegistration={event.ticket_type.free_registration}
-                  onBookingClick={handleBookingClick}
-                  onLoginClick={handleLoginClick}
-                  onBookingSuccess={fetchEvent}
-                  displayStatus={displayStatus}
-                />
-                {!isAuth && (
-                  <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.5, duration: 0.3 }}
-                    className="text-center mt-6 text-gray-700 font-medium bg-orange-50 py-3 px-4 sm:px-6 rounded-full shadow-sm border border-orange-100 max-w-md mx-auto text-sm sm:text-base"
-                  >
-                    Для бронирования билета{" "}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleLoginClick();
-                      }}
-                      className="text-orange-600 font-semibold hover:text-orange-700 underline transition-colors duration-200"
-                    >
-                      войдите в аккаунт
-                    </button>
-                  </motion.p>
-                )}
-              </div>
-            )}
-          </motion.section>
-
-          {event.description && (
-            <motion.section
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.4, duration: 0.5 }}
-              className="max-w-3xl mx-auto"
+          <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
+            <div
+              className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${
+                displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""
+              }`}
             >
-              <h2 className="text-xl sm:text-2xl font-semibold mb-4 text-gray-800">Описание</h2>
-              <FormattedDescription
-                content={event.description}
-                className="text-gray-600 leading-relaxed text-base"
+              <h2 className="text-2xl font-semibold mb-4 text-center">{displayStatus}</h2>
+              <EventRegistration
+                eventId={event.id || parseInt(extractIdFromSlug(slug))}
+                eventTitle={event.title}
+                eventDate={eventDate}
+                eventTime={eventTime}
+                eventLocation={event.location || "Не указано"}
+                ticketType={event.ticket_type?.name || "Стандартный"}
+                availableQuantity={availableQuantity}
+                soldQuantity={soldQuantity}
+                price={event.price}
+                freeRegistration={event.ticket_type?.free_registration || false}
+                onBookingClick={handleBookingClick}
+                onLoginClick={handleLoginClick}
+                onBookingSuccess={fetchEvent}
+                displayStatus={displayStatus}
               />
+              {!isAuth && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-center mt-6 text-gray-700 bg-orange-50 py-3 px-6 rounded-full"
+                >
+                  Для бронирования билета{" "}
+                  <button
+                    onClick={handleLoginClick}
+                    className="text-orange-600 font-semibold hover:underline"
+                  >
+                    войдите в аккаунт
+                  </button>
+                </motion.p>
+              )}
+            </div>
+          </motion.section>
+          {event.description && (
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
+              <h2 className="text-2xl font-semibold mb-4">Описание</h2>
+              <FormattedDescription content={event.description} className="text-gray-600" />
             </motion.section>
           )}
         </div>
       </main>
       <Footer />
-
       <AnimatePresence>
         {isModalOpen && (
-          <AuthModal
-            isOpen={isModalOpen}
-            onClose={handleModalClose}
-            title={isRegisterMode ? "Регистрация" : "Вход"}
-          >
+          <AuthModal isOpen={isModalOpen} onClose={handleModalClose} title={isRegisterMode ? "Регистрация" : "Вход"}>
             {isRegisterMode ? (
-              <Registration
-                isOpen={isModalOpen}
-                onClose={handleModalClose}
-                toggleMode={toggleToLogin}
-              />
+              <Registration isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
             ) : (
-              <Login
-                isOpen={isModalOpen}
-                onClose={handleModalClose}
-                toggleMode={toggleToRegister}
-              />
+              <Login isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
             )}
           </AuthModal>
         )}

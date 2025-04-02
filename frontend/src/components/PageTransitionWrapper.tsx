@@ -1,8 +1,11 @@
+// frontend/src/components/PageTransitionWrapper.tsx
+
 "use client";
 
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePageLoad } from "@/contexts/PageLoadContext";
+import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 
 interface PageTransitionWrapperProps {
   children: React.ReactNode;
@@ -10,7 +13,11 @@ interface PageTransitionWrapperProps {
 }
 
 export default function PageTransitionWrapper({ children, disableLoading = false }: PageTransitionWrapperProps) {
-  const { isPageLoading } = usePageLoad();
+  const { isPageLoading, hasServerError } = usePageLoad();
+
+  if (hasServerError) {
+    return <ErrorPlaceholder />;
+  }
 
   return (
     <AnimatePresence mode="wait">

@@ -8,9 +8,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate
 
-router = APIRouter(
-    tags=["Events"]
-)
+router = APIRouter()
 
 def extract_id_from_slug(slug: str) -> int:
     parts = slug.split("-")
@@ -24,8 +22,8 @@ def extract_id_from_slug(slug: str) -> int:
 async def get_events(
     page: int = 1,
     limit: int = 6,
-    start_date: Optional[str] = None,  # Формат: "YYYY-MM-DD"
-    end_date: Optional[str] = None,    # Формат: "YYYY-MM-DD"
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db)
 ) -> List[EventCreate]:
     try:
@@ -35,27 +33,56 @@ async def get_events(
             .where(Event.status != "draft")
             .where(Event.published == True)
             .options(selectinload(Event.tickets))
-            .order_by(Event.start_date.desc())
         )
 
-        # Фильтрация по датам с упрощенной валидацией
+        # Debug logs
+        logger.info(f"Request parameters: page={page}, limit={limit}, start_date={start_date}, end_date={end_date}")
+
+        # Improved date handling
         if start_date:
             try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                query = query.where(Event.start_date >= start_dt)
-            except ValueError:
-                raise HTTPException(status_code=422, detail="Неверный формат start_date. Используйте YYYY-MM-DD")
+                # Принимаем дату в формате YYYY-MM-DD
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+                
+                # Создаем datetime для начала этого дня (00:00:00)
+                start_datetime = datetime.combine(start_dt, datetime.min.time())
+                
+                logger.info(f"Filtering events with start_date >= {start_datetime}")
+                
+                # Применяем фильтр к полю start_date
+                query = query.where(Event.start_date >= start_datetime)
+            except ValueError as e:
+                logger.error(f"Error parsing start_date '{start_date}': {str(e)}")
+                # Продолжаем запрос без этого фильтра, если парсинг даты не удался
+        
         if end_date:
             try:
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-                query = query.where(Event.start_date <= end_dt)
-            except ValueError:
-                raise HTTPException(status_code=422, detail="Неверный формат end_date. Используйте YYYY-MM-DD")
+                # Принимаем дату в формате YYYY-MM-DD
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+                
+                # Создаем datetime для конца этого дня (23:59:59)
+                end_datetime = datetime.combine(end_dt, datetime.max.time())
+                
+                logger.info(f"Filtering events with start_date <= {end_datetime}")
+                
+                # Применяем фильтр к полю start_date
+                query = query.where(Event.start_date <= end_datetime)
+            except ValueError as e:
+                logger.error(f"Error parsing end_date '{end_date}': {str(e)}")
+                # Продолжаем запрос без этого фильтра, если парсинг даты не удался
 
+        # Сортировка по убыванию
+        query = query.order_by(Event.start_date.desc())
+
+        # Execute query with pagination
         result = await db.execute(query.offset(offset).limit(limit))
         events = result.scalars().all()
+        
+        # Log the events found
+        logger.info(f"Found {len(events)} events matching the criteria")
+        for event in events:
+            logger.info(f"Event ID: {event.id}, Title: {event.title}, Start Date: {event.start_date}")
 
-        # Формирование ответа
         event_responses = []
         for event in events:
             ticket = event.tickets[0] if event.tickets else None
@@ -78,12 +105,11 @@ async def get_events(
                     price=float(ticket.price),
                     available_quantity=ticket.available_quantity,
                     free_registration=ticket.free_registration,
-                    remaining_quantity=remaining_quantity  # Добавляем новое поле
+                    remaining_quantity=remaining_quantity
                 ) if ticket else None
             )
             event_responses.append(event_response)
 
-        logger.info(f"Retrieved {len(events)} events for page {page} with limit {limit}")
         return event_responses
 
     except HTTPException as e:

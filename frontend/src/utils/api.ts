@@ -1,31 +1,52 @@
-// src/utils/api.ts
+// frontend/src/utils/api.ts
+
 export interface CustomError extends Error {
   code?: string;
   isServerError?: boolean;
+  isNetworkError?: boolean;
   status?: number;
 }
 
-// Cache for pending API requests
 const pendingRequests: Record<string, Promise<unknown>> = {};
+const FETCH_TIMEOUT = 15000;
+const MAX_RETRIES = 3; // Максимальное количество попыток
+const RETRY_DELAY = 1000; // Задержка между попытками (1 секунда)
+
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit,
+  timeout: number
+): Promise<Response> => {
+  const controller = new AbortController();
+  const { signal } = controller;
+  
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, timeout);
+  
+  try {
+    const response = await fetch(url, { ...options, signal });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+};
 
 export async function apiFetch<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retries: number = MAX_RETRIES
 ): Promise<T> {
-  // Create a unique key for this request to enable deduplication
   const requestKey = `${endpoint}-${JSON.stringify(options)}`;
   
-  // If there's already a pending request with the same parameters, return that promise
   if (requestKey in pendingRequests) {
     return pendingRequests[requestKey] as Promise<T>;
   }
   
-  // Create a new request promise
   const requestPromise: Promise<T> = (async () => {
-    // Use relative path, relying on next.config.ts
-    const url = endpoint;
-  
-    // Set up authentication headers
+    const url = endpoint.startsWith('http') ? endpoint : endpoint;
     const token = localStorage.getItem("token") || localStorage.getItem("admin_token");
     const headers = new Headers(options.headers);
     
@@ -41,61 +62,49 @@ export async function apiFetch<T>(
   
     let response: Response;
     try {
-      response = await fetch(url, { ...options, headers });
-    } catch {
+      response = await fetchWithTimeout(url, { ...options, headers }, FETCH_TIMEOUT);
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        const timeoutError: CustomError = new Error("Превышено время ожидания ответа от сервера.");
+        timeoutError.code = "TIMEOUT";
+        timeoutError.isNetworkError = true;
+        throw timeoutError;
+      }
+      
       const networkError: CustomError = new Error("Не удалось подключиться к серверу. Проверьте соединение.");
-      networkError.code = "ECONNREFUSED";
+      networkError.code = error instanceof Error && error.message.includes('ECONNREFUSED') ? "ECONNREFUSED" : "ECONNRESET";
+      networkError.isNetworkError = true;
+
+      // Проверяем количество оставшихся попыток
+      if (retries > 0) {
+        console.warn(`Network error (${networkError.code}), retrying... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Задержка перед повторной попыткой
+        return apiFetch<T>(endpoint, options, retries - 1); // Рекурсивно вызываем с уменьшением попыток
+      }
+
       throw networkError;
     }
   
-    // Handle server errors
-    if (!response.ok && response.status >= 500) {
-      const errorText = await response.text();
-      let errorMessage = "Произошла ошибка на сервере";
-      
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.detail || errorMessage;
-      } catch {
-        // Keep default message if parsing fails
-      }
-      
-      const serverError: CustomError = new Error(errorMessage);
-      serverError.isServerError = true;
-      serverError.status = response.status;
-      throw serverError;
-    }
-  
-    // Handle token refresh if provided
-    const newToken = response.headers.get("X-Refresh-Token");
-    if (newToken) {
-      if (url.includes("/admin")) {
-        localStorage.setItem("admin_token", newToken);
-      } else {
-        localStorage.setItem("token", newToken);
-      }
-    }
-  
-    // Update user data in local storage if applicable
-    if (response.ok && (url.includes("/user_edits/me") || url.includes("/upload-avatar"))) {
-      try {
-        const clone = response.clone();
-        const userData = await clone.json();
-        
-        if (userData) {
-          if (userData.avatar_url && !userData.avatar_url.startsWith('/')) {
-            userData.avatar_url = `/${userData.avatar_url}`;
-          }
-          localStorage.setItem("user_data", JSON.stringify(userData));
-        }
-      } catch {
-        console.error("Error processing user data in API response");
-        // Continue with the request - don't throw here as the original request might be successful
-      }
-    }
-  
-    // Handle client-side errors
     if (!response.ok) {
+      if (response.status >= 500) {
+        const errorText = await response.text();
+        let errorMessage = "Произошла ошибка на сервере";
+        
+        try {
+          const errorData = JSON.parse(errorText);
+          errorMessage = errorData.detail || errorMessage;
+        } catch {
+          if (errorText && errorText.length < 200) {
+            errorMessage = errorText;
+          }
+        }
+        
+        const serverError: CustomError = new Error(errorMessage);
+        serverError.isServerError = true;
+        serverError.status = response.status;
+        throw serverError;
+      }
+      
       const errorText = await response.text();
       let errorMessage = "Произошла ошибка";
       
@@ -111,17 +120,44 @@ export async function apiFetch<T>(
       throw clientError;
     }
   
-    // Handle successful responses
+    const newToken = response.headers.get("X-Refresh-Token");
+    if (newToken) {
+      if (url.includes("/admin")) {
+        localStorage.setItem("admin_token", newToken);
+      } else {
+        localStorage.setItem("token", newToken);
+      }
+    }
+  
+    if (response.ok && (url.includes("/user_edits/me") || url.includes("/upload-avatar"))) {
+      try {
+        const clone = response.clone();
+        const userData = await clone.json();
+        
+        if (userData) {
+          if (userData.avatar_url && !userData.avatar_url.startsWith('/')) {
+            userData.avatar_url = `/${userData.avatar_url}`;
+          }
+          localStorage.setItem("user_data", JSON.stringify(userData));
+        }
+      } catch (error) {
+        console.error("Error processing user data in API response", error);
+      }
+    }
+  
     if (response.status === 204) return null as unknown as T;
     
-    const data = await response.json();
-    return data as T;
+    try {
+      const data = await response.json();
+      return data as T;
+    } catch (error) {
+      console.error("Error parsing JSON response", error);
+      throw new Error("Ошибка обработки ответа сервера");
+    }
   })();
   
-  // Store the promise in our cache
   pendingRequests[requestKey] = requestPromise;
   
-  // Remove from cache when complete (whether success or failure)
   requestPromise
     .then((result) => {
       delete pendingRequests[requestKey];

@@ -14,9 +14,9 @@ INCLUDE_EXTENSIONS = [
 
 # Разрешенные пути
 INCLUDE_PATHS = [
-    # "backend/",
+    "backend/",
     # "frontend/src/",
-    # "servers/",
+    "servers/",
     # "frontend/src/",
     # "frontend/src/components",
     "frontend/src/hooks",
@@ -32,11 +32,11 @@ INCLUDE_FILES = [
     # "constants.py",
     # "README.md",
     "frontend/src/next.config.ts",
-    "frontend/src/app/(admin)/dashboard/page.tsx",
+    # "frontend/src/app/(admin)/dashboard/page.tsx",
     # "frontend/src/app/(admin)/edit-user/page.tsx",
     # "frontend/src/components/EditEventForm.tsx",
     "frontend/src/components/PageTransitionWrapper.tsx",
-    "frontend/src/app/(admin)/edit-events/page.tsx",
+    # "frontend/src/app/(admin)/edit-events/page.tsx",
     "frontend/src/app/(public)/event/[slug]/page.tsx",
     "frontend/src/app/(public)/events/page.tsx",
     # "frontend/src/utils/api.ts"

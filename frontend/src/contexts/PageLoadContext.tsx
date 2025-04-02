@@ -1,37 +1,43 @@
-// src/contexts/PageLoadContext.tsx
+// frontend/src/contexts/PageLoadContext.tsx
 "use client";
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { apiFetch } from "@/utils/api";
 
-interface PageLoadContextType {
-  isPageLoading: boolean;
-  setPageLoading: (loading: boolean) => void;
-  wrapAsync: <T>(promise: Promise<T>, options?: { timeout?: number }) => Promise<T>;
-  apiFetch: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
-}
-
-const PageLoadContext = createContext<PageLoadContextType | undefined>(undefined);
-
 interface PageLoadProviderProps {
   children: React.ReactNode;
   initialState?: boolean;
 }
 
+interface PageLoadContextType {
+  isPageLoading: boolean;
+  setPageLoading: (loading: boolean) => void;
+  wrapAsync: <T>(promise: Promise<T>, options?: { timeout?: number }) => Promise<T>;
+  apiFetch: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
+  hasServerError: boolean;
+  hasNetworkError: boolean;
+  setHasServerError: (error: boolean) => void;
+  setHasNetworkError: (error: boolean) => void;
+}
+
+const PageLoadContext = createContext<PageLoadContextType | undefined>(undefined);
+
 export function PageLoadProvider({ children, initialState = false }: PageLoadProviderProps) {
   const [isPageLoading, setIsPageLoading] = useState(initialState);
+  const [hasServerError, setHasServerError] = useState(false);
+  const [hasNetworkError, setHasNetworkError] = useState(false);
   const activeLoadingOperations = useRef<Set<string>>(new Set());
   const safetyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pathname = usePathname();
   const isUnmountedRef = useRef(false);
   const previousPathRef = useRef<string | null>(null);
 
-  // Reset loading state on route change
   useEffect(() => {
     if (previousPathRef.current && previousPathRef.current !== pathname) {
-      // Only reset loading if we've actually changed pages
       setIsPageLoading(false);
+      setHasServerError(false);
+      setHasNetworkError(false);
       activeLoadingOperations.current.clear();
       if (safetyTimeoutRef.current) {
         clearTimeout(safetyTimeoutRef.current);
@@ -39,22 +45,21 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
       }
     }
     previousPathRef.current = pathname;
-  }, [pathname]);
+  }, [pathname, isPageLoading]);
 
-  // Initialize and cleanup
   useEffect(() => {
     isUnmountedRef.current = false;
     
-    // Only set loading to true on initial mount if explicitly specified
     if (initialState) {
       setIsPageLoading(initialState);
     }
     
-    // Global safety timeout to prevent stuck loading states
     const globalSafetyTimeout = setTimeout(() => {
       if (isPageLoading) {
         console.warn("Global safety timeout triggered: resetting stuck loading state");
         setIsPageLoading(false);
+        setHasServerError(false);
+        setHasNetworkError(false);
         activeLoadingOperations.current.clear();
       }
     }, 10000);
@@ -66,7 +71,6 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
         clearTimeout(safetyTimeoutRef.current);
       }
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialState]);
 
   const setupSafetyTimeout = useCallback((duration: number = 8000) => {
@@ -79,6 +83,8 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
           console.warn("Active operations at timeout:", [...activeLoadingOperations.current]);
         }
         setIsPageLoading(false);
+        setHasServerError(false);
+        setHasNetworkError(false);
         activeLoadingOperations.current.clear();
       }
       safetyTimeoutRef.current = null;
@@ -88,8 +94,7 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
   const setPageLoading = useCallback((loading: boolean) => {
     if (isUnmountedRef.current) return;
     
-    setIsPageLoading(prevLoading => {
-      // Only update if there's a change to avoid unnecessary renders
+    setIsPageLoading((prevLoading: boolean) => {
       if (prevLoading !== loading) {
         if (loading) {
           setupSafetyTimeout();
@@ -109,7 +114,6 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
     const operationId = `op-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     activeLoadingOperations.current.add(operationId);
     
-    // Only change loading state if we're not already loading
     if (!isPageLoading) {
       setIsPageLoading(true);
     }
@@ -126,9 +130,10 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
       .then((result) => {
         activeLoadingOperations.current.delete(operationId);
         
-        // Only stop loading if no more active operations
         if (activeLoadingOperations.current.size === 0 && !isUnmountedRef.current) {
           setIsPageLoading(false);
+          setHasServerError(false);
+          setHasNetworkError(false);
           if (safetyTimeoutRef.current) {
             clearTimeout(safetyTimeoutRef.current);
             safetyTimeoutRef.current = null;
@@ -139,13 +144,17 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
       .catch((error) => {
         activeLoadingOperations.current.delete(operationId);
         
-        // Only stop loading if no more active operations
         if (activeLoadingOperations.current.size === 0 && !isUnmountedRef.current) {
           setIsPageLoading(false);
           if (safetyTimeoutRef.current) {
             clearTimeout(safetyTimeoutRef.current);
             safetyTimeoutRef.current = null;
           }
+        }
+        if (error instanceof Error && 'status' in error && error.status === 500) {
+          setHasServerError(true);
+        } else if (error instanceof Error && 'isNetworkError' in error && error.isNetworkError) {
+          setHasNetworkError(true);
         }
         throw error;
       });
@@ -156,6 +165,10 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
     setPageLoading,
     wrapAsync,
     apiFetch,
+    hasServerError,
+    hasNetworkError,
+    setHasServerError,
+    setHasNetworkError,
   };
 
   return <PageLoadContext.Provider value={value}>{children}</PageLoadContext.Provider>;

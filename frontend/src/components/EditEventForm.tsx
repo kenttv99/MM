@@ -1,15 +1,15 @@
 // frontend/src/components/EditEventForm.tsx
 "use client";
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useRef, useCallback, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
-import { EventFormData } from "@/types/events";
+import { EventFormData, TicketTypeEnum } from "@/types/events";
 import { motion } from "framer-motion";
 import { 
   FaCalendarAlt, FaMapMarkerAlt, FaMoneyBillWave, FaTicketAlt, 
   FaImage, FaTrash, FaEye, FaBold, FaItalic, FaLink, FaListUl,
-  FaListOl, FaHeading, FaQuoteRight, FaUsers, FaTicketAlt as FaTicket
+  FaListOl, FaHeading, FaQuoteRight
 } from "react-icons/fa";
 import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
@@ -44,25 +44,65 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   isPageLoading,
 }) => {
   const router = useRouter();
-  const [filePreview, setFilePreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const [descriptionHistory, setDescriptionHistory] = useState<string[]>([formData.description || ""]);
+  const [historyIndex, setHistoryIndex] = useState<number>(0);
+  const [isHeadingDropdownOpen, setIsHeadingDropdownOpen] = useState(false); // Новое состояние для выпадающего списка
+
+  // Перехватываем изменения описания для сохранения истории
+  const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    handleChange(e);
+    const newValue = e.target.value;
+    setDescriptionHistory((prev) => {
+      const newHistory = prev.slice(0, historyIndex + 1);
+      return [...newHistory, newValue].slice(-20);
+    });
+    setHistoryIndex((prev) => Math.min(prev + 1, 19));
+  }, [handleChange, historyIndex]);
+
+  // Обработка Ctrl+Z для отмены изменений
+  const handleUndo = useCallback(() => {
+    if (historyIndex > 0) {
+      const prevIndex = historyIndex - 1;
+      setFieldValue("description", descriptionHistory[prevIndex]);
+      setHistoryIndex(prevIndex);
+    }
+  }, [historyIndex, descriptionHistory, setFieldValue]);
+
+  // Обработка нажатия клавиш
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "z") {
+        e.preventDefault();
+        handleUndo();
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleUndo]);
+
+  // Обновляем историю при изменении formData.description извне
+  useEffect(() => {
+    if (formData.description !== descriptionHistory[historyIndex]) {
+      setDescriptionHistory((prev) => {
+        const newHistory = prev.slice(0, historyIndex + 1);
+        return [...newHistory, formData.description || ""].slice(-20);
+      });
+      setHistoryIndex((prev) => Math.min(prev + 1, 19));
+    }
+  }, [formData.description, historyIndex]);
 
   const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (file) {
       handleFileChange(file);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setFilePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
     }
   }, [handleFileChange]);
 
   const handleRemoveImage = useCallback(() => {
     handleFileChange(null, true);
-    setFilePreview(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -110,7 +150,37 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     }, 0);
   }, [setFieldValue]);
 
-  const addHeading = useCallback(() => insertFormatting("## "), [insertFormatting]);
+  const addHeading = useCallback((level: number = 2) => {
+    if (!textAreaRef.current) return;
+    
+    const textArea = textAreaRef.current;
+    const start = textArea.selectionStart;
+    const end = textArea.selectionEnd;
+    let selectedText = textArea.value.substring(start, end);
+    const beforeText = textArea.value.substring(0, start);
+    const afterText = textArea.value.substring(end);
+    
+    // Удаляем ## из начала и конца выделенного текста, если они есть
+    selectedText = selectedText.replace(/^#+\s*/, '').replace(/\s*#+$/, '');
+    
+    // Создаем заголовок с нужным количеством #
+    const headingPrefix = '#'.repeat(level) + ' ';
+    const newText = `${beforeText}${headingPrefix}${selectedText}${afterText}`;
+    setFieldValue("description", newText);
+    
+    setTimeout(() => {
+      textArea.focus();
+      textArea.setSelectionRange(start + headingPrefix.length, start + headingPrefix.length + selectedText.length);
+    }, 0);
+    
+    // Закрываем выпадающий список после выбора
+    setIsHeadingDropdownOpen(false);
+  }, [setFieldValue]);
+
+  const toggleHeadingDropdown = useCallback(() => {
+    setIsHeadingDropdownOpen((prev) => !prev);
+  }, []);
+
   const addBold = useCallback(() => insertFormatting("**"), [insertFormatting]);
   const addItalic = useCallback(() => insertFormatting("*"), [insertFormatting]);
   const addQuote = useCallback(() => insertFormatting("> "), [insertFormatting]);
@@ -184,6 +254,44 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     }, 0);
   }, [setFieldValue]);
 
+  const increaseTextSize = useCallback(() => {
+    if (!textAreaRef.current) return;
+    
+    const textArea = textAreaRef.current;
+    const start = textArea.selectionStart;
+    const end = textArea.selectionEnd;
+    const selectedText = textArea.value.substring(start, end) || "Текст";
+    const beforeText = textArea.value.substring(0, start);
+    const afterText = textArea.value.substring(end);
+    
+    const newText = `${beforeText}{+size+}${selectedText}{+size+}${afterText}`;
+    setFieldValue("description", newText);
+    
+    setTimeout(() => {
+      textArea.focus();
+      textArea.setSelectionRange(start + 7, start + 7 + selectedText.length);
+    }, 0);
+  }, [setFieldValue]);
+
+  const decreaseTextSize = useCallback(() => {
+    if (!textAreaRef.current) return;
+    
+    const textArea = textAreaRef.current;
+    const start = textArea.selectionStart;
+    const end = textArea.selectionEnd;
+    const selectedText = textArea.value.substring(start, end) || "Текст";
+    const beforeText = textArea.value.substring(0, start);
+    const afterText = textArea.value.substring(end);
+    
+    const newText = `${beforeText}{-size-}${selectedText}{-size-}${afterText}`;
+    setFieldValue("description", newText);
+    
+    setTimeout(() => {
+      textArea.focus();
+      textArea.setSelectionRange(start + 7, start + 7 + selectedText.length);
+    }, 0);
+  }, [setFieldValue]);
+
   const availableQuantity = formData.ticket_type_available_quantity || 0;
   const soldQuantity = formData.ticket_type_sold_quantity || 0;
   const remainingQuantity = availableQuantity - soldQuantity;
@@ -221,10 +329,10 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             {!isNewEvent && (
               <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-100 mb-6">
                 <h2 className="text-xl font-semibold mb-4">Статистика мероприятия</h2>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-blue-50 p-4 rounded-lg">
                     <div className="flex items-center mb-2">
-                      <FaTicket className="text-blue-500 mr-2" />
+                      <FaTicketAlt className="text-blue-500 mr-2" />
                       <h3 className="text-lg font-medium">Билеты</h3>
                     </div>
                     <p className="text-2xl font-bold text-blue-600">{soldQuantity} / {availableQuantity}</p>
@@ -251,14 +359,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                         </div>
                       </div>
                     </div>
-                  </div>
-                  <div className="bg-green-50 p-4 rounded-lg">
-                    <div className="flex items-center mb-2">
-                      <FaUsers className="text-green-500 mr-2" />
-                      <h3 className="text-lg font-medium">Регистрации</h3>
-                    </div>
-                    <p className="text-2xl font-bold text-green-600">{formData.registrations_count || 0}</p>
-                    <p className="text-sm text-gray-600">Всего регистраций</p>
                   </div>
                   <div className="bg-orange-50 p-4 rounded-lg">
                     <div className="flex items-center mb-2">
@@ -294,15 +394,31 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
               <div className="mb-6">
                 <label className="block text-gray-700 font-medium mb-2">Описание</label>
-                <div className="flex flex-wrap gap-2 mb-2 bg-gray-100 p-2 rounded-lg">
-                  <button
-                    type="button"
-                    onClick={addHeading}
-                    className="p-2 rounded hover:bg-gray-200 text-gray-700"
-                    title="Заголовок"
-                  >
-                    <FaHeading />
-                  </button>
+                <div className="relative flex flex-wrap gap-2 mb-2 bg-gray-100 p-2 rounded-lg">
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={toggleHeadingDropdown}
+                      className="p-2 rounded hover:bg-gray-200 text-gray-700"
+                      title="Заголовок"
+                    >
+                      <FaHeading />
+                    </button>
+                    {isHeadingDropdownOpen && (
+                      <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10">
+                        {[1, 2, 3, 4, 5, 6].map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() => addHeading(level)}
+                            className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
+                          >
+                            H{level}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <button
                     type="button"
                     onClick={addBold}
@@ -351,17 +467,44 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   >
                     <FaQuoteRight />
                   </button>
+                  <button
+                    type="button"
+                    onClick={increaseTextSize}
+                    className="p-2 rounded hover:bg-gray-200 text-gray-700"
+                    title="Увеличить размер текста"
+                  >
+                    <span className="text-lg">A+</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={decreaseTextSize}
+                    className="p-2 rounded hover:bg-gray-200 text-gray-700"
+                    title="Уменьшить размер текста"
+                  >
+                    <span className="text-sm">A-</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    disabled={historyIndex === 0}
+                    className="p-2 rounded hover:bg-gray-200 text-gray-700 disabled:text-gray-400 disabled:hover:bg-gray-100"
+                    title="Отменить (Ctrl+Z)"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 15L3 9m0 0l6-6M3 9h18" />
+                    </svg>
+                  </button>
                 </div>
                 <textarea
                   name="description"
                   value={formData.description || ""}
-                  onChange={handleChange}
+                  onChange={handleDescriptionChange}
                   rows={10}
                   ref={textAreaRef}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Поддерживается Markdown-форматирование. Используйте кнопки или добавляйте теги вручную.
+                  Поддерживается Markdown-форматирование. Используйте кнопки или добавляйте теги вручную (например, {"{+size+}"} для увеличения размера).
                 </p>
               </div>
 
@@ -470,14 +613,21 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   <label className="block text-gray-700 font-medium mb-2">Тип билета</label>
                   <div className="flex items-center">
                     <FaTicketAlt className="text-gray-400 mr-2" />
-                    <input
-                      type="text"
+                    <select
                       name="ticket_type_name"
                       value={formData.ticket_type_name}
                       onChange={handleChange}
                       className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="Например: 'Стандартный', 'VIP'"
-                    />
+                    >
+                      {Object.values(TicketTypeEnum).map((type) => (
+                        <option key={type} value={type}>
+                          {type === TicketTypeEnum.free && "Бесплатный"}
+                          {type === TicketTypeEnum.standart && "Стандартный"}
+                          {type === TicketTypeEnum.vip && "VIP"}
+                          {type === TicketTypeEnum.org && "Организаторский"}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div>
@@ -498,13 +648,13 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                 <div className="flex items-start">
                   <div className="mr-4">
                     <div
-                      className={`w-32 h-32 border-2 border-dashed flex items-center justify-center cursor-pointer rounded-lg overflow-hidden ${imagePreview || filePreview ? "border-transparent" : "border-gray-300 hover:border-blue-500"}`}
+                      className={`w-32 h-32 border-2 border-dashed flex items-center justify-center cursor-pointer rounded-lg overflow-hidden ${imagePreview ? "border-transparent" : "border-gray-300 hover:border-blue-500"}`}
                       onClick={() => fileInputRef.current?.click()}
                     >
-                      {(imagePreview || filePreview) ? (
+                      {imagePreview ? (
                         <div className="relative w-full h-full">
                           <Image
-                            src={filePreview || imagePreview || ""}
+                            src={imagePreview}
                             alt="Preview"
                             width={128}
                             height={128}

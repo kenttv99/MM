@@ -15,17 +15,17 @@ INCLUDE_EXTENSIONS = [
 # Разрешенные пути
 INCLUDE_PATHS = [
     # "backend/",
-    # # "frontend/src/",
-    # # "servers/",
-    # # "frontend/src/",
+    # "frontend/src/",
+    # "servers/",
+    # "frontend/src/",
     "frontend/src/components",
-    # "frontend/src/hooks",
-    # "frontend/src/utils",
-    # # "frontend/src/app",
-    # "frontend/src/types",
-    # "frontend/src/contexts",
-    # # "frontend/src/app/(public)/",
-    # # "frontend/src/app/(auth)/"
+    "frontend/src/hooks",
+    "frontend/src/utils",
+    # "frontend/src/app",
+    "frontend/src/types",
+    "frontend/src/contexts",
+    "frontend/src/app/(public)/",
+    "frontend/src/app/(auth)/"
 ]
 
 # Конкретные файлы для включения (относительные пути)

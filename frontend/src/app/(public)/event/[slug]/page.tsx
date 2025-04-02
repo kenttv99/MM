@@ -84,7 +84,7 @@ export default function EventPage() {
       if ("isServerError" in error && error.isServerError) {
         setHasServerError(true);
       } else if (error.message === "Не удалось подключиться к серверу. Проверьте соединение.") {
-        setHasServerError(true);  // Обрабатываем сетевую ошибку как серверную
+        setHasServerError(true);
       } else {
         setFetchError(error.message || "Не удалось загрузить мероприятие");
       }
@@ -257,7 +257,7 @@ export default function EventPage() {
           {event.description && (
             <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
               <h2 className="text-2xl font-semibold mb-4">Описание</h2>
-              <FormattedDescription content={event.description} className="text-gray-600" />
+              <FormattedDescription content={event.description} className="text-gray-600" disableFontSize={false} />
             </motion.section>
           )}
         </div>

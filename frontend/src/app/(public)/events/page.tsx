@@ -1,5 +1,4 @@
 // frontend/src/app/(public)/events/page.tsx
-
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -16,7 +15,6 @@ import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const ITEMS_PER_PAGE = 6;
 
-// Helper functions
 const generateSlug = (title: string, id: number): string => {
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
@@ -92,7 +90,8 @@ const DateFilter: React.FC<{
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
-      className="absolute top-[60px] right-0 z-10 p-4 bg-white rounded-lg shadow-lg border border-gray-200 w-full max-w-[300px]">
+      className="absolute top-[60px] right-0 z-10 p-4 bg-white rounded-lg shadow-lg border border-gray-200 w-full max-w-[300px]"
+    >
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Фильтр по датам</h3>
         <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
@@ -164,7 +163,12 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: React.RefObject<HTML
           </div>
           <div className="p-4 flex-grow flex flex-col">
             <h3 className="text-lg font-semibold mb-2">{event.title}</h3>
-            <FormattedDescription content={event.description || "Описание отсутствует"} className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow" />
+            <FormattedDescription 
+              content={event.description || "Описание отсутствует"} 
+              className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow" 
+              disableFontSize={true}
+              disableLinks={true} // Отключаем ссылки в превью
+            />
             <div className="text-gray-500 text-sm mt-auto flex flex-col sm:flex-row justify-between">
               <span className="flex items-center mb-2 sm:mb-0">
                 <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -196,43 +200,32 @@ interface FilterState {
 const EventsPage = () => {
   const { hasServerError, hasNetworkError, setHasServerError, setHasNetworkError } = usePageLoad();
 
-  // Form state
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   
-  // Data state
   const [page, setPage] = useState(1);
   const [events, setEvents] = useState<EventData[]>([]);
   const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  // Используем useRef для управления isFetching, чтобы избежать пересоздания fetchEvents
   const isFetchingRef = useRef(false);
-  
-  // Refs для IntersectionObserver
   const observerRef = useRef<IntersectionObserver | null>(null);
   const lastCardRef = useRef<HTMLDivElement | null>(null);
-  
-  // Refs
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
   const isMounted = useRef(true);
   const fetchControllerRef = useRef<AbortController | null>(null);
   
-  // Track active filters for display purposes
   const [activeFilters, setActiveFilters] = useState<FilterState>({
     startDate: "",
     endDate: ""
   });
   
-  // Computed properties
   const isFilterActive = !!(activeFilters.startDate || activeFilters.endDate);
 
-  // Fetch events with proper error handling
   const fetchEvents = useCallback(async (pageNum: number, append: boolean = false, filters: FilterState) => {
-    // Предотвращаем вызов, если уже выполняется запрос или есть ошибка
     if (isFetchingRef.current || !isMounted.current || hasServerError || hasNetworkError) {
       return;
     }
@@ -299,9 +292,8 @@ const EventsPage = () => {
         fetchControllerRef.current = null;
       }
     }
-  }, [hasServerError, hasNetworkError]); // Зависимости: hasServerError, hasNetworkError
+  }, [hasServerError, hasNetworkError]);
 
-  // Initial fetch
   useEffect(() => {
     isMounted.current = true;
     fetchEvents(1, false, { startDate: "", endDate: "" });
@@ -312,9 +304,8 @@ const EventsPage = () => {
         fetchControllerRef.current.abort();
       }
     };
-  }, [fetchEvents]); // Добавляем fetchEvents в зависимости
+  }, [fetchEvents]);
 
-  // Load more handler
   const loadMore = useCallback(() => {
     if (!hasMore || isLoading || hasServerError || hasNetworkError || isFetchingRef.current) return;
     const nextPage = page + 1;
@@ -322,7 +313,6 @@ const EventsPage = () => {
     fetchEvents(nextPage, true, activeFilters);
   }, [hasMore, isLoading, hasServerError, hasNetworkError, page, fetchEvents, activeFilters]);
 
-  // IntersectionObserver для подгрузки при достижении нижней границы последней карточки
   useEffect(() => {
     if (!lastCardRef.current) return;
 
@@ -333,8 +323,8 @@ const EventsPage = () => {
         }
       },
       {
-        threshold: 0, // Срабатывает, когда нижняя граница карточки пересекает точку, заданную rootMargin
-        rootMargin: "0px 0px -50% 0px", // Смещаем точку пересечения на 100% высоты видимой области вверх, чтобы подгрузка срабатывала, когда нижняя граница карточки достигает нижней границы экрана
+        threshold: 0,
+        rootMargin: "0px 0px -50% 0px",
       }
     );
 
@@ -348,9 +338,8 @@ const EventsPage = () => {
         observerRef.current.unobserve(currentRef);
       }
     };
-  }, [events, loadMore]); // Зависимость от events, чтобы обновлять наблюдение при изменении списка
+  }, [events, loadMore]);
 
-  // Filter handlers
   const applyFilters = useCallback(() => {
     const newFilters: FilterState = { 
       startDate, 
@@ -406,10 +395,8 @@ const EventsPage = () => {
     fetchEvents(1, false, newFilters);
   }, [activeFilters, fetchEvents, setHasServerError, setHasNetworkError]);
 
-  // Мемоизируем groupedEvents, чтобы избежать лишних пересчётов
   const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
 
-  // Если есть серверная или сетевая ошибка, отображаем заглушку
   if (hasServerError || hasNetworkError) {
     return <ErrorPlaceholder />;
   }
@@ -481,7 +468,6 @@ const EventsPage = () => {
                 <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {eventsForDate.map((event, index) => {
-                    // Привязываем lastCardRef к последней карточке в последней группе
                     const isLastCard =
                       groupIndex === Object.keys(groupedEvents).length - 1 &&
                       index === eventsForDate.length - 1;

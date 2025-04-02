@@ -1,3 +1,4 @@
+// frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
@@ -24,14 +25,15 @@ import { UserData, FormState, ValidationErrors } from "@/types/index";
 import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const ProfilePage: React.FC = () => {
-  const { isAuth, updateUserData } = useAuth();
+  const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
   const [formState, setFormState] = useState<FormState>({
     fio: "",
     telegram: "",
     whatsapp: "",
     avatarPreview: null,
-    email: "", // Добавляем email в начальное состояние
+    email: "",
   });
+  const [initialFormState, setInitialFormState] = useState<FormState | null>(null); // Храним исходные данные
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -42,42 +44,87 @@ const ProfilePage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const router = useRouter();
-  const { wrapAsync, apiFetch } = usePageLoad();
+  const { wrapAsync, apiFetch, setPageLoading } = usePageLoad();
 
   const navigateTo = useCallback((path: string) => {
     router.push(path);
   }, [router]);
 
   useEffect(() => {
-    if (!isAuth) {
-      navigateTo("/");
-      return;
-    }
+    const initProfile = async () => {
+      // Проверяем, был ли уже выполнен запрос
+      if (hasFetched.current) {
+        return;
+      }
 
-    if (!hasFetched.current) {
-      const fetchProfile = async () => {
+      // Ждем, пока AuthContext завершит проверку авторизации
+      if (authLoading) {
+        return;
+      }
+
+      try {
+        // Если userData и isAuth уже доступны, используем их
+        if (userData && isAuth) {
+          const initialData = {
+            fio: userData.fio || "",
+            telegram: userData.telegram || "",
+            whatsapp: userData.whatsapp || "",
+            avatarPreview: userData.avatar_url || null,
+            email: userData.email || "",
+          };
+          setFormState(initialData);
+          setInitialFormState(initialData); // Сохраняем исходные данные
+          hasFetched.current = true;
+          return;
+        }
+
+        // Проверяем наличие токена
+        const token = localStorage.getItem("token");
+        if (!token) {
+          navigateTo("/");
+          return;
+        }
+
+        // Выполняем запрос к API
+        setPageLoading(true);
         try {
-          const data = await wrapAsync<UserData>(
-            apiFetch("/user_edits/me", { headers: { Accept: "application/json" } })
-          );
-          if (data) {
-            setFormState({
-              fio: data.fio || "",
-              telegram: data.telegram || "",
-              whatsapp: data.whatsapp || "",
-              avatarPreview: data.avatar_url || null,
-              email: data.email || "", // Устанавливаем email
-            });
-            updateUserData(data, true);
+          const response = await fetch("/user_edits/me", {
+            headers: {
+              Accept: "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            localStorage.removeItem("token");
+            localStorage.removeItem("user_data");
+            navigateTo("/");
+            return;
           }
+
+          const data = await response.json();
+          const initialData = {
+            fio: data.fio || "",
+            telegram: data.telegram || "",
+            whatsapp: data.whatsapp || "",
+            avatarPreview: data.avatar_url || null,
+            email: data.email || "",
+          };
+          setFormState(initialData);
+          setInitialFormState(initialData); // Сохраняем исходные данные
+          updateUserData(data, true);
+          hasFetched.current = true;
         } catch (err) {
           setFetchError(err instanceof Error ? err.message : "Не удалось загрузить профиль");
+          hasFetched.current = true;
         }
-        hasFetched.current = true;
-      };
-      fetchProfile();
-    }
-  }, [isAuth, navigateTo, updateUserData, wrapAsync, apiFetch]);
+      } finally {
+        setPageLoading(false);
+      }
+    };
+
+    initProfile();
+  }, [isAuth, userData, authLoading, navigateTo, updateUserData, setPageLoading]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -143,6 +190,7 @@ const ProfilePage: React.FC = () => {
     if (!validateForm()) return;
 
     try {
+      setPageLoading(true);
       const profileResponse = await wrapAsync<UserData>(
         apiFetch("/user_edits/me", {
           method: "PUT",
@@ -154,58 +202,81 @@ const ProfilePage: React.FC = () => {
           }),
         })
       );
+
+      let updatedUser = profileResponse;
       if (profileResponse && selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
 
-        const updatedUser = await wrapAsync<UserData>(
+        updatedUser = await wrapAsync<UserData>(
           apiFetch("/user_edits/upload-avatar", {
             method: "POST",
             body: formData,
           })
         );
-        if (updatedUser) {
-          setFormState((prev) => ({
-            ...prev,
-            avatarPreview: updatedUser.avatar_url || null,
-          }));
-          updateUserData(updatedUser, true);
-        }
       }
-      setUpdateSuccess("Профиль успешно обновлен!");
-      setTimeout(() => {
-        setSelectedFile(null);
-        setUpdateSuccess(null);
-        setIsEditing(false);
-      }, 1500);
+
+      if (updatedUser) {
+        const updatedData = {
+          fio: updatedUser.fio || "",
+          telegram: updatedUser.telegram || "",
+          whatsapp: updatedUser.whatsapp || "",
+          avatarPreview: updatedUser.avatar_url || null,
+          email: updatedUser.email || "",
+        };
+        setFormState(updatedData);
+        setInitialFormState(updatedData); // Обновляем исходные данные после сохранения
+        updateUserData(updatedUser, false);
+        setUpdateSuccess("Профиль успешно обновлен!");
+        setTimeout(() => {
+          setSelectedFile(null);
+          setUpdateSuccess(null);
+          setIsEditing(false);
+        }, 1500);
+      }
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось обновить профиль");
+    } finally {
+      setPageLoading(false);
     }
   };
 
   const handleEditToggle = () => {
     const scrollPosition = window.scrollY;
-    setIsEditing((prev) => !prev);
+    setIsEditing((prev) => {
+      if (prev) {
+        // Если закрываем форму редактирования, сбрасываем formState до исходных данных
+        if (initialFormState) {
+          setFormState(initialFormState);
+          setSelectedFile(null); // Сбрасываем выбранный файл
+        }
+      }
+      return !prev;
+    });
     setUpdateSuccess(null);
     requestAnimationFrame(() => window.scrollTo(0, scrollPosition));
   };
 
+  // Simplified variants for smoother transitions without side entrances
   const containerVariants = {
-    view: { opacity: 1, transition: { staggerChildren: 0.1 } },
-    edit: { opacity: 1, transition: { staggerChildren: 0.1 } },
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { duration: 0.3 } },
   };
 
   const childVariants = {
-    closed: { opacity: 0, scale: 0.95 },
-    view: { opacity: 1, scale: 1 },
-    edit: { opacity: 1, scale: 1 },
-    hidden: { opacity: 0, scale: 0.95 },
+    hidden: { opacity: 0, scale: 0.98 },
+    visible: { opacity: 1, scale: 1, transition: { duration: 0.3 } },
   };
 
   const tooltipVariants = {
-    hidden: { opacity: 0, y: 10 },
-    visible: { opacity: 1, y: 0 },
+    hidden: { opacity: 0, y: 5 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
   };
+
+  // If user is not authenticated, redirect to home
+  if (!isAuth) {
+    return null; // Return null instead of placeholder, as we're redirecting in useEffect
+  }
 
   return (
     <div className="container mx-auto px-4 sm:px-6 py-10 mt-16 max-w-4xl">
@@ -215,15 +286,13 @@ const ProfilePage: React.FC = () => {
         <motion.div
           className="sm:col-span-2 md:col-span-3 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100"
           layout
-          initial="view"
-          animate={isEditing ? "edit" : "view"}
+          initial="hidden"
+          animate="visible"
           variants={containerVariants}
-          transition={{ duration: 0.4, ease: "easeInOut" }}
         >
           <motion.div
             className="flex flex-col sm:flex-row items-start justify-between mb-6"
             variants={childVariants}
-            transition={{ duration: 0.3 }}
           >
             <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-4 sm:mb-0">
               <motion.div
@@ -244,7 +313,6 @@ const ProfilePage: React.FC = () => {
                       height={80}
                       className="w-full h-full rounded-full object-cover"
                       onError={() => {
-                        console.error("Failed to load avatar:", formState.avatarPreview);
                         setFormState((prev) => ({ ...prev, avatarPreview: null }));
                       }}
                     />
@@ -273,7 +341,6 @@ const ProfilePage: React.FC = () => {
                           animate="visible"
                           exit="hidden"
                           variants={tooltipVariants}
-                          transition={{ duration: 0.2 }}
                           className="absolute bottom-0 inset-x-0 flex items-center justify-center h-6"
                         >
                           <FaCamera className="text-white drop-shadow-md" size={16} />
@@ -296,7 +363,6 @@ const ProfilePage: React.FC = () => {
                           animate="visible"
                           exit="hidden"
                           variants={tooltipVariants}
-                          transition={{ duration: 0.2 }}
                           className="absolute bottom-0 inset-x-0 flex items-center justify-center h-6"
                         >
                           <FaCamera className="text-white drop-shadow-md" size={16} />
@@ -313,47 +379,34 @@ const ProfilePage: React.FC = () => {
                   ref={fileInputRef}
                 />
               </motion.div>
-              <motion.div variants={childVariants}>
-                <AnimatePresence mode="wait">
-                  {!isEditing ? (
-                    <motion.div
-                      key="view"
-                      initial="hidden"
-                      animate="view"
-                      exit="hidden"
-                      variants={childVariants}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <h2 className="text-lg sm:text-xl font-semibold">{formState.fio || "Не указано"}</h2>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      key="edit"
-                      initial="hidden"
-                      animate="edit"
-                      exit="hidden"
-                      variants={childVariants}
-                      transition={{ duration: 0.3 }}
-                      className="space-y-2 w-full"
-                    >
-                      <div>
-                        <InputField
+              <motion.div variants={childVariants} className="flex-grow">
+                {!isEditing ? (
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-semibold">{formState.fio || "Не указано"}</h2>
+                    <p className="text-gray-600 text-sm mt-1">{formState.email || "Не указан"}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2 w-full ml-8 sm:ml-10">
+                    <div className="w-full">
+                      {/* Пересобранное поле для ввода ФИО */}
+                      <div className="relative">
+                        <input
                           type="text"
-                          value={formState.fio}
+                          value={formState.fio || ""}
                           onChange={handleChange}
-                          placeholder="ФИО"
-                          icon={FaUser}
+                          placeholder="Введите ваше ФИО"
                           name="fio"
                           required
-                          className="w-full"
+                          className="w-full p-2 pl-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[40px]"
                         />
-                        {validationErrors.fio && (
-                          <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
-                        )}
+                        <FaUser className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
                       </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                      {validationErrors.fio && (
+                        <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
               </motion.div>
             </div>
             <motion.div className="flex items-center space-x-2" variants={childVariants}>
@@ -383,15 +436,11 @@ const ProfilePage: React.FC = () => {
                 <motion.div
                   key="view"
                   initial="hidden"
-                  animate="view"
+                  animate="visible"
                   exit="hidden"
                   variants={childVariants}
-                  transition={{ duration: 0.3 }}
                   className="space-y-2"
                 >
-                  <p className="text-base">
-                    <strong>Email:</strong> {formState.email || "Не указан"}
-                  </p>
                   <p className="text-base">
                     <strong>Telegram:</strong> {formState.telegram || "Не указан"}
                   </p>
@@ -403,17 +452,16 @@ const ProfilePage: React.FC = () => {
                 <motion.form
                   key="edit"
                   initial="hidden"
-                  animate="edit"
+                  animate="visible"
                   exit="hidden"
                   variants={childVariants}
-                  transition={{ duration: 0.3 }}
                   onSubmit={handleSubmit}
                   className="space-y-4 relative"
                 >
                   <div>
                     <InputField
                       type="text"
-                      value={formState.telegram}
+                      value={formState.telegram || ""}
                       onChange={handleChange}
                       placeholder="Telegram"
                       icon={FaTelegramPlane}
@@ -428,7 +476,7 @@ const ProfilePage: React.FC = () => {
                   <div>
                     <InputField
                       type="text"
-                      value={formState.whatsapp}
+                      value={formState.whatsapp || ""}
                       onChange={handleChange}
                       placeholder="WhatsApp"
                       icon={FaWhatsapp}
@@ -467,7 +515,7 @@ const ProfilePage: React.FC = () => {
             onClick={() => navigateTo("/events")}
             className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm text-base min-h-[44px]"
           >
-            Начать мероприятие
+            Найти мероприятия
           </motion.button>
         </div>
       </div>

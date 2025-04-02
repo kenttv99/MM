@@ -86,6 +86,13 @@ export async function apiFetch<T>(
     }
   
     if (!response.ok) {
+      // Special handling for login endpoint errors - THIS IS THE NEW CODE
+      if (response.status === 401 && endpoint.includes('/login')) {
+        const clientError: CustomError = new Error("Неверный логин или пароль");
+        clientError.status = response.status;
+        throw clientError;
+      }
+      
       if (response.status >= 500) {
         const errorText = await response.text();
         let errorMessage = "Произошла ошибка на сервере";

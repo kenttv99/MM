@@ -71,7 +71,7 @@ export function PageLoadProvider({ children, initialState = false }: PageLoadPro
         clearTimeout(safetyTimeoutRef.current);
       }
     };
-  }, [initialState]);
+  }, [initialState, isPageLoading]);
 
   const setupSafetyTimeout = useCallback((duration: number = 8000) => {
     if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);

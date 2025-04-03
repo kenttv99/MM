@@ -26,13 +26,33 @@ interface CustomError extends Error {
   isAuthError?: boolean;
 }
 
+const requestNotificationPermission = async (): Promise<boolean> => {
+  if (!("Notification" in window)) {
+    console.log("Browser does not support notifications");
+    return false;
+  }
+  if (Notification.permission !== "granted") {
+    const permission = await Notification.requestPermission();
+    return permission === "granted";
+  }
+  return true;
+};
+
+const showNotification = (title: string, options?: NotificationOptions) => {
+  if (Notification.permission === "granted") {
+    new Notification(title, options);
+  } else {
+    console.log("Notifications not permitted");
+  }
+};
+
 const Notifications: React.FC = () => {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const notificationRef = useRef<HTMLDivElement>(null);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
-  const { isAuth } = useAuth(); // Use isAuth directly instead of checkAuth
-  const hasFetched = useRef(false); // Track initial fetch to avoid redundant calls
+  const { isAuth, userData } = useAuth();
+  const hasFetched = useRef(false);
 
   const fetchNotifications = useCallback(async () => {
     if (!isAuth) {
@@ -44,7 +64,7 @@ const Notifications: React.FC = () => {
     try {
       const response = await apiFetch<NotificationResponse[]>("/user_edits/notifications", {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`, // Явно используем token
+          Authorization: `Bearer ${localStorage.getItem("token")}`,
         },
       });
       setNotifications(
@@ -67,20 +87,33 @@ const Notifications: React.FC = () => {
     }
   }, [isAuth]);
 
-  // useEffect(() => {
-  //   if (!hasFetched.current) {
-  //     fetchNotifications();
-  //     hasFetched.current = true;
-  //   }
+  // Загрузка серверных уведомлений и приветственное уведомление
+  useEffect(() => {
+    const initializeNotifications = async () => {
+      if (!hasFetched.current) {
+        await fetchNotifications();
+        hasFetched.current = true;
+      }
 
-  //   const interval = setInterval(() => {
-  //     if (isAuth) {
-  //       fetchNotifications(); // Only fetch periodically if authenticated
-  //     }
-  //   }, 30000);
+      // Проверка и показ приветственного уведомления
+      const permissionGranted = await requestNotificationPermission();
+      if (permissionGranted && isAuth && userData) {
+        showNotification("Добро пожаловать!", {
+          body: `Вы вошли как ${userData.fio || userData.email}`,
+        });
+      }
+    };
 
-  //   return () => clearInterval(interval);
-  // }, [fetchNotifications, isAuth]); // Add isAuth to prevent unnecessary runs
+    initializeNotifications();
+
+    const interval = setInterval(() => {
+      if (isAuth) {
+        fetchNotifications();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [isAuth, userData, fetchNotifications]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

@@ -84,20 +84,30 @@ export const useAuthForm = ({
         const apiError = err as ApiError;
         let errorMessage = "Произошла ошибка";
 
-        if (apiError.message === "Неверный логин или пароль") {
-          errorMessage = apiError.message; // Display this in the UI
-        } else if (apiError.status === 429) {
+        // Парсим тело ошибки, чтобы извлечь только "detail"
+        if (apiError.message) {
+          try {
+            const errorBody = JSON.parse(apiError.message.split("Message: ")[1] || "{}");
+            if (errorBody.detail) {
+              errorMessage = errorBody.detail; // Используем только значение "detail"
+            } else {
+              errorMessage = apiError.message; // Если "detail" нет, используем полное сообщение
+            }
+          } catch {
+            // Если парсинг не удался, используем полное сообщение как запасной вариант
+            errorMessage = apiError.message;
+          }
+        }
+
+        // Дополнительные проверки статуса для других случаев
+        if (apiError.status === 429) {
           errorMessage = "Частые запросы. Попробуйте немного позже.";
-        } else if (apiError.status === 400) {
-          errorMessage = apiError.message.includes("Email already exists")
-            ? "Email уже существует"
-            : "Ошибка в данных формы";
-        } else if (apiError.message) {
-          errorMessage = apiError.message;
+        } else if (apiError.status === 400 && errorMessage.includes("Email already exists")) {
+          errorMessage = "Email уже существует";
         }
 
         setError(errorMessage);
-        console.log(`Authentication error: ${errorMessage}`); // Log for debugging, not as an error
+        console.log(`Authentication error: ${errorMessage}`);
       } finally {
         setIsLoading(false);
         isSubmitting.current = false;

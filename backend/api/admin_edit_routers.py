@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
-from backend.database.user_db import AsyncSession, Notification, UserActivity, get_async_db, Event, User, TicketType
+from backend.database.user_db import AsyncSession, Notification, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select, delete
@@ -118,34 +118,48 @@ async def prepare_event_data(form_data: EventFormData):
         raise HTTPException(status_code=422, detail=str(e))
 
 async def send_notifications(db: AsyncSession, event: Event, message: str, notification_type: str):
+    # Создаем шаблон уведомления
+    template = NotificationTemplate(
+        message=message,
+        type=notification_type,
+        event_id=event.id,
+        is_public=True,
+        created_at=datetime.utcnow()
+    )
+    db.add(template)
+    await db.flush()
+
+    # Получаем всех пользователей
     stmt = select(User.id)
     result = await db.execute(stmt)
     user_ids = result.scalars().all()
-    
-    for user_id in user_ids:
-        notification = Notification(
-            user_id=user_id,
-            message=message,
-            type=notification_type,
-            event_id=event.id,
-            is_viewed=False
-        )
-        db.add(notification)
-    
+
+    # Получаем все уникальные фингерпринты из активности пользователей
     stmt = select(UserActivity.device_fingerprint).distinct()
     result = await db.execute(stmt)
     fingerprints = result.scalars().all()
-    
-    for fingerprint in fingerprints:
-        notification = Notification(
-            fingerprint=fingerprint,
-            message=message,
-            type=notification_type,
-            event_id=event.id,
-            is_viewed=False
+
+    # Создаем записи просмотров для всех пользователей
+    for user_id in user_ids:
+        view = NotificationView(
+            template_id=template.id,
+            user_id=user_id,
+            is_viewed=False,
+            created_at=datetime.utcnow()
         )
-        db.add(notification)
-    
+        db.add(view)
+
+    # Создаем записи просмотров для всех устройств
+    for fingerprint in fingerprints:
+        if fingerprint:  # Проверяем, что fingerprint не None
+            view = NotificationView(
+                template_id=template.id,
+                fingerprint=fingerprint,
+                is_viewed=False,
+                created_at=datetime.utcnow()
+            )
+            db.add(view)
+
     await db.commit()
 
 @router.post("/", response_model=EventCreate)

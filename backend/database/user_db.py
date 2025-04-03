@@ -202,20 +202,32 @@ class Admin(Base):
     # Связь с медиа, загруженным администратором
     admin_medias = relationship("Media", foreign_keys=[Media.admin_uploaded_by_id], back_populates="admin_uploaded_by")
     
-class Notification(Base):
-    __tablename__ = "notifications"
+class NotificationTemplate(Base):
+    __tablename__ = "notification_templates"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    fingerprint = Column(String(64), nullable=True)
     message = Column(Text, nullable=False)
     type = Column(String(50), nullable=False)
     event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+    is_public = Column(Boolean, default=False)
+
+    event = relationship("Event")
+    views = relationship("NotificationView", back_populates="template")
+
+class NotificationView(Base):
+    __tablename__ = "notification_views"
+
+    id = Column(Integer, primary_key=True, index=True)
+    template_id = Column(Integer, ForeignKey("notification_templates.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    fingerprint = Column(String(64), nullable=True)
     is_viewed = Column(Boolean, default=False)
+    viewed_at = Column(TIMESTAMP, nullable=True)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
 
-    user = relationship("User", back_populates="notifications")
-    event = relationship("Event")
+    template = relationship("NotificationTemplate", back_populates="views")
+    user = relationship("User")
 
 # Функция для инициализации базы данных
 async def init_db():

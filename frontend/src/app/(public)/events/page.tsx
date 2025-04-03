@@ -11,7 +11,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useLoading } from "@/contexts/LoadingContext";
 
 const ITEMS_PER_PAGE = 6;
 
@@ -198,7 +198,7 @@ interface FilterState {
 }
 
 const EventsPage = () => {
-  const { hasServerError, hasNetworkError, setHasServerError, setHasNetworkError } = usePageLoad();
+  const { setLoading } = useLoading(); // Используем useLoading
 
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
@@ -209,6 +209,8 @@ const EventsPage = () => {
   const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasServerError, setHasServerError] = useState(false); // Локальное состояние
+  const [hasNetworkError, setHasNetworkError] = useState(false); // Локальное состояние
   
   const isFetchingRef = useRef(false);
   const observerRef = useRef<IntersectionObserver | null>(null);
@@ -232,6 +234,7 @@ const EventsPage = () => {
     
     isFetchingRef.current = true;
     setIsLoading(true);
+    setLoading(true); // Устанавливаем глобальное состояние загрузки
     
     fetchControllerRef.current = new AbortController();
     
@@ -260,7 +263,7 @@ const EventsPage = () => {
       const data = await apiFetch<EventData[]>(url, { 
         cache: "no-store",
         signal: fetchControllerRef.current.signal 
-      });
+      }, setLoading); // Передаем setLoading в apiFetch
       
       if (isMounted.current) {
         setEvents((prev) => {
@@ -280,8 +283,11 @@ const EventsPage = () => {
       
       const error = err instanceof Error ? err : new Error("Неизвестная ошибка");
       
-      if (!(error instanceof Error && 'status' in error && error.status === 500) && 
-          !(error instanceof Error && 'isNetworkError' in error && error.isNetworkError)) {
+      if (error.message.includes("HTTP error! Status: 5")) {
+        setHasServerError(true);
+      } else if (error.message.includes("Request timed out") || error.message.includes("Network Error")) {
+        setHasNetworkError(true);
+      } else {
         setError(error.message || "Ошибка загрузки мероприятий");
         setHasMore(false);
       }
@@ -289,10 +295,10 @@ const EventsPage = () => {
       if (isMounted.current) {
         isFetchingRef.current = false;
         setIsLoading(false);
-        fetchControllerRef.current = null;
+        setLoading(false); // Сбрасываем глобальное состояние загрузки
       }
     }
-  }, [hasServerError, hasNetworkError]);
+  }, [hasServerError, hasNetworkError, setLoading]);
 
   useEffect(() => {
     isMounted.current = true;
@@ -354,7 +360,7 @@ const EventsPage = () => {
     setHasNetworkError(false);
     fetchEvents(1, false, newFilters);
     setIsFilterOpen(false);
-  }, [startDate, endDate, fetchEvents, setHasServerError, setHasNetworkError]);
+  }, [startDate, endDate, fetchEvents]);
 
   const resetFilters = useCallback(() => {
     setStartDate("");
@@ -373,7 +379,7 @@ const EventsPage = () => {
     setHasNetworkError(false);
     fetchEvents(1, false, newFilters);
     setIsFilterOpen(false);
-  }, [fetchEvents, setHasServerError, setHasNetworkError]);
+  }, [fetchEvents]);
 
   const removeFilter = useCallback((filter: "startDate" | "endDate") => {
     const newFilters = { ...activeFilters };
@@ -393,7 +399,7 @@ const EventsPage = () => {
     setHasServerError(false);
     setHasNetworkError(false);
     fetchEvents(1, false, newFilters);
-  }, [activeFilters, fetchEvents, setHasServerError, setHasNetworkError]);
+  }, [activeFilters, fetchEvents]);
 
   const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
 

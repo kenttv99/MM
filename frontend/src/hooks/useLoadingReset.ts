@@ -1,30 +1,23 @@
 // frontend/src/hooks/useLoadingReset.ts
-import { useEffect } from 'react';
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useEffect } from "react";
+import { useLoading } from "@/contexts/LoadingContext";
 
-/**
- * Hook to reset loading state in components with data fetching
- * @param resetDelay Optional delay in ms before resetting loading state (default: 2000)
- */
 export function useLoadingReset(resetDelay: number = 2000) {
-  const { isPageLoading, setPageLoading } = usePageLoad();
-  
+  const { isLoading, setLoading } = useLoading();
+
   useEffect(() => {
-    // Immediately start a timer to reset loading state
     const timer = setTimeout(() => {
-      if (isPageLoading) {
+      if (isLoading) {
         console.warn(`useLoadingReset: Force resetting loading state after ${resetDelay}ms`);
-        setPageLoading(false);
+        setLoading(false);
       }
     }, resetDelay);
-    
+
     return () => {
       clearTimeout(timer);
-      // Also ensure loading is reset on unmount
-      setPageLoading(false);
+      setLoading(false);
     };
-  }, [isPageLoading, setPageLoading, resetDelay]);
-  
-  // Make loading state available to component
-  return { isPageLoading, setPageLoading };
+  }, [isLoading, setLoading, resetDelay]);
+
+  return { isLoading, setLoading };
 }

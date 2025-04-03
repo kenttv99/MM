@@ -4,7 +4,7 @@
 import { useRouter } from "next/navigation";
 import React, { createContext, useState, useEffect, useCallback, useRef, useContext } from "react";
 import { AdminProfile } from "@/types/index";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useLoading } from "@/contexts/LoadingContext"; 
 
 interface AdminAuthContextType {
   isAdminAuth: boolean;
@@ -44,7 +44,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [isCheckingAuth, setIsCheckingAuth] = useState<boolean>(false);
   
   const router = useRouter();
-  const { setPageLoading } = usePageLoad();
+  const { setLoading } = useLoading();
   
   // Use ref to track authentication check promise
   const authCheckPromise = useRef<Promise<boolean> | null>(null);
@@ -169,7 +169,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     
     // Need to perform a check
     try {
-      setPageLoading(true);
+      setLoading(true);
       const isAuthenticated = await checkAuth();
       if (!isAuthenticated) {
         router.push("/admin-login");
@@ -180,9 +180,9 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       router.push("/admin-login");
       return false;
     } finally {
-      setPageLoading(false);
+      setLoading(false);
     }
-  }, [isAdminAuth, isCheckingAuth, checkAuth, router, setPageLoading]);
+  }, [isAdminAuth, isCheckingAuth, checkAuth, router, setLoading]);
 
   const logoutAdmin = useCallback(() => {
     localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);

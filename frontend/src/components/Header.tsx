@@ -38,26 +38,6 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   );
 };
 
-const requestNotificationPermission = async () => {
-  if (!("Notification" in window)) {
-    console.log("Browser does not support notifications");
-    return false;
-  }
-  if (Notification.permission !== "granted") {
-    const permission = await Notification.requestPermission();
-    return permission === "granted";
-  }
-  return true;
-};
-
-const showNotification = (title: string, options?: NotificationOptions) => {
-  if (Notification.permission === "granted") {
-    new Notification(title, options);
-  } else {
-    console.log("Notifications not permitted");
-  }
-};
-
 const Header: React.FC = () => {
   const { isAuth, userData, logout } = useAuth();
   const [isScrolled, setIsScrolled] = useState(false);
@@ -70,16 +50,6 @@ const Header: React.FC = () => {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
-
-  useEffect(() => {
-    const initializeNotifications = async () => {
-      const permissionGranted = await requestNotificationPermission();
-      if (permissionGranted && isAuth && userData) {
-        showNotification("Добро пожаловать!", { body: `Вы вошли как ${userData.fio || userData.email}` });
-      }
-    };
-    initializeNotifications();
-  }, [isAuth, userData]);
 
   const toggleMobileMenu = useCallback(() => {
     console.log("Toggling mobile menu:", !isMobileMenuOpen);

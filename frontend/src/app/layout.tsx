@@ -1,41 +1,26 @@
-// src/app/layout.tsx
+// frontend/src/app/layout.tsx
+"use client";
+
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { PageLoadProvider } from "@/contexts/PageLoadContext";
+import { LoadingProvider } from "@/contexts/LoadingContext";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
+const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
+const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-export const metadata = {
-  title: "Moscow Mellows",
-  description: "Moscow Mellows - ваша платформа для мероприятий",
-};
-
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" suppressHydrationWarning>
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
-        {/* PageLoadProvider must be the outermost provider since other providers use it */}
-        <PageLoadProvider initialState={false}>
+        <LoadingProvider initialState={false}>
           <AuthProvider>
             <ErrorBoundary>
               {children}
             </ErrorBoundary>
           </AuthProvider>
-        </PageLoadProvider>
+        </LoadingProvider>
       </body>
     </html>
   );

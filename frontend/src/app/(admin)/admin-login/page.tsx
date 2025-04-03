@@ -1,14 +1,14 @@
+// frontend/src/app/(admin)/admin-login/page.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaEnvelope, FaLock } from "react-icons/fa";
-import { useAdminAuthForm } from "@/hooks/useAdminAuthForm";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { apiFetch } from "@/utils/api";
 
 const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
   const url = new URL(path, window.location.origin);
@@ -19,7 +19,10 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 export default function AdminLoginPage() {
   const router = useRouter();
   const { checkAuth } = useAdminAuth();
-  const { setPageLoading } = usePageLoad();
+  const [formValues, setFormValues] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSuccess, setIsSuccess] = useState(false);
 
   useEffect(() => {
     const initialLoad = async () => {
@@ -30,29 +33,36 @@ export default function AdminLoginPage() {
         }
       } catch (err) {
         console.error("AdminLoginPage: checkAuth failed:", err);
-      } finally {
-        setPageLoading(false);
       }
     };
-    
     initialLoad();
-  }, [checkAuth, router, setPageLoading]);
+  }, [checkAuth, router]);
 
-  const {
-    formValues,
-    error,
-    isLoading: formLoading,
-    isSuccess,
-    handleChange,
-    handleSubmit,
-  } = useAdminAuthForm({
-    initialValues: {
-      email: "",
-      password: "",
-    },
-    endpoint: "/admin/login",
-    redirectTo: "/admin-profile",
-  });
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setFormValues((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
+    try {
+      const data = await apiFetch<{ token: string }>("/admin/login", {
+        method: "POST",
+        body: JSON.stringify(formValues),
+      });
+      localStorage.setItem("admin_token", data.token);
+      setIsSuccess(true);
+      setTimeout(() => navigateTo(router, "/admin-profile"), 1500);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Произошла ошибка");
+      setIsSuccess(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <>
@@ -95,16 +105,16 @@ export default function AdminLoginPage() {
               <ModalButton
                 variant="secondary"
                 onClick={() => navigateTo(router, "/")}
-                disabled={formLoading || isSuccess}
+                disabled={isLoading || isSuccess}
               >
                 На главную
               </ModalButton>
               <ModalButton
                 type="submit"
                 variant="primary"
-                disabled={formLoading || isSuccess}
+                disabled={isLoading || isSuccess}
               >
-                {formLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
+                {isLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
               </ModalButton>
             </div>
           </form>

@@ -4,14 +4,14 @@ import React from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import Link from 'next/link';
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useLoading } from "@/contexts/LoadingContext";
 
 export default function MediaPage() {
-  const { setPageLoading } = usePageLoad();
+  const { setLoading } = useLoading();
 
   React.useEffect(() => {
-    setPageLoading(false); // Статическая страница
-  }, [setPageLoading]);
+    setLoading(false); // Статическая страница
+  }, [setLoading]);
 
   return (
     <>

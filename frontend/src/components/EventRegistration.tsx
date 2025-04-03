@@ -1,3 +1,4 @@
+// frontend/src/components/EventRegistration.tsx
 "use client";
 
 import React, { useState } from "react";
@@ -6,7 +7,7 @@ import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import { EventRegistrationProps } from "@/types/index";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { apiFetch } from "@/utils/api";
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventId,
@@ -14,7 +15,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventDate,
   eventTime,
   eventLocation,
-  ticketType,
   availableQuantity,
   soldQuantity,
   price,
@@ -25,7 +25,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   displayStatus,
 }) => {
   const { userData, isAuth } = useAuth();
-  const { wrapAsync } = usePageLoad();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [success, setSuccess] = useState<string | undefined>(undefined);
@@ -45,33 +44,24 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     setSuccess(undefined);
 
     try {
-      const token = localStorage.getItem("token");
-      const response = await wrapAsync(
-        fetch("/user_edits/register", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            event_id: eventId,
-            user_id: userData!.id,
-          }),
-        })
-      );
+      await apiFetch<{ message: string }>("/user_edits/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          event_id: eventId,
+          user_id: userData!.id,
+        }),
+      });
 
-      if (response.ok) {
-        setSuccess("Вы успешно забронировали билет!");
-        setTimeout(() => {
-          setIsModalOpen(false);
-          if (onBookingSuccess) onBookingSuccess();
-        }, 1500);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.detail || "Ошибка при бронировании.");
-      }
+      setSuccess("Вы успешно забронировали билет!");
+      setTimeout(() => {
+        setIsModalOpen(false);
+        if (onBookingSuccess) onBookingSuccess();
+      }, 1500);
     } catch (err) {
-      setError("Произошла ошибка при бронировании. Попробуйте позже.");
+      setError(err instanceof Error ? err.message : "Ошибка при бронировании.");
       console.error(err);
     }
   };
@@ -192,44 +182,18 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               transition={{ duration: 0.3, delay: 0.4 }}
               className="flex items-center"
             >
-              <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
-              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{ticketType}</span>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.5 }}
-              className="flex items-center"
-            >
               <FaRubleSign className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
               <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
                 {freeRegistration ? "Бесплатно" : `${price} ₽`}
               </span>
             </motion.div>
           </div>
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, delay: 0.6 }}
-            className="text-gray-600 text-sm sm:text-base text-center"
-            style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
-          >
-            Вы собираетесь забронировать билет на это мероприятие.
-          </motion.p>
-          <div className="flex flex-col sm:flex-row justify-end space-y-4 sm:space-y-0 sm:space-x-4">
-            <ModalButton
-              variant="secondary"
-              onClick={() => setIsModalOpen(false)}
-              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
-            >
+          <div className="flex justify-end gap-4">
+            <ModalButton variant="secondary" onClick={() => setIsModalOpen(false)} disabled={!!success}>
               Отмена
             </ModalButton>
-            <ModalButton
-              variant="primary"
-              onClick={handleConfirmBooking}
-              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
-            >
-              Подтвердить
+            <ModalButton variant="primary" onClick={handleConfirmBooking} disabled={!!success}>
+              {success ? "Успешно!" : "Подтвердить"}
             </ModalButton>
           </div>
         </div>

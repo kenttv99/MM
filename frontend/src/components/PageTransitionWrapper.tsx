@@ -1,8 +1,11 @@
-import React from "react";
+// frontend/src/components/PageTransitionWrapper.tsx
+"use client"; // Добавляем, так как используем хуки
+
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useLoading } from "@/contexts/LoadingContext"; // Новый импорт
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
-import Loading from "@/components/Loading"; // Добавляем импорт
+import Loading from "@/components/Loading";
 
 interface PageTransitionWrapperProps {
   children: React.ReactNode;
@@ -10,7 +13,8 @@ interface PageTransitionWrapperProps {
 }
 
 export default function PageTransitionWrapper({ children, disableLoading = false }: PageTransitionWrapperProps) {
-  const { isPageLoading, hasServerError } = usePageLoad();
+  const { isLoading } = useLoading(); // 
+  const [hasServerError] = useState(false); 
 
   if (hasServerError) {
     return <ErrorPlaceholder />;
@@ -18,7 +22,7 @@ export default function PageTransitionWrapper({ children, disableLoading = false
 
   return (
     <AnimatePresence mode="wait">
-      {isPageLoading && !disableLoading ? (
+      {isLoading && !disableLoading ? (
         <motion.div
           key="loading"
           initial={{ opacity: 0 }}
@@ -27,7 +31,7 @@ export default function PageTransitionWrapper({ children, disableLoading = false
           transition={{ duration: 0.2 }}
           className="fixed inset-0 bg-white bg-opacity-70 z-50 flex items-center justify-center min-h-[100vh] max-w-[100vw]"
         >
-          <Loading type="spinner" color="orange" size="medium" /> {/* Подключаем крутящийся спиннер */}
+          <Loading type="spinner" color="orange" size="medium" />
         </motion.div>
       ) : (
         <motion.div

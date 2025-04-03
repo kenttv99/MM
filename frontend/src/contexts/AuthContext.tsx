@@ -1,313 +1,101 @@
 // frontend/src/contexts/AuthContext.tsx
 "use client";
 
-import React, { createContext, useState, useEffect, useContext, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { apiFetch } from "@/utils/api";
-import { usePageLoad } from "@/contexts/PageLoadContext";
-import AuthModal from "@/components/common/AuthModal";
-import Login from "@/components/Login";
+import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
+import { useLoading } from "@/contexts/LoadingContext";
 
 interface UserData {
   id: number;
-  fio: string;
   email: string;
-  telegram: string;
-  whatsapp: string;
+  fio: string;
+  telegram?: string;
+  whatsapp?: string;
   avatar_url?: string;
 }
 
 interface AuthContextType {
   isAuth: boolean;
   userData: UserData | null;
-  setIsAuth: (auth: boolean) => void;
-  checkAuth: () => Promise<boolean>;
   isLoading: boolean;
-  logout: () => void;
+  checkAuth: () => Promise<boolean>;
+  updateUserData: (data: UserData, resetLoading?: boolean) => void;
   handleLoginSuccess: (token: string, user: UserData) => void;
-  updateUserData: (user: UserData, silent?: boolean) => void;
-  openLoginModal: () => void;
-  isLoginModalOpen: boolean;
-  closeLoginModal: () => void;
+  logout: () => void; // Новый метод
 }
 
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const STORAGE_KEYS = {
-  TOKEN: "token",
-  USER_DATA: "user_data",
-};
-
-interface JwtPayload {
-  exp: number;
-  sub: string;
-  [key: string]: unknown;
-}
-
-interface CustomError extends Error {
-  isAuthError?: boolean;
-  status?: number;
-}
-
-function decodeJwt(token: string): JwtPayload | null {
-  try {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/")));
-    return payload;
-  } catch {
-    return null;
-  }
-}
-
-function isTokenExpired(token: string): boolean {
-  const decoded = decodeJwt(token);
-  if (!decoded) return true;
-  const currentTime = Math.floor(Date.now() / 1000);
-  return decoded.exp < currentTime;
-}
-
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isAuth, setIsAuth] = useState<boolean>(false);
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [isAuth, setIsAuth] = useState(false);
   const [userData, setUserData] = useState<UserData | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
-  const [authCheckCount, setAuthCheckCount] = useState<number>(0);
-  const router = useRouter();
-  const isChecking = useRef(false);
-  const authCheckPromise = useRef<Promise<boolean> | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const hasInitialized = useRef(false);
   const lastCheckTime = useRef<number>(0);
-  const { setPageLoading } = usePageLoad();
+  const { setLoading } = useLoading();
 
-  const MAX_AUTH_CHECKS = 5;
   const CHECK_INTERVAL = 5000;
 
-  const refreshUserData = async (token: string): Promise<boolean> => {
-    try {
-      const freshData = await apiFetch<UserData>("/user_edits/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-      if (freshData.avatar_url) {
-        freshData.avatar_url = freshData.avatar_url.startsWith('http')
-          ? freshData.avatar_url
-          : `${baseUrl}${freshData.avatar_url.startsWith('/') ? freshData.avatar_url : `/${freshData.avatar_url}`}`;
-      }
-
-      setUserData(freshData);
-      setIsAuth(true);
-      localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(freshData));
-      return true;
-    } catch (error) {
-      const err = error as CustomError;
-      if (err.isAuthError) {
-        return false; // Silently fail for auth errors
-      }
-      console.warn("Failed to refresh user data:", error);
-      return false;
+  const updateUserData = (data: UserData, resetLoading = true) => {
+    setUserData(data);
+    if (resetLoading) {
+      setIsLoading(false);
+      setLoading(false);
     }
   };
 
-  const checkAuth = useCallback(async (): Promise<boolean> => {
-    const now = Date.now();
-    
-    if (now - lastCheckTime.current < CHECK_INTERVAL) {
-      setAuthCheckCount((prev) => prev + 1);
-      if (authCheckCount + 1 >= MAX_AUTH_CHECKS) {
-        return false;
-      }
-    } else {
-      setAuthCheckCount(0);
-    }
-    lastCheckTime.current = now;
-
-    if (authCheckPromise.current) {
-      return authCheckPromise.current;
-    }
-
-    authCheckPromise.current = (async () => {
-      if (isChecking.current) {
-        return isAuth;
-      }
-
-      isChecking.current = true;
-      setIsLoading(true);
-
-      try {
-        let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
-
-        if (!token) {
-          return false;
-        }
-
-        if (token.startsWith("Bearer ")) token = token.slice(7).trim();
-        
-        if (isTokenExpired(token)) {
-          localStorage.removeItem(STORAGE_KEYS.TOKEN);
-          localStorage.removeItem(STORAGE_KEYS.USER_DATA);
-          setIsAuth(false);
-          setUserData(null);
-          return false;
-        }
-
-        const cachedData = localStorage.getItem(STORAGE_KEYS.USER_DATA);
-        let userDataFromCache = null;
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
-
-        if (cachedData) {
-          try {
-            userDataFromCache = JSON.parse(cachedData);
-            if (userDataFromCache.avatar_url && !userDataFromCache.avatar_url.startsWith('http')) {
-              userDataFromCache.avatar_url = userDataFromCache.avatar_url.startsWith('/')
-                ? `${baseUrl}${userDataFromCache.avatar_url}`
-                : `${baseUrl}/${userDataFromCache.avatar_url}`;
-            }
-
-            setUserData(userDataFromCache);
-            setIsAuth(true);
-
-            const refreshed = await refreshUserData(token);
-            if (!refreshed) {
-              console.warn("Using cached data as refresh failed");
-            }
-            return true;
-          } catch {
-            userDataFromCache = null;
-          }
-        }
-
-        const refreshed = await refreshUserData(token);
-        if (refreshed) {
-          return true;
-        } else if (userDataFromCache) {
-          setUserData(userDataFromCache);
-          setIsAuth(true);
-          return true;
-        } else {
-          setIsAuth(false);
-          setUserData(null);
-          return false;
-        }
-      } catch (err) {
-        const error = err as CustomError;
-        if (error.isAuthError) {
-          // Silently handle auth errors (e.g., 401 from /me)
-          return false;
-        }
-        console.warn("Unexpected error during auth check:", err);
-        setIsAuth(false);
-        setUserData(null);
-        return false;
-      } finally {
-        setIsLoading(false);
-        isChecking.current = false;
-        setTimeout(() => {
-          authCheckPromise.current = null;
-        }, 0);
-      }
-    })();
-
-    return authCheckPromise.current;
-  }, [authCheckCount, isAuth, refreshUserData]);
-
   const handleLoginSuccess = useCallback((token: string, user: UserData) => {
-    localStorage.setItem(STORAGE_KEYS.TOKEN, token);
-    localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
+    if (typeof window !== "undefined") {
+      localStorage.setItem("token", token);
+    }
     setIsAuth(true);
     setUserData(user);
     setIsLoading(false);
-    setPageLoading(false);
-    setIsLoginModalOpen(false);
-    window.dispatchEvent(new Event('auth-change'));
-  }, [setPageLoading]);
+    setLoading(false);
+  }, [setIsAuth, setUserData, setIsLoading, setLoading]);
 
   const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEYS.TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER_DATA);
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("token");
+    }
     setIsAuth(false);
     setUserData(null);
-    window.dispatchEvent(new Event('auth-change'));
-    router.push("/"); // Always redirect to home page on logout
-  }, [router]);
+    setIsLoading(false);
+    setLoading(false);
+  }, [setIsAuth, setUserData, setIsLoading, setLoading]);
 
-  const updateUserData = useCallback((user: UserData, silent: boolean = false) => {
-    setUserData(user);
-    localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(user));
-    if (!silent) {
-      window.dispatchEvent(new Event('auth-change'));
+  const checkAuth = useCallback(async () => {
+    const now = Date.now();
+    if (now - lastCheckTime.current < CHECK_INTERVAL) {
+      return isAuth;
     }
-  }, []);
 
-  const openLoginModal = useCallback(() => {
-    setIsLoginModalOpen(true);
-  }, []);
+    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    lastCheckTime.current = now;
 
-  const closeLoginModal = useCallback(() => {
-    setIsLoginModalOpen(false);
-  }, []);
+    if (!token) {
+      setIsAuth(false);
+      setUserData(null);
+      setIsLoading(false);
+      setLoading(false);
+      return false;
+    }
+
+    setIsAuth(true);
+    setIsLoading(false);
+    setLoading(false);
+    return true;
+  }, [isAuth, setIsAuth, setUserData, setIsLoading, setLoading]);
 
   useEffect(() => {
     if (!hasInitialized.current) {
       hasInitialized.current = true;
-
-      checkAuth()
-        .then((authenticated) => {
-          if (!authenticated) {
-            console.log("User is not authenticated on initial load - this is expected");
-          }
-        })
-        .catch((err) => {
-          const error = err as CustomError;
-          if (!error.isAuthError) {
-            console.warn("Unexpected error during initial auth check:", err);
-          }
-        })
-        .finally(() => {
-          setIsLoading(false);
-          setPageLoading(false);
-        });
+      checkAuth();
     }
-
-    const timeout = setTimeout(() => {
-      if (isLoading) {
-        setIsLoading(false);
-        setPageLoading(false);
-        isChecking.current = false;
-        authCheckPromise.current = null;
-      }
-    }, 5000);
-
-    return () => clearTimeout(timeout);
-  }, [checkAuth, isLoading, setPageLoading]);
-
-  const contextValue: AuthContextType = {
-    isAuth,
-    userData,
-    setIsAuth,
-    checkAuth,
-    isLoading,
-    logout,
-    handleLoginSuccess,
-    updateUserData,
-    openLoginModal,
-    isLoginModalOpen,
-    closeLoginModal,
-  };
+  }, [checkAuth]);
 
   return (
-    <AuthContext.Provider value={contextValue}>
+    <AuthContext.Provider value={{ isAuth, userData, isLoading, checkAuth, updateUserData, handleLoginSuccess, logout }}>
       {children}
-      {isLoginModalOpen && (
-        <AuthModal
-          isOpen={isLoginModalOpen}
-          onClose={closeLoginModal}
-          title="Вход"
-        >
-          <Login isOpen={isLoginModalOpen} onClose={closeLoginModal} />
-        </AuthModal>
-      )}
     </AuthContext.Provider>
   );
 };

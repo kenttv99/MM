@@ -1,4 +1,4 @@
-// src/app/(admin)/admin-profile/page.tsx
+// frontend/src/app/(admin)/admin-profile/page.tsx
 "use client";
 
 import { useEffect, useState, useRef } from "react";
@@ -6,9 +6,9 @@ import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
-import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog, FaUser} from "react-icons/fa";
+import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog, FaUser } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { apiFetch } from "@/utils/api";
 
 interface AdminData {
   id: number;
@@ -24,8 +24,7 @@ const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: 
 
 export default function AdminProfilePage() {
   const router = useRouter();
-  const { checkAuth, updateAdminData, adminData } = useAdminAuth();
-  const { wrapAsync, apiFetch, setPageLoading } = usePageLoad();
+  const { checkAuth, adminData } = useAdminAuth(); // Убрано updateAdminData, если его нет
   const [formValues, setFormValues] = useState<AdminData>({ email: "", fio: "", id: 0 });
   const [isEditing, setIsEditing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -33,7 +32,6 @@ export default function AdminProfilePage() {
   const hasFetched = useRef(false);
   const isLoadingRef = useRef(false);
 
-  // Initialize form values from adminData when it becomes available
   useEffect(() => {
     if (adminData && !hasFetched.current) {
       setFormValues({
@@ -59,19 +57,17 @@ export default function AdminProfilePage() {
 
         if (!hasFetched.current && adminData) {
           setFormValues({
-            id: adminData.id, 
+            id: adminData.id,
             email: adminData.email,
-            fio: adminData.fio
+            fio: adminData.fio,
           });
           hasFetched.current = true;
         } else if (!hasFetched.current) {
-          // Only fetch if we don't have data
-          const data = await wrapAsync<AdminData>(
-            apiFetch("/admin/me", { headers: { Accept: "application/json" } })
-          );
+          const data = await apiFetch<AdminData>("/admin/me", {
+            headers: { Accept: "application/json" },
+          });
           if (data) {
             setFormValues(data);
-            updateAdminData(data);
             hasFetched.current = true;
           }
         }
@@ -80,23 +76,15 @@ export default function AdminProfilePage() {
         setFetchError(err instanceof Error ? err.message : "Не удалось загрузить данные профиля");
       } finally {
         isLoadingRef.current = false;
-        setPageLoading(false);
       }
     };
 
     initialLoad();
-    
-    // Safety reset of loading state
-    const timer = setTimeout(() => {
-      setPageLoading(false);
-    }, 2000);
-    
-    return () => clearTimeout(timer);
-  }, [checkAuth, router, updateAdminData, wrapAsync, apiFetch, adminData, setPageLoading]);
+  }, [checkAuth, router, adminData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormValues(prev => ({ ...prev, [name]: value }));
+    setFormValues((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -105,16 +93,13 @@ export default function AdminProfilePage() {
     isLoadingRef.current = true;
 
     try {
-      const data = await wrapAsync<AdminData>(
-        apiFetch("/admin/me", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ fio: formValues.fio }),
-        })
-      );
+      const data = await apiFetch<AdminData>("/admin/me", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fio: formValues.fio }),
+      });
       if (data) {
         setFormValues((prev) => ({ ...prev, fio: data.fio }));
-        updateAdminData(data);
         setSuccessMessage("Профиль успешно обновлен!");
         setTimeout(() => {
           setSuccessMessage(null);

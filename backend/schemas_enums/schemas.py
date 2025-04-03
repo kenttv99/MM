@@ -140,17 +140,29 @@ class EventUpdate(BaseModel):
 # Notifications
 #------------------------
         
-class NotificationBase(BaseModel):
+class NotificationTemplateBase(BaseModel):
     message: str
     type: str
     event_id: int
-    is_viewed: bool
+    is_public: bool
+
+class NotificationTemplateResponse(NotificationTemplateBase):
+    id: int
     created_at: datetime
 
-class NotificationResponse(NotificationBase):
+    class Config:
+        from_attributes = True
+
+class NotificationViewBase(BaseModel):
+    template_id: int
+    is_viewed: bool
+
+class NotificationViewResponse(NotificationViewBase):
     id: int
     user_id: Optional[int] = None
     fingerprint: Optional[str] = None
+    viewed_at: Optional[datetime] = None
+    created_at: datetime
 
     class Config:
         from_attributes = True

@@ -6,7 +6,7 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
 import { FeatureCardProps } from "@/types/index";
-import { usePageLoad } from "@/contexts/PageLoadContext";
+import { useLoading } from "@/contexts/LoadingContext";
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, description, ctaText }) => (
   <Link href={href} className="group h-full">
@@ -25,11 +25,11 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, desc
 );
 
 const PublicHomePage: React.FC = () => {
-  const { setPageLoading } = usePageLoad();
+  const { setLoading } = useLoading();
 
   useEffect(() => {
-    setPageLoading(false); // Статическая страница, загружается сразу
-  }, [setPageLoading]);
+    setLoading(false); // Статическая страница, загружается сразу
+  }, [setLoading]);
 
   const features: FeatureCardProps[] = [
     {

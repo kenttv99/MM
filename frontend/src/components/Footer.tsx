@@ -11,31 +11,47 @@ const Footer = () => {
           {/* Быстрые ссылки */}
           <div className="flex-1 flex flex-col items-center">
             <h3 className="text-lg font-bold mb-4">Быстрые ссылки</h3>
-            <ul className="space-y-2 text-sm">
-              <li>
-                <Link href="/" className="text-gray-600 hover:text-orange-500 transition-colors duration-300">
-                  Главная
-                </Link>
-              </li>
-              <li>
-                <Link href="/events" className="text-gray-600 hover:text-orange-500 transition-colors duration-300">
-                  Мероприятия
-                </Link>
-              </li>
-              <li>
-                <Link href="/media" className="text-gray-600 hover:text-orange-500 transition-colors duration-300">
-                  Медиа
-                </Link>
-              </li>
-              <li>
-                <Link href="/partner" className="text-gray-600 hover:text-orange-500 transition-colors duration-300">
-                  Стать партнером
-                </Link>
-              </li>
-            </ul>
+            <div className="w-full">
+              <ul className="flex flex-col gap-2 max-w-[240px] mx-auto md:flex md:flex-col md:space-y-2 md:max-w-none">
+                {/* Первая строка ссылок */}
+                <li className="flex justify-center gap-3">
+                  <Link
+                    href="/"
+                    className="text-gray-600 hover:text-orange-500 transition-colors duration-300 md:text-center"
+                    style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
+                  >
+                    Главная
+                  </Link>
+                  <Link
+                    href="/events"
+                    className="text-gray-600 hover:text-orange-500 transition-colors duration-300 md:text-center"
+                    style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
+                  >
+                    Мероприятия
+                  </Link>
+                </li>
+                {/* Вторая строка ссылок */}
+                <li className="flex justify-center gap-3">
+                  <Link
+                    href="/media"
+                    className="text-gray-600 hover:text-orange-500 transition-colors duration-300 md:text-center"
+                    style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
+                  >
+                    Медиа
+                  </Link>
+                  <Link
+                    href="/partner"
+                    className="text-gray-600 hover:text-orange-500 transition-colors duration-300 md:text-center"
+                    style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
+                  >
+                    Стать партнером
+                  </Link>
+                </li>
+              </ul>
+            </div>
           </div>
 
-          {/* О нас */}
+          {/* Moscow Mellows */}
           <div className="flex-1 flex flex-col items-center">
             <h3 className="text-lg font-bold mb-4">Moscow Mellows</h3>
             <p className="text-gray-600 mb-4 text-center text-sm" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
@@ -70,36 +86,22 @@ const Footer = () => {
           {/* Действия */}
           <div className="flex-1 flex flex-col items-center">
             <h3 className="text-lg font-bold mb-4">Действия</h3>
-            <div className="space-y-3 w-full max-w-xs">
+            <div className="w-full max-w-[180px] sm:max-w-[220px] md:max-w-[280px]">
               <Link
                 href="/registration"
-                className="block w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300 text-sm min-w-[120px] min-h-[44px]"
+                className="block w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300 text-xs sm:text-sm min-w-[100px] min-h-[44px] flex items-center justify-center"
               >
                 Регистрация на мероприятие
-              </Link>
-              <Link
-                href="/events"
-                className="block w-full px-4 py-2 text-center bg-white border border-orange-500 text-orange-500 font-medium rounded-lg hover:bg-orange-50 transition-colors duration-300 text-sm min-w-[120px] min-h-[44px]"
-              >
-                Наши мероприятия
               </Link>
             </div>
           </div>
         </div>
 
         <div className="pt-6 border-t border-gray-100">
-          <div className="flex flex-col md:flex-row justify-between items-center text-sm gap-4">
-            <p className="text-gray-600 text-center md:text-left" style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}>
+          <div className="flex flex-col md:flex-row justify-center items-center text-sm gap-4">
+            <p className="text-gray-600 text-center" style={{ fontSize: "clamp(0.75rem, 2vw, 1rem)" }}>
               © Moscow Mellows {new Date().getFullYear()}. Все права защищены.
             </p>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <Link href="/privacy" className="text-gray-500 hover:text-orange-500 transition-colors duration-300">
-                Политика конфиденциальности
-              </Link>
-              <Link href="/terms" className="text-gray-500 hover:text-orange-500 transition-colors duration-300">
-                Условия использования
-              </Link>
-            </div>
           </div>
         </div>
       </div>

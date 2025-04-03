@@ -135,3 +135,22 @@ class EventUpdate(BaseModel):
 
     class Config:
         from_attributes = True
+        
+#------------------------
+# Notifications
+#------------------------
+        
+class NotificationBase(BaseModel):
+    message: str
+    type: str
+    event_id: int
+    is_viewed: bool
+    created_at: datetime
+
+class NotificationResponse(NotificationBase):
+    id: int
+    user_id: Optional[int] = None
+    fingerprint: Optional[str] = None
+
+    class Config:
+        from_attributes = True

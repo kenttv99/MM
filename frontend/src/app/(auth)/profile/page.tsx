@@ -1,31 +1,23 @@
-// frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { usePageLoad } from "@/contexts/PageLoadContext";
+import { FaUser, FaTelegramPlane, FaWhatsapp, FaCamera, FaPencilAlt, FaLock, FaTrash } from "react-icons/fa";
+import Image from "next/image";
 import InputField from "@/components/common/InputField";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
-import {
-  FaUser,
-  FaTelegramPlane,
-  FaWhatsapp,
-  FaTrash,
-  FaPencilAlt,
-  FaTimes,
-  FaLock,
-  FaCamera,
-} from "react-icons/fa";
-import Image from "next/image";
-import { ModalButton } from "@/components/common/AuthModal";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
-import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
+  const { wrapAsync, apiFetch, setPageLoading } = usePageLoad();
+  const router = useRouter();
+
   const [formState, setFormState] = useState<FormState>({
     fio: "",
     telegram: "",
@@ -33,164 +25,102 @@ const ProfilePage: React.FC = () => {
     avatarPreview: null,
     email: "",
   });
-  const [initialFormState, setInitialFormState] = useState<FormState | null>(null); // Храним исходные данные
+  const [initialFormState, setInitialFormState] = useState<FormState | null>(null);
   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
-  const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
-  const [isAvatarHovered, setIsAvatarHovered] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
-  const router = useRouter();
-  const { wrapAsync, apiFetch, setPageLoading } = usePageLoad();
-
-  const navigateTo = useCallback((path: string) => {
-    router.push(path);
-  }, [router]);
+  const isSubmitting = useRef(false);
 
   useEffect(() => {
     const initProfile = async () => {
-      // Проверяем, был ли уже выполнен запрос
-      if (hasFetched.current) {
+      if (hasFetched.current || authLoading) return;
+      if (!isAuth || !userData) {
+        router.push("/");
         return;
       }
-
-      // Ждем, пока AuthContext завершит проверку авторизации
-      if (authLoading) {
-        return;
-      }
-
-      try {
-        // Если userData и isAuth уже доступны, используем их
-        if (userData && isAuth) {
-          const initialData = {
-            fio: userData.fio || "",
-            telegram: userData.telegram || "",
-            whatsapp: userData.whatsapp || "",
-            avatarPreview: userData.avatar_url || null,
-            email: userData.email || "",
-          };
-          setFormState(initialData);
-          setInitialFormState(initialData); // Сохраняем исходные данные
-          hasFetched.current = true;
-          return;
-        }
-
-        // Проверяем наличие токена
-        const token = localStorage.getItem("token");
-        if (!token) {
-          navigateTo("/");
-          return;
-        }
-
-        // Выполняем запрос к API
-        setPageLoading(true);
-        try {
-          const response = await fetch("/user_edits/me", {
-            headers: {
-              Accept: "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-          });
-
-          if (!response.ok) {
-            localStorage.removeItem("token");
-            localStorage.removeItem("user_data");
-            navigateTo("/");
-            return;
-          }
-
-          const data = await response.json();
-          const initialData = {
-            fio: data.fio || "",
-            telegram: data.telegram || "",
-            whatsapp: data.whatsapp || "",
-            avatarPreview: data.avatar_url || null,
-            email: data.email || "",
-          };
-          setFormState(initialData);
-          setInitialFormState(initialData); // Сохраняем исходные данные
-          updateUserData(data, true);
-          hasFetched.current = true;
-        } catch (err) {
-          setFetchError(err instanceof Error ? err.message : "Не удалось загрузить профиль");
-          hasFetched.current = true;
-        }
-      } finally {
-        setPageLoading(false);
-      }
+      const initialData = {
+        fio: userData.fio || "",
+        telegram: userData.telegram || "",
+        whatsapp: userData.whatsapp || "",
+        avatarPreview: userData.avatar_url || null,
+        email: userData.email || "",
+      };
+      setFormState(initialData);
+      setInitialFormState(initialData);
+      validateForm(initialData);
+      hasFetched.current = true;
     };
-
     initProfile();
-  }, [isAuth, userData, authLoading, navigateTo, updateUserData, setPageLoading]);
+  }, [isAuth, userData, authLoading, router]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     let newValue = value;
-
     const newErrors = { ...validationErrors };
 
     if (name === "telegram") {
       newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
-      if (!newValue) newErrors.telegram = "Telegram обязателен";
-      else if (!newValue.startsWith("@")) newErrors.telegram = "Telegram должен начинаться с @";
-      else delete newErrors.telegram;
-    }
-
-    if (name === "whatsapp") {
+      newErrors.telegram = !newValue ? "Telegram обязателен" : !newValue.startsWith("@") ? "Должен начинаться с @" : undefined;
+    } else if (name === "whatsapp") {
       newValue = value.replace(/\D/g, "");
-      if (!newValue) newErrors.whatsapp = "WhatsApp обязателен";
-      else if (!/^\d+$/.test(newValue)) newErrors.whatsapp = "WhatsApp должен содержать только цифры";
-      else delete newErrors.whatsapp;
+      newErrors.whatsapp = !newValue ? "WhatsApp обязателен" : !/^\d+$/.test(newValue) ? "Только цифры" : undefined;
+    } else if (name === "fio") {
+      newErrors.fio = !value ? "ФИО обязательно" : undefined;
     }
 
-    if (name === "fio") {
-      if (!value) newErrors.fio = "ФИО обязательно";
-      else delete newErrors.fio;
-    }
-
-    setFormState((prev) => ({ ...prev, [name]: newValue }));
+    setFormState((prev) => {
+      const updatedState = { ...prev, [name]: newValue };
+      validateForm(updatedState);
+      return updatedState;
+    });
     setValidationErrors(newErrors);
-  };
+  }, [validationErrors]);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setSelectedFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
-      };
+      reader.onloadend = () => setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
       reader.readAsDataURL(file);
     } else {
       setSelectedFile(null);
-      setFormState((prev) => ({
-        ...prev,
-        avatarPreview: null,
-      }));
+      setFormState((prev) => ({ ...prev, avatarPreview: initialFormState?.avatarPreview || null }));
     }
-  };
+  }, [initialFormState]);
 
-  const validateForm = useCallback((): boolean => {
+  const handleRemoveAvatar = useCallback(() => {
+    setSelectedFile(null);
+    setFormState((prev) => ({ ...prev, avatarPreview: null }));
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const validateForm = useCallback((state: FormState = formState) => {
     const errors: ValidationErrors = {};
-    if (!formState.fio) errors.fio = "ФИО обязательно";
-    if (!formState.telegram) errors.telegram = "Telegram обязателен";
-    else if (!formState.telegram.startsWith("@")) errors.telegram = "Telegram должен начинаться с @";
-    if (!formState.whatsapp) errors.whatsapp = "WhatsApp обязателен";
-    else if (!/^\d+$/.test(formState.whatsapp)) errors.whatsapp = "WhatsApp должен содержать только цифры";
-
+    if (!state.fio) errors.fio = "ФИО обязательно";
+    if (!state.telegram) errors.telegram = "Telegram обязателен";
+    else if (!state.telegram.startsWith("@")) errors.telegram = "Должен начинаться с @";
+    if (!state.whatsapp) errors.whatsapp = "WhatsApp обязателен";
+    else if (!/^\d+$/.test(state.whatsapp)) errors.whatsapp = "Только цифры";
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   }, [formState]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!validateForm()) return;
+    if (isSubmitting.current || !validateForm()) return;
+
+    isSubmitting.current = true;
+    setPageLoading(true);
+    setFetchError(null);
+    setUpdateSuccess(null);
 
     try {
-      setPageLoading(true);
       const profileResponse = await wrapAsync<UserData>(
         apiFetch("/user_edits/me", {
           method: "PUT",
@@ -204,15 +134,11 @@ const ProfilePage: React.FC = () => {
       );
 
       let updatedUser = profileResponse;
-      if (profileResponse && selectedFile) {
+      if (selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
-
         updatedUser = await wrapAsync<UserData>(
-          apiFetch("/user_edits/upload-avatar", {
-            method: "POST",
-            body: formData,
-          })
+          apiFetch("/user_edits/upload-avatar", { method: "POST", body: formData })
         );
       }
 
@@ -225,318 +151,605 @@ const ProfilePage: React.FC = () => {
           email: updatedUser.email || "",
         };
         setFormState(updatedData);
-        setInitialFormState(updatedData); // Обновляем исходные данные после сохранения
+        setInitialFormState(updatedData);
         updateUserData(updatedUser, false);
         setUpdateSuccess("Профиль успешно обновлен!");
         setTimeout(() => {
           setSelectedFile(null);
           setUpdateSuccess(null);
           setIsEditing(false);
+          isSubmitting.current = false;
         }, 1500);
       }
     } catch (err) {
-      setFetchError(err instanceof Error ? err.message : "Не удалось обновить профиль");
+      setFetchError(err instanceof Error ? err.message : "Ошибка обновления профиля");
+      setTimeout(() => setFetchError(null), 1500);
     } finally {
       setPageLoading(false);
+      isSubmitting.current = false;
     }
   };
 
-  const handleEditToggle = () => {
-    const scrollPosition = window.scrollY;
+  const toggleEdit = useCallback(() => {
     setIsEditing((prev) => {
-      if (prev) {
-        // Если закрываем форму редактирования, сбрасываем formState до исходных данных
-        if (initialFormState) {
-          setFormState(initialFormState);
-          setSelectedFile(null); // Сбрасываем выбранный файл
-        }
+      if (prev && initialFormState) {
+        setFormState(initialFormState);
+        setSelectedFile(null);
+        validateForm(initialFormState);
       }
       return !prev;
     });
     setUpdateSuccess(null);
-    requestAnimationFrame(() => window.scrollTo(0, scrollPosition));
-  };
+    setFetchError(null);
+  }, [initialFormState]);
 
-  // Simplified variants for smoother transitions without side entrances
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { duration: 0.3 } },
-  };
-
-  const childVariants = {
-    hidden: { opacity: 0, scale: 0.98 },
-    visible: { opacity: 1, scale: 1, transition: { duration: 0.3 } },
-  };
-
-  const tooltipVariants = {
-    hidden: { opacity: 0, y: 5 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.2 } },
-  };
-
-  // If user is not authenticated, redirect to home
-  if (!isAuth) {
-    return null; // Return null instead of placeholder, as we're redirecting in useEffect
-  }
+  if (!isAuth) return null;
 
   return (
-    <div className="container mx-auto px-4 sm:px-6 py-10 mt-16 max-w-4xl overflow-hidden">
-      <h1 className="text-2xl sm:text-3xl font-bold mb-6" style={{ fontSize: "clamp(1.5rem, 4vw, 1.875rem)" }}>
-        Ваш профиль
-      </h1>
-      {fetchError && <ErrorDisplay error={fetchError} />}
-      <div className="flex flex-col md:grid md:grid-cols-5 gap-4 sm:gap-6">
-        <motion.div
-          className="md:col-span-3 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100"
-          layout
-          initial="hidden"
-          animate="visible"
-          variants={containerVariants}
-        >
-          <motion.div
-            className="flex flex-col sm:flex-row items-start justify-between mb-6 gap-4"
-            variants={childVariants}
-          >
-            <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-4 sm:mb-0">
-              <motion.div
-                className="relative"
-                variants={childVariants}
-                onMouseEnter={() => setIsAvatarHovered(true)}
-                onMouseLeave={() => setIsAvatarHovered(false)}
-              >
-                {formState.avatarPreview ? (
-                  <div
-                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full overflow-hidden min-w-[60px] min-h-[60px] ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
-                    onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
-                  >
-                    <Image
-                      src={formState.avatarPreview}
-                      alt="Avatar"
-                      width={80}
-                      height={80}
-                      className="w-full h-full rounded-full object-cover"
-                      onError={() => setFormState((prev) => ({ ...prev, avatarPreview: null }))}
-                    />
-                    <AnimatePresence>
-                      {isEditing && (
-                        <motion.button
-                          initial={{ opacity: 0, scale: 0 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0 }}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedFile(null);
-                            setFormState((prev) => ({ ...prev, avatarPreview: null }));
-                            if (fileInputRef.current) fileInputRef.current.value = "";
-                          }}
-                          className="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 min-w-[24px] min-h-[24px]"
-                        >
-                          <FaTrash size={12} />
-                        </motion.button>
-                      )}
-                    </AnimatePresence>
-                    <AnimatePresence>
-                      {isEditing && isAvatarHovered && (
-                        <motion.div
-                          initial="hidden"
-                          animate="visible"
-                          exit="hidden"
-                          variants={tooltipVariants}
-                          className="absolute bottom-0 inset-x-0 flex items-center justify-center h-6"
-                        >
-                          <FaCamera className="text-white drop-shadow-md" size={16} />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                ) : (
-                  <div
-                    className={`w-16 h-16 sm:w-20 sm:h-20 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl font-bold min-w-[60px] min-h-[60px] ${isEditing ? "border-2 border-orange-500 cursor-pointer" : ""}`}
-                    onClick={isEditing ? () => fileInputRef.current?.click() : undefined}
-                    onMouseEnter={() => setIsAvatarHovered(true)}
-                    onMouseLeave={() => setIsAvatarHovered(false)}
-                  >
-                    {formState.fio ? formState.fio.charAt(0).toUpperCase() : ""}
-                    <AnimatePresence>
-                      {isEditing && isAvatarHovered && (
-                        <motion.div
-                          initial="hidden"
-                          animate="visible"
-                          exit="hidden"
-                          variants={tooltipVariants}
-                          className="absolute bottom-0 inset-x-0 flex items-center justify-center h-6"
-                        >
-                          <FaCamera className="text-white drop-shadow-md" size={16} />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={handleFileChange}
-                  className="hidden"
-                  ref={fileInputRef}
-                />
-              </motion.div>
-              <motion.div variants={childVariants} className="flex-grow">
-                {!isEditing ? (
-                  <div>
-                    <h2
-                      className="text-lg sm:text-xl font-semibold"
-                      style={{ fontSize: "clamp(1.125rem, 2.5vw, 1.25rem)" }}
-                    >
-                      {formState.fio || "Не указано"}
-                    </h2>
-                    <p
-                      className="text-gray-600 text-sm mt-1"
-                      style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
-                    >
-                      {formState.email || "Не указан"}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-2 w-full ml-0 sm:ml-4">
-                    <div className="w-full">
-                      <div className="relative">
-                        <input
-                          type="text"
-                          value={formState.fio || ""}
-                          onChange={handleChange}
-                          placeholder="Введите ваше ФИО"
-                          name="fio"
-                          required
-                          className="w-full p-2 pl-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 min-h-[40px]"
-                        />
-                        <FaUser className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-                      </div>
-                      {validationErrors.fio && (
-                        <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </motion.div>
-            </div>
-            <motion.div className="flex items-center space-x-2" variants={childVariants}>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={handleEditToggle}
-                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-gray-200 rounded-full text-gray-500 hover:bg-gray-300 transition min-w-[44px] min-h-[44px]"
-              >
-                {isEditing ? <FaTimes size={14} /> : <FaPencilAlt size={14} />}
-              </motion.button>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setIsChangePasswordOpen(true)}
-                className="flex items-center justify-center w-8 h-8 sm:w-10 sm:h-10 bg-orange-100 rounded-full text-orange-500 hover:bg-orange-200 transition min-w-[44px] min-h-[44px]"
-                title="Сменить пароль"
-              >
-                <FaLock size={14} />
-              </motion.button>
-            </motion.div>
-          </motion.div>
+    <div className="container mx-auto px-4 py-6 mt-16 min-h-[calc(100vh-4rem)] flex items-center justify-center">
+      <div className="w-full max-w-2xl">
+        <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Ваш профиль</h1>
 
-          <motion.div layout variants={childVariants}>
-            <AnimatePresence mode="wait">
-              {!isEditing ? (
-                <motion.div
-                  key="view"
-                  initial="hidden"
-                  animate="visible"
-                  exit="hidden"
-                  variants={childVariants}
-                  className="space-y-2"
-                >
-                  <p style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
-                    <strong>Telegram:</strong> {formState.telegram || "Не указан"}
-                  </p>
-                  <p style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
-                    <strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}
-                  </p>
-                </motion.div>
+        <div className="card p-6 bg-white rounded-xl shadow-md">
+          {/* Аватар и основные данные */}
+          <div className="flex flex-col items-center gap-4 mb-6">
+            <div className="relative group w-24 h-24">
+              {formState.avatarPreview ? (
+                <Image
+                  src={formState.avatarPreview}
+                  alt="Аватар"
+                  width={96}
+                  height={96}
+                  className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
+                  onError={() => setFormState((prev) => ({ ...prev, avatarPreview: null }))}
+                />
               ) : (
-                <motion.form
-                  key="edit"
-                  initial="hidden"
-                  animate="visible"
-                  exit="hidden"
-                  variants={childVariants}
-                  onSubmit={handleSubmit}
-                  className="space-y-4 relative"
-                >
-                  <div>
-                    <InputField
-                      type="text"
-                      value={formState.telegram || ""}
-                      onChange={handleChange}
-                      placeholder="Telegram"
-                      icon={FaTelegramPlane}
-                      name="telegram"
-                      required
-                      className="w-full"
-                    />
-                    {validationErrors.telegram && (
-                      <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>
-                    )}
-                  </div>
-                  <div>
-                    <InputField
-                      type="text"
-                      value={formState.whatsapp || ""}
-                      onChange={handleChange}
-                      placeholder="WhatsApp"
-                      icon={FaWhatsapp}
-                      name="whatsapp"
-                      required
-                      className="w-full"
-                    />
-                    {validationErrors.whatsapp && (
-                      <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
-                    )}
-                  </div>
-                  {fetchError && <ErrorDisplay error={fetchError} />}
-                  {updateSuccess && <SuccessDisplay message={updateSuccess} />}
-                  <ModalButton
-                    type="submit"
-                    disabled={Object.keys(validationErrors).length > 0}
-                    className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
-                  >
-                    Сохранить
-                  </ModalButton>
-                </motion.form>
+                <div className="w-full h-full bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-3xl font-bold group-hover:bg-orange-200 transition-colors">
+                  {formState.fio?.charAt(0)?.toUpperCase() || "U"}
+                </div>
               )}
-            </AnimatePresence>
-          </motion.div>
-        </motion.div>
-        <div className="md:col-span-2 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 min-h-[150px] flex flex-col justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-800 mb-2" style={{ fontSize: "clamp(1rem, 2.5vw, 1.125rem)" }}>
-              Мои мероприятия
-            </h3>
-            <p
-              className="text-gray-500 mb-4 whitespace-normal break-words"
-              style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
-            >
-              У вас пока нет зарегистрированных мероприятий. Начните с поиска интересных событий!
-            </p>
+              {isEditing && (
+                <>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                  >
+                    <motion.div
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      className="bg-orange-500 rounded-full p-2"
+                    >
+                      <FaCamera className="text-white w-5 h-5" />
+                    </motion.div>
+                  </button>
+                  {formState.avatarPreview && (
+                    <motion.button
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      onClick={handleRemoveAvatar}
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center transform translate-x-1/3 -translate-y-1/3 hover:bg-red-600 transition-colors"
+                    >
+                      <FaTrash className="w-2 h-2" />
+                    </motion.button>
+                  )}
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleFileChange}
+                className="hidden"
+                ref={fileInputRef}
+              />
+            </div>
+
+            <div className="text-center">
+              <h2 className="text-xl font-semibold text-gray-800">{formState.fio || "Не указано"}</h2>
+              <p className="text-gray-600 text-sm">{formState.email || "Не указан"}</p>
+            </div>
           </div>
+
+          {/* Информация и форма */}
+          {isEditing ? (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <InputField
+                type="text"
+                name="fio"
+                value={formState.fio}
+                onChange={handleChange}
+                placeholder="Введите ваше ФИО"
+                icon={FaUser}
+                required
+                className="form-input"
+              />
+              {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
+              
+              <InputField
+                type="text"
+                name="telegram"
+                value={formState.telegram}
+                onChange={handleChange}
+                placeholder="Telegram (например, @username)"
+                icon={FaTelegramPlane}
+                required
+                className="form-input"
+              />
+              {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
+              
+              <InputField
+                type="text"
+                name="whatsapp"
+                value={formState.whatsapp}
+                onChange={handleChange}
+                placeholder="WhatsApp (только цифры)"
+                icon={FaWhatsapp}
+                required
+                className="form-input"
+              />
+              {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
+              
+              <button
+                type="submit"
+                disabled={Object.keys(validationErrors).length > 0 || isSubmitting.current}
+                className={`btn btn-primary w-full ${Object.keys(validationErrors).length > 0 || isSubmitting.current ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                Сохранить
+              </button>
+            </form>
+          ) : (
+            <div className="space-y-3 text-center">
+              <p className="text-gray-600"><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
+              <p className="text-gray-600"><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
+            </div>
+          )}
+
+          {/* Кнопки управления */}
+          <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center">
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={toggleEdit}
+              className="btn btn-secondary flex items-center justify-center gap-2"
+            >
+              <FaPencilAlt className="w-4 h-4" /> {isEditing ? "Отмена" : "Редактировать"}
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="btn btn-primary flex items-center justify-center gap-2"
+            >
+              <FaLock className="w-4 h-4" /> Сменить пароль
+            </motion.button>
+          </div>
+
+          {fetchError && <ErrorDisplay error={fetchError} className="mt-4" />}
+          {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
+        </div>
+
+        {/* Карточка мероприятий */}
+        <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои мероприятия</h3>
+          <p className="text-gray-600 text-sm mb-4 text-center">
+            У вас пока нет зарегистрированных мероприятий. Начните с поиска событий!
+          </p>
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => navigateTo("/events")}
-            className="w-full px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 shadow-sm min-w-[120px] min-h-[44px]"
+            onClick={() => router.push("/events")}
+            className="btn btn-primary w-full"
           >
             Найти мероприятия
           </motion.button>
         </div>
-      </div>
 
-      <ChangePasswordForm isOpen={isChangePasswordOpen} onClose={() => setIsChangePasswordOpen(false)} />
+        <ChangePasswordForm
+          isOpen={isChangePasswordOpen}
+          onClose={() => setIsChangePasswordOpen(false)}
+        />
+      </div>
     </div>
   );
 };
 
 export default ProfilePage;
+
+
+// "use client";
+
+// import React, { useEffect, useState, useCallback, useRef } from "react";
+// import { useRouter } from "next/navigation";
+// import { useAuth } from "@/contexts/AuthContext";
+// import { usePageLoad } from "@/contexts/PageLoadContext";
+// import { FaUser, FaTelegramPlane, FaWhatsapp, FaCamera, FaPencilAlt, FaLock, FaTrash } from "react-icons/fa";
+// import Image from "next/image";
+// import InputField from "@/components/common/InputField";
+// import ErrorDisplay from "@/components/common/ErrorDisplay";
+// import SuccessDisplay from "@/components/common/SuccessDisplay";
+// import ChangePasswordForm from "@/components/ChangePasswordForm";
+// import { motion } from "framer-motion";
+// import { UserData, FormState, ValidationErrors } from "@/types/index";
+
+// const ProfilePage: React.FC = () => {
+//   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
+//   const { wrapAsync, apiFetch, setPageLoading } = usePageLoad();
+//   const router = useRouter();
+
+//   const [formState, setFormState] = useState<FormState>({
+//     fio: "",
+//     telegram: "",
+//     whatsapp: "",
+//     avatarPreview: null,
+//     email: "",
+//   });
+//   const [initialFormState, setInitialFormState] = useState<FormState | null>(null);
+//   const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+//   const [isEditing, setIsEditing] = useState(false);
+//   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+//   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+//   const [fetchError, setFetchError] = useState<string | null>(null);
+//   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+//   const fileInputRef = useRef<HTMLInputElement>(null);
+//   const hasFetched = useRef(false);
+//   const isSubmitting = useRef(false);
+
+//   // Инициализация профиля
+//   useEffect(() => {
+//     const initProfile = async () => {
+//       if (hasFetched.current || authLoading) return;
+//       if (!isAuth || !userData) {
+//         router.push("/");
+//         return;
+//       }
+//       const initialData = {
+//         fio: userData.fio || "",
+//         telegram: userData.telegram || "",
+//         whatsapp: userData.whatsapp || "",
+//         avatarPreview: userData.avatar_url || null,
+//         email: userData.email || "",
+//       };
+//       setFormState(initialData);
+//       setInitialFormState(initialData);
+//       validateForm(initialData);
+//       hasFetched.current = true;
+//     };
+//     initProfile();
+//   }, [isAuth, userData, authLoading, router]);
+
+//   // Обработка изменений полей
+//   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+//     const { name, value } = e.target;
+//     let newValue = value;
+//     const newErrors = { ...validationErrors };
+
+//     if (name === "telegram") {
+//       newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
+//       newErrors.telegram = !newValue ? "Telegram обязателен" : !newValue.startsWith("@") ? "Должен начинаться с @" : undefined;
+//     } else if (name === "whatsapp") {
+//       newValue = value.replace(/\D/g, "");
+//       newErrors.whatsapp = !newValue ? "WhatsApp обязателен" : !/^\d+$/.test(newValue) ? "Только цифры" : undefined;
+//     } else if (name === "fio") {
+//       newErrors.fio = !value ? "ФИО обязательно" : undefined;
+//     }
+
+//     setFormState((prev) => {
+//       const updatedState = { ...prev, [name]: newValue };
+//       validateForm(updatedState);
+//       return updatedState;
+//     });
+//     setValidationErrors(newErrors);
+//   }, [validationErrors]);
+
+//   // Обработка загрузки аватара
+//   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+//     const file = e.target.files?.[0];
+//     if (file) {
+//       setSelectedFile(file);
+//       const reader = new FileReader();
+//       reader.onloadend = () => setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
+//       reader.readAsDataURL(file);
+//     } else {
+//       setSelectedFile(null);
+//       setFormState((prev) => ({ ...prev, avatarPreview: initialFormState?.avatarPreview || null }));
+//     }
+//   }, [initialFormState]);
+
+//   // Удаление аватара
+//   const handleRemoveAvatar = useCallback(() => {
+//     setSelectedFile(null);
+//     setFormState((prev) => ({ ...prev, avatarPreview: null }));
+//     if (fileInputRef.current) fileInputRef.current.value = "";
+//   }, []);
+
+//   // Валидация формы
+//   const validateForm = useCallback((state: FormState = formState) => {
+//     const errors: ValidationErrors = {};
+//     if (!state.fio) errors.fio = "ФИО обязательно";
+//     if (!state.telegram) errors.telegram = "Telegram обязателен";
+//     else if (!state.telegram.startsWith("@")) errors.telegram = "Должен начинаться с @";
+//     if (!state.whatsapp) errors.whatsapp = "WhatsApp обязателен";
+//     else if (!/^\d+$/.test(state.whatsapp)) errors.whatsapp = "Только цифры";
+//     setValidationErrors(errors);
+//     return Object.keys(errors).length === 0;
+//   }, [formState]);
+
+//   // Отправка формы
+//   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+//     e.preventDefault();
+
+//     if (isSubmitting.current) return;
+
+//     if (!validateForm()) return;
+
+//     isSubmitting.current = true;
+//     setPageLoading(true);
+//     setFetchError(null);
+//     setUpdateSuccess(null);
+
+//     try {
+//       const profileResponse = await wrapAsync<UserData>(
+//         apiFetch("/user_edits/me", {
+//           method: "PUT",
+//           headers: { "Content-Type": "application/json" },
+//           body: JSON.stringify({
+//             fio: formState.fio,
+//             telegram: formState.telegram,
+//             whatsapp: formState.whatsapp,
+//           }),
+//         })
+//       );
+
+//       let updatedUser = profileResponse;
+//       if (selectedFile) {
+//         const formData = new FormData();
+//         formData.append("file", selectedFile);
+//         updatedUser = await wrapAsync<UserData>(
+//           apiFetch("/user_edits/upload-avatar", { method: "POST", body: formData })
+//         );
+//       }
+
+//       if (updatedUser) {
+//         const updatedData = {
+//           fio: updatedUser.fio || "",
+//           telegram: updatedUser.telegram || "",
+//           whatsapp: updatedUser.whatsapp || "",
+//           avatarPreview: updatedUser.avatar_url || null,
+//           email: updatedUser.email || "",
+//         };
+//         setFormState(updatedData);
+//         setInitialFormState(updatedData);
+//         updateUserData(updatedUser, false);
+//         setUpdateSuccess("Профиль успешно обновлен!");
+//         setTimeout(() => {
+//           setSelectedFile(null);
+//           setUpdateSuccess(null);
+//           setIsEditing(false);
+//           isSubmitting.current = false;
+//         }, 1500);
+//       } else {
+//         setFetchError("Не удалось обновить профиль: данные не получены");
+//         setTimeout(() => {
+//           setFetchError(null);
+//           setIsEditing(false);
+//           isSubmitting.current = false;
+//         }, 1500);
+//       }
+//     } catch (err) {
+//       setFetchError(err instanceof Error ? err.message : "Ошибка обновления профиля");
+//       setTimeout(() => {
+//         setFetchError(null);
+//         setIsEditing(false);
+//         isSubmitting.current = false;
+//       }, 1500);
+//     } finally {
+//       setPageLoading(false);
+//     }
+//   };
+
+//   // Переключение режима редактирования
+//   const toggleEdit = useCallback(() => {
+//     setIsEditing((prev) => {
+//       if (prev && initialFormState) {
+//         setFormState(initialFormState);
+//         setSelectedFile(null);
+//         validateForm(initialFormState);
+//       }
+//       return !prev;
+//     });
+//     setUpdateSuccess(null);
+//     setFetchError(null);
+//   }, [initialFormState]);
+
+//   if (!isAuth) return null;
+
+//   return (
+//     <div className="container mx-auto px-4 py-6 sm:py-10 mt-16 max-w-4xl">
+//       <h1 className="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center md:text-left">
+//         Ваш профиль
+//       </h1>
+
+//       <div className="flex flex-col md:grid md:grid-cols-5 gap-4 sm:gap-6">
+//         {/* Основная карточка профиля */}
+//         <div className="md:col-span-3 card p-4 sm:p-6">
+//           <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 mb-4 sm:mb-6">
+//             <div className="relative group">
+//               {formState.avatarPreview ? (
+//                 <Image
+//                   src={formState.avatarPreview}
+//                   alt="Аватар"
+//                   width={80}
+//                   height={80}
+//                   className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
+//                   onError={() => setFormState((prev) => ({ ...prev, avatarPreview: null }))}
+//                 />
+//               ) : (
+//                 <div className="w-20 h-20 sm:w-24 sm:h-24 bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-2xl sm:text-3xl font-bold group-hover:bg-orange-200 transition-colors">
+//                   {formState.fio?.charAt(0)?.toUpperCase() || "U"}
+//                 </div>
+//               )}
+//               {isEditing && (
+//                 <>
+//                   <button
+//                     onClick={() => fileInputRef.current?.click()}
+//                     className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+//                   >
+//                     <motion.div
+//                       initial={{ y: 20, opacity: 0 }}
+//                       animate={{ y: 0, opacity: 1 }}
+//                       exit={{ y: 20, opacity: 0 }}
+//                       transition={{ duration: 0.2 }}
+//                       className="bg-orange-500 rounded-full p-2"
+//                     >
+//                       <FaCamera className="text-white w-4 h-4 sm:w-5 sm:h-5" />
+//                     </motion.div>
+//                   </button>
+//                   {formState.avatarPreview && (
+//                     <motion.button
+//                       initial={{ scale: 0 }}
+//                       animate={{ scale: 1 }}
+//                       exit={{ scale: 0 }}
+//                       onClick={handleRemoveAvatar}
+//                       className="absolute top-0 right-0 bg-red-400 text-white rounded-full w-5 h-5 flex items-center justify-center transform translate-x-1 -translate-y-1 hover:bg-red-500 transition-colors shadow-sm"
+//                     >
+//                       <FaTrash className="w-2.5 h-2.5" />
+//                     </motion.button>
+//                   )}
+//                 </>
+//               )}
+//               <input
+//                 type="file"
+//                 accept="image/*"
+//                 onChange={handleFileChange}
+//                 className="hidden"
+//                 ref={fileInputRef}
+//               />
+//             </div>
+
+//             <div className="flex-1 text-center sm:text-left">
+//               <h2 className="text-lg sm:text-xl font-semibold text-gray-800">{formState.fio || "Не указано"}</h2>
+//               <p className="text-gray-600 text-sm sm:text-base">{formState.email || "Не указан"}</p>
+//               <div className="mt-3 sm:mt-4 flex flex-col sm:flex-row gap-2 sm:gap-3 justify-center sm:justify-start">
+//                 <motion.button
+//                   whileHover={{ scale: 1.05 }}
+//                   whileTap={{ scale: 0.95 }}
+//                   onClick={toggleEdit}
+//                   className="btn btn-secondary flex items-center gap-2 text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
+//                 >
+//                   <FaPencilAlt className="w-3 h-3 sm:w-4 sm:h-4" /> {isEditing ? "Отмена" : "Редактировать"}
+//                 </motion.button>
+//                 <motion.button
+//                   whileHover={{ scale: 1.05 }}
+//                   whileTap={{ scale: 0.95 }}
+//                   onClick={() => setIsChangePasswordOpen(true)}
+//                   className="btn btn-primary flex items-center gap-2 text-xs sm:text-sm px-2 sm:px-3 py-1 sm:py-1.5"
+//                 >
+//                   <FaLock className="w-3 h-3 sm:w-4 sm:h-4" /> Сменить пароль
+//                 </motion.button>
+//               </div>
+//             </div>
+//           </div>
+
+//           {isEditing ? (
+//             <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
+//               <div>
+//                 <InputField
+//                   type="text"
+//                   name="fio"
+//                   value={formState.fio}
+//                   onChange={handleChange}
+//                   placeholder="Введите ваше ФИО"
+//                   icon={FaUser}
+//                   required
+//                   className="form-input text-sm sm:text-base"
+//                 />
+//                 {validationErrors.fio && (
+//                   <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
+//                 )}
+//               </div>
+//               <div>
+//                 <InputField
+//                   type="text"
+//                   name="telegram"
+//                   value={formState.telegram}
+//                   onChange={handleChange}
+//                   placeholder="Telegram (например, @username)"
+//                   icon={FaTelegramPlane}
+//                   required
+//                   className="form-input text-sm sm:text-base"
+//                 />
+//                 {validationErrors.telegram && (
+//                   <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>
+//                 )}
+//               </div>
+//               <div>
+//                 <InputField
+//                   type="text"
+//                   name="whatsapp"
+//                   value={formState.whatsapp}
+//                   onChange={handleChange}
+//                   placeholder="WhatsApp (только цифры)"
+//                   icon={FaWhatsapp}
+//                   required
+//                   className="form-input text-sm sm:text-base"
+//                 />
+//                 {validationErrors.whatsapp && (
+//                   <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
+//                 )}
+//               </div>
+//               <button
+//                 type="submit"
+//                 disabled={Object.keys(validationErrors).length > 0 || isSubmitting.current}
+//                 className={`btn btn-primary w-full text-sm sm:text-base ${
+//                   Object.keys(validationErrors).length > 0 || isSubmitting.current
+//                     ? "cursor-not-allowed opacity-50"
+//                     : "cursor-pointer"
+//                 }`}
+//               >
+//                 Сохранить
+//               </button>
+//             </form>
+//           ) : (
+//             <div className="space-y-2 sm:space-y-4 flex flex-col items-center sm:items-start">
+//     <p className="text-gray-600 text-xs sm:text-sm break-words text-center sm:text-left">
+//       <strong className="text-gray-800 text-xs sm:text-sm">Telegram:</strong>{" "}
+//       {formState.telegram || "Не указан"}
+//     </p>
+//     <p className="text-gray-600 text-xs sm:text-sm break-words text-center sm:text-left">
+//       <strong className="text-gray-800 text-xs sm:text-sm">WhatsApp:</strong>{" "}
+//       {formState.whatsapp || "Не указан"}
+//     </p>
+//   </div>
+//           )}
+
+//           {fetchError && <ErrorDisplay error={fetchError} className="mt-3 sm:mt-4" />}
+//           {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-3 sm:mt-4" />}
+//         </div>
+
+//         {/* Карточка мероприятий */}
+//         <div className="md:col-span-2 card p-4 sm:p-6 flex flex-col justify-between">
+//           <div>
+//             <h3 className="text-base sm:text-lg font-semibold text-gray-800 mb-2">Мои мероприятия</h3>
+//             <p className="text-gray-600 text-sm sm:text-base mb-3 sm:mb-4">
+//               У вас пока нет зарегистрированных мероприятий. Начните с поиска интересных событий!
+//             </p>
+//           </div>
+//           <motion.button
+//             whileHover={{ scale: 1.05 }}
+//             whileTap={{ scale: 0.95 }}
+//             onClick={() => router.push("/events")}
+//             className="btn btn-primary w-full text-sm sm:text-base"
+//           >
+//             Найти мероприятия
+//           </motion.button>
+//         </div>
+//       </div>
+
+//       <ChangePasswordForm
+//         isOpen={isChangePasswordOpen}
+//         onClose={() => setIsChangePasswordOpen(false)}
+//       />
+//     </div>
+//   );
+// };
+
+// export default ProfilePage;

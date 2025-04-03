@@ -1,16 +1,16 @@
 // frontend/src/utils/api.ts
-
 export interface CustomError extends Error {
   code?: string;
   isServerError?: boolean;
   isNetworkError?: boolean;
   status?: number;
+  isAuthError?: boolean;
 }
 
 const pendingRequests: Record<string, Promise<unknown>> = {};
 const FETCH_TIMEOUT = 15000;
-const MAX_RETRIES = 3; // Максимальное количество попыток
-const RETRY_DELAY = 1000; // Задержка между попытками (1 секунда)
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
 
 const fetchWithTimeout = async (
   url: string,
@@ -20,9 +20,7 @@ const fetchWithTimeout = async (
   const controller = new AbortController();
   const { signal } = controller;
   
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, timeout);
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
   
   try {
     const response = await fetch(url, { ...options, signal });
@@ -47,12 +45,13 @@ export async function apiFetch<T>(
   
   const requestPromise: Promise<T> = (async () => {
     const url = endpoint.startsWith('http') ? endpoint : endpoint;
-    const token = localStorage.getItem("token") || localStorage.getItem("admin_token");
     const headers = new Headers(options.headers);
-    
-    if (token) {
-      headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
-    }
+    const token = endpoint.includes("/admin")
+  ? localStorage.getItem("admin_token")
+  : localStorage.getItem("token");
+if (token) {
+  headers.set("Authorization", token.startsWith("Bearer ") ? token : `Bearer ${token}`);
+}
     
     headers.set("Accept", "application/json");
     
@@ -75,53 +74,55 @@ export async function apiFetch<T>(
       networkError.code = error instanceof Error && error.message.includes('ECONNREFUSED') ? "ECONNREFUSED" : "ECONNRESET";
       networkError.isNetworkError = true;
 
-      // Проверяем количество оставшихся попыток
       if (retries > 0) {
         console.warn(`Network error (${networkError.code}), retrying... (${retries} attempts left)`);
-        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY)); // Задержка перед повторной попыткой
-        return apiFetch<T>(endpoint, options, retries - 1); // Рекурсивно вызываем с уменьшением попыток
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return apiFetch<T>(endpoint, options, retries - 1);
       }
 
       throw networkError;
     }
   
     if (!response.ok) {
-      // Special handling for login endpoint errors - THIS IS THE NEW CODE
-      if (response.status === 401 && endpoint.includes('/login')) {
-        const clientError: CustomError = new Error("Неверный логин или пароль");
-        clientError.status = response.status;
-        throw clientError;
+      let errorMessage = "Произошла ошибка";
+      let errorText = "";
+
+      try {
+        errorText = await response.text();
+        const errorData = errorText ? JSON.parse(errorText) : null;
+        errorMessage = errorData?.detail || errorText || `HTTP Error: ${response.status}`;
+      } catch {
+        errorMessage = errorText || `HTTP Error: ${response.status}`;
+      }
+
+      if (response.status === 401 || response.status === 403) {
+        if (endpoint.includes('/login')) {
+          const clientError: CustomError = new Error("Неверный логин или пароль");
+          clientError.status = response.status;
+          clientError.isAuthError = true;
+          throw clientError;
+        }
+        if (endpoint.includes('/me') || endpoint.includes('/profile') || endpoint.includes('/notifications')) {
+          const authError: CustomError = new Error("Не авторизован");
+          authError.status = response.status;
+          authError.isAuthError = true;
+          throw authError; // Mark as auth error, not critical
+        }
       }
       
       if (response.status >= 500) {
-        const errorText = await response.text();
-        let errorMessage = "Произошла ошибка на сервере";
-        
-        try {
-          const errorData = JSON.parse(errorText);
-          errorMessage = errorData.detail || errorMessage;
-        } catch {
-          if (errorText && errorText.length < 200) {
-            errorMessage = errorText;
-          }
-        }
-        
         const serverError: CustomError = new Error(errorMessage);
         serverError.isServerError = true;
         serverError.status = response.status;
         throw serverError;
       }
       
-      const errorText = await response.text();
-      let errorMessage = "Произошла ошибка";
-      
-      try {
-        const errorData = JSON.parse(errorText);
-        errorMessage = errorData.detail || errorMessage;
-      } catch {
-        if (errorText) errorMessage = errorText;
+      if (response.status === 404) {
+        const notFoundError: CustomError = new Error(errorMessage || "Ресурс не найден");
+        notFoundError.status = response.status;
+        throw notFoundError;
       }
-      
+
       const clientError: CustomError = new Error(errorMessage);
       clientError.status = response.status;
       throw clientError;
@@ -148,7 +149,7 @@ export async function apiFetch<T>(
           localStorage.setItem("user_data", JSON.stringify(userData));
         }
       } catch (error) {
-        console.error("Error processing user data in API response", error);
+        console.warn("Error processing user data in API response", error);
       }
     }
   

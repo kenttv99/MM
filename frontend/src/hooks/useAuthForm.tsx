@@ -19,7 +19,6 @@ type AuthResponse = {
   [key: string]: unknown;
 };
 
-// Define a type for API error with status
 interface ApiError extends Error {
   status?: number;
 }
@@ -82,23 +81,23 @@ export const useAuthForm = ({
           }, 1000);
         }
       } catch (err) {
+        const apiError = err as ApiError;
         let errorMessage = "Произошла ошибка";
-        if (err instanceof Error) {
-          errorMessage = err.message;
-          // Cast err to ApiError to access status property safely
-          const apiError = err as ApiError;
-          
-          if (apiError.status === 429) {
-            errorMessage = "Частые запросы. Попробуйте немного позже.";
-          } else if (apiError.status === 401) {
-            errorMessage = "Неверный логин или пароль";
-          } else if (apiError.status === 400) {
-            errorMessage = err.message.includes("Email already exists")
-              ? "Email уже существует"
-              : "Ошибка в данных формы";
-          }
+
+        if (apiError.message === "Неверный логин или пароль") {
+          errorMessage = apiError.message; // Display this in the UI
+        } else if (apiError.status === 429) {
+          errorMessage = "Частые запросы. Попробуйте немного позже.";
+        } else if (apiError.status === 400) {
+          errorMessage = apiError.message.includes("Email already exists")
+            ? "Email уже существует"
+            : "Ошибка в данных формы";
+        } else if (apiError.message) {
+          errorMessage = apiError.message;
         }
+
         setError(errorMessage);
+        console.log(`Authentication error: ${errorMessage}`); // Log for debugging, not as an error
       } finally {
         setIsLoading(false);
         isSubmitting.current = false;

@@ -38,7 +38,7 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-size: clamp(16px, 2vw, 18px); /* Адаптивный базовый шрифт */
+  font-size: clamp(14px, 1.8vw, 18px); /* Адаптивный базовый шрифт */
 }
 
 /* Input and interactive elements */
@@ -178,7 +178,7 @@ li {
 /* Custom component styles */
 @layer components {
   .btn {
-    @apply px-4 py-2 rounded-lg transition-all duration-300 font-medium min-w-[120px] min-h-[44px];
+    @apply px-4 py-2 rounded-lg transition-all duration-300 font-medium min-w-[120px] min-h-[44px] text-sm sm:text-base;
   }
   
   .btn-primary {
@@ -309,4 +309,27 @@ li {
 .react-datepicker__year-option:hover {
   background-color: var(--primary-light);
   color: var(--primary);
+}
+
+/* Адаптивные стили для профиля */
+.profile-container {
+  @apply flex flex-col items-center w-full;
+}
+
+@media (max-width: 640px) {
+  .profile-container {
+    @apply px-2;
+  }
+  .profile-avatar {
+    @apply w-20 h-20;
+  }
+  .btn {
+    @apply w-full text-sm;
+  }
+}
+
+@media (min-width: 641px) {
+  .profile-avatar {
+    @apply w-24 h-24;
+  }
 }

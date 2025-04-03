@@ -14,34 +14,36 @@ INCLUDE_EXTENSIONS = [
 
 # Разрешенные пути
 INCLUDE_PATHS = [
-    # "backend/",
+    "backend/",
     # "frontend/src/",
-    # "servers/",
+    "servers/",
     # "frontend/src/",
     "frontend/src/components",
-    "frontend/src/hooks",
+    # "frontend/src/hooks",
     "frontend/src/utils",
     # "frontend/src/app",
     "frontend/src/types",
     "frontend/src/contexts",
-    "frontend/src/app/(public)/",
-    "frontend/src/app/(auth)/"
+    # "frontend/src/app/(public)/",
+    # "frontend/src/app/(auth)/"
 ]
 
 # Конкретные файлы для включения (относительные пути)
 INCLUDE_FILES = [
-    # # "constants.py",
-    # # "README.md",
-    # "frontend/src/next.config.ts",
-    # # "frontend/src/app/(admin)/dashboard/page.tsx",
+    # "constants.py",
+    # "README.md",
+    "frontend/next.config.ts",
+    "frontend/tailwind.config.ts",
+    #  "frontend/src/app/globals.css",
+    "frontend/src/app/(admin)/dashboard/page.tsx",
     # "frontend/src/app/(admin)/edit-user/page.tsx",
-    # # "frontend/src/components/EditEventForm.tsx",
-    # "frontend/src/components/PageTransitionWrapper.tsx",
-    # # "frontend/src/app/(admin)/edit-events/page.tsx",
+    "frontend/src/components/EditEventForm.tsx",
+    # "frontend/src/components/Notifications.tsx",
+    "frontend/src/app/(admin)/edit-events/page.tsx",
     # "frontend/src/app/(public)/event/[slug]/page.tsx",
     # "frontend/src/app/(public)/events/page.tsx",
-    # # "frontend/src/utils/api.ts"
-    # # "frontend/src/contexts/PageLoadContext.tsx",
+    # "frontend/src/utils/api.ts"
+    # "frontend/src/contexts/PageLoadContext.tsx",
     # "frontend/src/hooks/useLoadingReset.ts"
 ]
 
@@ -53,7 +55,7 @@ EXCLUDE_PATHS = [
     "get_project_encode.py",
     "get_project.py",
     "frontend/package-lock.json",
-    "frontend/src/components/common"
+    # "frontend/src/components/common"
 ]
 
 def normalize_path(path):

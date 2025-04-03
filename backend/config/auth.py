@@ -208,62 +208,12 @@ async def log_admin_activity(
     request: Request,
     action: str
 ):
-    """Логирование активности администратора."""
     try:
-        # Получаем IP-адрес из заголовка X-Forwarded-For (для прокси) или напрямую
         ip_address = request.headers.get("X-Forwarded-For", request.client.host)
-        # Получаем куки (если они есть)
-        cookies = "; ".join([f"{key}={value}" for key, value in request.cookies.items()]) if request.cookies else None
-        # Получаем User-Agent
         user_agent = request.headers.get("User-Agent", "Unknown")
-        # Дополнительные заголовки для фингерпринта
-        accept_language = request.headers.get("Accept-Language", "")
-        accept_encoding = request.headers.get("Accept-Encoding", "")
-
-        # Генерируем фингерпринт устройства
-        fingerprint_data = f"{ip_address}{user_agent}{cookies or ''}{accept_language}{accept_encoding}"
-        device_fingerprint = hashlib.sha256(fingerprint_data.encode("utf-8")).hexdigest()
-
-        # Получаем текущее время из базы данных
-        result = await db.execute(select(func.now()))
-        now = result.scalar()
-
-        # Исправление: приводим now к offset-naive, убирая временную зону
-        now_naive = now.replace(tzinfo=None)
-
-        # Проверяем существование записи с теми же данными за последние 5 минут
-        stmt = select(UserActivity).where(
-            UserActivity.user_id == admin_id,
-            UserActivity.ip_address == ip_address,
-            UserActivity.device_fingerprint == device_fingerprint,
-            UserActivity.action == action,
-            UserActivity.created_at >= now_naive - timedelta(minutes=5)
-        )
-        result = await db.execute(stmt)
-        existing_activity = result.scalars().first()
-
-        if not existing_activity:
-            # Если записи нет, создаем новую
-            activity = UserActivity(
-                user_id=admin_id,
-                ip_address=ip_address,
-                cookies=cookies,
-                user_agent=user_agent,
-                action=action,
-                created_at=now_naive,
-                device_fingerprint=device_fingerprint
-            )
-            db.add(activity)
-            await db.commit()
-        else:
-            # Если запись существует, обновляем created_at
-            existing_activity.created_at = now_naive
-            await db.commit()
-            logger.info(f"Duplicate admin activity ignored for admin_id={admin_id}, action={action}")
+        logger.info(f"Admin activity: admin_id={admin_id}, action={action}, ip={ip_address}, user_agent={user_agent}")
     except Exception as e:
         logger.error(f"Error logging admin activity: {str(e)}")
-        await db.rollback()
-        raise
 
 async def get_user_or_ip_key(request: Request) -> str:
     """Возвращает user_id (если аутентифицирован) или IP-адрес как ключ для ограничения."""

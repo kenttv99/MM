@@ -14,6 +14,8 @@ import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
 import SuccessDisplay from "@/components/common/SuccessDisplay";
 import Image from "next/image";
+import Switch from "@/components/common/Switch";
+import { createPortal } from "react-dom";
 
 interface EditEventFormProps {
   isNewEvent: boolean;
@@ -45,24 +47,121 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
+  const headingButtonRef = useRef<HTMLButtonElement>(null);
   const [descriptionHistory, setDescriptionHistory] = useState<string[]>([formData.description || ""]);
   const [historyIndex, setHistoryIndex] = useState<number>(0);
   const [isHeadingDropdownOpen, setIsHeadingDropdownOpen] = useState(false);
+  const [selectedHeadingLevel, setSelectedHeadingLevel] = useState<number>(2);
 
-  const handleDescriptionChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+  // Функция для применения заголовка выбранного уровня
+  const handleHeadingSelect = (level: number) => {
+    // Сначала обновляем уровень заголовка
+    setSelectedHeadingLevel(level);
+    
+    // Затем применяем форматирование к тексту
+    if (textAreaRef.current) {
+      const textArea = textAreaRef.current;
+      const start = textArea.selectionStart;
+      const end = textArea.selectionEnd;
+      const selectedText = textArea.value.substring(start, end) || "Заголовок";
+      const beforeText = textArea.value.substring(0, start);
+      const afterText = textArea.value.substring(end);
+      
+      // Создаем префикс заголовка (# для h1, ## для h2, и т.д.)
+      const headingPrefix = "#".repeat(level) + " ";
+      const newText = `${beforeText}${headingPrefix}${selectedText}${afterText}`;
+      
+      // Обновляем текст
+      setFieldValue("description", newText);
+      
+      // Добавляем в историю
+      const newValue = newText;
+      setDescriptionHistory(prev => [...prev.slice(0, historyIndex + 1), newValue].slice(-20));
+      setHistoryIndex(prev => prev + 1);
+      
+      // Устанавливаем фокус и выделение
+      setTimeout(() => {
+        textArea.focus();
+        textArea.setSelectionRange(
+          start + headingPrefix.length,
+          start + headingPrefix.length + selectedText.length
+        );
+      }, 0);
+    }
+    
+    // Закрываем выпадающий список
+    setIsHeadingDropdownOpen(false);
+  };
+
+  // Функция для применения форматирования (без заголовков)
+  const applyFormatting = (format: string, defaultText = "Текст") => {
+    if (!textAreaRef.current) return;
+    
+    const textArea = textAreaRef.current;
+    const start = textArea.selectionStart;
+    const end = textArea.selectionEnd;
+    const selectedText = textArea.value.substring(start, end) || defaultText;
+    const beforeText = textArea.value.substring(0, start);
+    const afterText = textArea.value.substring(end);
+    let newText = "";
+
+    switch (format) {
+      case "bold": newText = `${beforeText}**${selectedText}**${afterText}`; break;
+      case "italic": newText = `${beforeText}*${selectedText}*${afterText}`; break;
+      case "quote": newText = `${beforeText}> ${selectedText}${afterText}`; break;
+      case "bullet": 
+        newText = `${beforeText}${selectedText.split("\n").map(line => 
+          line.trim() ? `- ${line}` : line).join("\n")}${afterText}`; 
+        break;
+      case "numbered": 
+        newText = `${beforeText}${selectedText.split("\n").map((line, i) => 
+          line.trim() ? `${i + 1}. ${line}` : line).join("\n")}${afterText}`; 
+        break;
+      case "link": newText = `${beforeText}[${selectedText}](url)${afterText}`; break;
+      case "size+": newText = `${beforeText}{+size+}${selectedText}{+size+}${afterText}`; break;
+      case "size-": newText = `${beforeText}{-size-}${selectedText}{-size-}${afterText}`; break;
+      case "heading":
+        // Для кнопки заголовка используем текущий выбранный уровень
+        const headingPrefix = "#".repeat(selectedHeadingLevel) + " ";
+        newText = `${beforeText}${headingPrefix}${selectedText}${afterText}`;
+        break;
+      default: return;
+    }
+
+    // Обновляем текст
+    setFieldValue("description", newText);
+    
+    // Добавляем в историю
+    setDescriptionHistory(prev => [...prev.slice(0, historyIndex + 1), newText].slice(-20));
+    setHistoryIndex(prev => prev + 1);
+    
+    // Устанавливаем фокус и выделение
+    setTimeout(() => {
+      textArea.focus();
+      if (format === "heading") {
+        const prefixLength = selectedHeadingLevel + 1; // #..# плюс пробел
+        textArea.setSelectionRange(start + prefixLength, start + prefixLength + selectedText.length);
+      } else if (format === "link") {
+        textArea.setSelectionRange(start + 1, start + 1 + selectedText.length);
+      } else {
+        textArea.setSelectionRange(start + 2, start + 2 + selectedText.length);
+      }
+    }, 0);
+  };
+
+  const handleDescriptionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     handleChange(e);
     const newValue = e.target.value;
-    setDescriptionHistory((prev) => [...prev.slice(0, historyIndex + 1), newValue].slice(-20));
-    setHistoryIndex((prev) => Math.min(prev + 1, 19));
-  }, [handleChange, historyIndex]);
+    setDescriptionHistory(prev => [...prev.slice(0, historyIndex + 1), newValue].slice(-20));
+    setHistoryIndex(prev => prev + 1);
+  };
 
-  const handleUndo = useCallback(() => {
+  const handleUndo = () => {
     if (historyIndex > 0) {
-      const prevIndex = historyIndex - 1;
-      setFieldValue("description", descriptionHistory[prevIndex]);
-      setHistoryIndex(prevIndex);
+      setHistoryIndex(prev => prev - 1);
+      setFieldValue("description", descriptionHistory[historyIndex - 1]);
     }
-  }, [historyIndex, descriptionHistory, setFieldValue]);
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -73,177 +172,67 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [handleUndo]);
+  }, [historyIndex, descriptionHistory]);
 
-  useEffect(() => {
-    if (formData.description !== descriptionHistory[historyIndex]) {
-      setDescriptionHistory((prev) => [...prev.slice(0, historyIndex + 1), formData.description || ""].slice(-20));
-      setHistoryIndex((prev) => Math.min(prev + 1, 19));
-    }
-  }, [formData.description, historyIndex]);
-
-  const handleFileInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
     if (file) handleFileChange(file);
-  }, [handleFileChange]);
+  };
 
-  const handleRemoveImage = useCallback(() => {
+  const handleRemoveImage = () => {
     handleFileChange(null, true);
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, [handleFileChange]);
+  };
 
-  const handleStatusChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
-    const { value } = e.target;
+  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const value = e.target.value as EventFormData["status"];
     setFieldValue("status", value);
     if (value === "draft") setFieldValue("published", false);
-  }, [setFieldValue]);
+  };
 
-  const handlePublishedChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const { checked } = e.target;
+  const handlePublishedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked;
     setFieldValue("published", checked);
     if (checked && formData.status === "draft") setFieldValue("status", "registration_open");
-  }, [formData.status, setFieldValue]);
+  };
 
-  const handlePreview = useCallback(() => {
+  const handlePreview = () => {
     alert("Функция предварительного просмотра находится в разработке.");
+  };
+
+  // Эффект для проверки дат
+  useEffect(() => {
+    if (formData.start_date && formData.end_date) {
+      const start = new Date(`${formData.start_date}T${formData.start_time || "00:00"}`);
+      const end = new Date(`${formData.end_date}T${formData.end_time || "23:59"}`);
+      if (end < start) {
+        setFieldValue("end_date", formData.start_date);
+        setFieldValue("end_time", formData.start_time);
+      }
+    }
+  }, [formData.start_date, formData.end_date, formData.start_time, formData.end_time, setFieldValue]);
+
+  // Эффект для закрытия выпадающего списка при клике вне
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        headingButtonRef.current &&
+        !headingButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsHeadingDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  const insertFormatting = useCallback((startTag: string, endTag: string = "") => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    const selectedText = textArea.value.substring(start, end);
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    const newText = beforeText + startTag + selectedText + (endTag || startTag) + afterText;
-    setFieldValue("description", newText);
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(start + startTag.length, start + startTag.length + selectedText.length);
-    }, 0);
-  }, [setFieldValue]);
-
-  const addHeading = useCallback((level: number = 2) => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    let selectedText = textArea.value.substring(start, end);
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    selectedText = selectedText.replace(/^#+\s*/, '').replace(/\s*#+$/, '');
-    const headingPrefix = '#'.repeat(level) + ' ';
-    const newText = `${beforeText}${headingPrefix}${selectedText}${afterText}`;
-    setFieldValue("description", newText);
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(start + headingPrefix.length, start + headingPrefix.length + selectedText.length);
-    }, 0);
-    setIsHeadingDropdownOpen(false);
-  }, [setFieldValue]);
-
-  const toggleHeadingDropdown = useCallback(() => setIsHeadingDropdownOpen((prev) => !prev), []);
-
-  const addBold = useCallback(() => insertFormatting("**"), [insertFormatting]);
-  const addItalic = useCallback(() => insertFormatting("*"), [insertFormatting]);
-  const addQuote = useCallback(() => insertFormatting("> "), [insertFormatting]);
-  const addBulletList = useCallback(() => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    const selectedText = textArea.value.substring(start, end);
-    const newText = selectedText.split("\n").map(line => line.trim() ? `- ${line}` : line).join("\n");
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    setFieldValue("description", beforeText + newText + afterText);
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(start, start + newText.length);
-    }, 0);
-  }, [setFieldValue]);
-
-  const addNumberedList = useCallback(() => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    const selectedText = textArea.value.substring(start, end);
-    const lines = selectedText.split("\n");
-    const newText = lines
-      .map((line, index) => (line.trim() ? `${index + 1}. ${line}` : line))
-      .join("\n");
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    setFieldValue("description", beforeText + newText + afterText);
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(start, start + newText.length); // Исправлено
-    }, 0);
-  }, [setFieldValue]);
-  
-  useEffect(() => {
-    if (formData.description !== descriptionHistory[historyIndex]) {
-      setDescriptionHistory((prev) => [...prev.slice(0, historyIndex + 1), formData.description || ""].slice(-20));
-      setHistoryIndex((prev) => Math.min(prev + 1, 19));
-    }
-  }, [formData.description, historyIndex, descriptionHistory]);
-
-  const addLink = useCallback(() => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    const selectedText = textArea.value.substring(start, end);
-    const newText = selectedText ? `[${selectedText}](url)` : "[Текст ссылки](url)";
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    setFieldValue("description", beforeText + newText + afterText);
-    const cursorPosition = beforeText.length + newText.length - 1;
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(cursorPosition - 3, cursorPosition);
-    }, 0);
-  }, [setFieldValue]);
-
-  const increaseTextSize = useCallback(() => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    const selectedText = textArea.value.substring(start, end) || "Текст";
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    const newText = `${beforeText}{+size+}${selectedText}{+size+}${afterText}`;
-    setFieldValue("description", newText);
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(start + 7, start + 7 + selectedText.length);
-    }, 0);
-  }, [setFieldValue]);
-
-  const decreaseTextSize = useCallback(() => {
-    if (!textAreaRef.current) return;
-    const textArea = textAreaRef.current;
-    const start = textArea.selectionStart;
-    const end = textArea.selectionEnd;
-    const selectedText = textArea.value.substring(start, end) || "Текст";
-    const beforeText = textArea.value.substring(0, start);
-    const afterText = textArea.value.substring(end);
-    const newText = `${beforeText}{-size-}${selectedText}{-size-}${afterText}`;
-    setFieldValue("description", newText);
-    setTimeout(() => {
-      textArea.focus();
-      textArea.setSelectionRange(start + 7, start + 7 + selectedText.length);
-    }, 0);
-  }, [setFieldValue]);
-
+  // Вычисляемые значения для статистики
   const availableQuantity = formData.ticket_type_available_quantity || 0;
   const soldQuantity = formData.ticket_type_sold_quantity || 0;
   const remainingQuantity = availableQuantity - soldQuantity;
   const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
+  // Показываем загрузку
   if (isLoading) {
     return <div className="text-center py-10">Загрузка данных мероприятия...</div>;
   }
@@ -333,92 +322,95 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Описание</label>
-              <div className="relative flex flex-nowrap gap-2 mb-2 bg-gray-100 p-2 rounded-lg overflow-x-auto snap-x">
-                <div className="relative snap-start">
+              <div className="flex flex-nowrap gap-2 mb-2 bg-gray-100 p-2 rounded-lg overflow-x-auto snap-x">
+                {/* Кнопка заголовка с отображением текущего уровня */}
+                <div className="relative flex items-center snap-start">
                   <button
                     type="button"
-                    onClick={toggleHeadingDropdown}
-                    className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px]"
+                    onClick={() => applyFormatting("heading")}
+                    className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                     title="Заголовок"
                   >
-                    <FaHeading />
+                    <span className="flex items-center">
+                      <FaHeading className="mr-1" />
+                      <span className="text-xs">{selectedHeadingLevel}</span>
+                    </span>
                   </button>
-                  {isHeadingDropdownOpen && (
-                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-10 w-24">
-                      {[1, 2, 3, 4, 5, 6].map((level) => (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => addHeading(level)}
-                          className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
-                        >
-                          H{level}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    ref={headingButtonRef}
+                    onClick={() => setIsHeadingDropdownOpen(prev => !prev)}
+                    className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[20px] min-h-[40px] flex items-center justify-center"
+                    title="Выбрать уровень заголовка"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
                 </div>
+
+                {/* Остальные кнопки форматирования */}
                 <button
                   type="button"
-                  onClick={addBold}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
+                  onClick={() => applyFormatting("bold")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                   title="Жирный"
                 >
                   <FaBold />
                 </button>
                 <button
                   type="button"
-                  onClick={addItalic}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
+                  onClick={() => applyFormatting("italic")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                   title="Курсив"
                 >
                   <FaItalic />
                 </button>
                 <button
                   type="button"
-                  onClick={addLink}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
+                  onClick={() => applyFormatting("link")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                   title="Ссылка"
                 >
                   <FaLink />
                 </button>
                 <button
                   type="button"
-                  onClick={addBulletList}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
+                  onClick={() => applyFormatting("bullet")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                   title="Маркированный список"
                 >
                   <FaListUl />
                 </button>
                 <button
                   type="button"
-                  onClick={addNumberedList}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
+                  onClick={() => applyFormatting("numbered")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                   title="Нумерованный список"
                 >
                   <FaListOl />
                 </button>
                 <button
                   type="button"
-                  onClick={addQuote}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
+                  onClick={() => applyFormatting("quote")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
                   title="Цитата"
                 >
                   <FaQuoteRight />
                 </button>
                 <button
                   type="button"
-                  onClick={increaseTextSize}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
-                  title="Увеличить размер текста"
+                  onClick={() => applyFormatting("size+")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
+                  title="Увеличить размер"
                 >
                   <span className="text-lg">A+</span>
                 </button>
                 <button
                   type="button"
-                  onClick={decreaseTextSize}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] snap-start"
-                  title="Уменьшить размер текста"
+                  onClick={() => applyFormatting("size-")}
+                  className="p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center"
+                  title="Уменьшить размер"
                 >
                   <span className="text-sm">A-</span>
                 </button>
@@ -426,7 +418,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   type="button"
                   onClick={handleUndo}
                   disabled={historyIndex === 0}
-                  className="p-2 rounded hover:bg-gray-200 text-gray-700 disabled:text-gray-400 disabled:hover:bg-gray-100 min-w-[40px] min-h-[40px] snap-start"
+                  className={`p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center ${
+                    historyIndex === 0 ? "text-gray-400 cursor-not-allowed" : ""
+                  }`}
                   title="Отменить (Ctrl+Z)"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -434,6 +428,32 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   </svg>
                 </button>
               </div>
+
+              {/* Выпадающий список для выбора уровня заголовка */}
+              {isHeadingDropdownOpen && headingButtonRef.current && createPortal(
+                <div
+                  className="absolute bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-24"
+                  style={{
+                    top: headingButtonRef.current.getBoundingClientRect().bottom + window.scrollY,
+                    left: headingButtonRef.current.getBoundingClientRect().left,
+                  }}
+                >
+                  {[1, 2, 3, 4, 5, 6].map((level) => (
+                    <button
+                      key={level}
+                      type="button"
+                      onClick={() => handleHeadingSelect(level)}
+                      className={`block w-full text-left px-4 py-2 hover:bg-gray-100 ${
+                        selectedHeadingLevel === level ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'
+                      }`}
+                    >
+                      H{level}
+                    </button>
+                  ))}
+                </div>,
+                document.body
+              )}
+
               <textarea
                 name="description"
                 value={formData.description || ""}
@@ -485,6 +505,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                     name="end_date"
                     value={formData.end_date || ""}
                     onChange={handleChange}
+                    min={formData.start_date}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
                   />
                 </div>
@@ -517,40 +538,37 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
 
             <div className="flex flex-col md:flex-row gap-6 mb-6">
-  <div className="flex-1 min-w-0">
-    <label className="block text-gray-700 font-medium mb-2">Цена</label>
-    <div className="flex items-center">
-      <FaMoneyBillWave className="text-gray-400 mr-2 shrink-0 w-5 h-5" />
-      <input
-        type="number"
-        name="price"
-        value={formData.price}
-        onChange={handleChange}
-        min="0"
-        step="0.01"
-        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-      />
-    </div>
-  </div>
-  <div className="flex-1 min-w-0">
-    <label className="block text-gray-700 font-medium mb-2">Бесплатная регистрация</label>
-    <div className="flex items-center mt-2">
-      <label className="relative inline-flex items-center cursor-pointer">
-        <input
-          type="checkbox"
-          name="ticket_type_free_registration"
-          checked={formData.ticket_type_free_registration}
-          onChange={handleChange}
-          className="sr-only peer"
-        />
-        <div className="w-9 h-5 bg-gray-300 rounded-full peer-checked:bg-blue-600 transition-all duration-200 ease-in-out px-0.5 flex items-center">
-          <div className={`w-2.5 h-2.5 bg-white rounded-full shadow-sm transform transition-all duration-200 ease-in-out ${formData.ticket_type_free_registration ? "translate-x-4" : "translate-x-0"}`}></div>
-        </div>
-        <span className="ml-2 text-gray-700 text-sm" style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}>Да</span>
-      </label>
-    </div>
-  </div>
-</div>
+              <div className="flex-1 min-w-0">
+                <label className="block text-gray-700 font-medium mb-2">Цена</label>
+                <div className="flex items-center">
+                  <FaMoneyBillWave className="text-gray-400 mr-2 shrink-0 w-5 h-5" />
+                  <input
+                    id="price"
+                    type="number"
+                    name="price"
+                    value={formData.price === 0 && document.activeElement?.id === "price" ? "" : formData.price}
+                    onChange={handleChange}
+                    min="0"
+                    step="0.01"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                    onFocus={(e) => {
+                      if (e.target.value === "0") e.target.value = "";
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <label className="block text-gray-700 font-medium mb-2">Бесплатная регистрация</label>
+                <div className="flex items-center mt-2">
+                  <Switch
+                    name="ticket_type_free_registration"
+                    checked={formData.ticket_type_free_registration}
+                    onChange={handleChange}
+                    label="Да"
+                  />
+                </div>
+              </div>
+            </div>
 
             <div className="flex flex-col md:flex-row gap-6 mb-6">
               <div className="flex-1 min-w-0">
@@ -641,47 +659,42 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
 
             <div className="flex flex-col md:flex-row gap-6 mb-8">
-  <div className="flex-1 min-w-0">
-    <label className="block text-gray-700 font-medium mb-2">Статус мероприятия</label>
-    <select
-      name="status"
-      value={formData.status}
-      onChange={handleStatusChange}
-      className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-    >
-      <option value="draft">Черновик</option>
-      <option value="registration_open">Регистрация открыта</option>
-      <option value="registration_closed">Регистрация закрыта</option>
-      <option value="completed">Завершено</option>
-    </select>
-  </div>
-  <div className="flex-1 min-w-0">
-    <label className="block text-gray-700 font-medium mb-2">Публикация</label>
-    <div className="flex items-center mt-2">
-      <label className="relative inline-flex items-center cursor-pointer">
-        <input
-          type="checkbox"
-          name="published"
-          checked={formData.published}
-          onChange={handlePublishedChange}
-          disabled={formData.status === "draft"}
-          className="sr-only peer"
-        />
-        <div className="w-9 h-4 bg-gray-300 rounded-full peer-checked:bg-blue-600 transition-all duration-200 ease-in-out peer-disabled:bg-gray-200 peer-disabled:opacity-50">
-          <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-all duration-200 ease-in-out absolute top-0.5 ${formData.published && formData.status !== "draft" ? "translate-x-5" : "translate-x-0.5"}`}></div>
-        </div>
-        <span className="ml-2 text-gray-700 text-sm" style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}>
-          Опубликовать на сайте
-          {formData.status === "draft" && (
-            <span className="text-orange-500 ml-2 text-xs" style={{ fontSize: "clamp(0.625rem, 1.5vw, 0.75rem)" }}>
-              (недоступно для черновиков)
-            </span>
-          )}
-        </span>
-      </label>
-    </div>
-  </div>
-</div>
+              <div className="flex-1 min-w-0">
+                <label className="block text-gray-700 font-medium mb-2">Статус мероприятия</label>
+                <select
+                  name="status"
+                  value={formData.status}
+                  onChange={handleStatusChange}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                >
+                  <option value="draft">Черновик</option>
+                  <option value="registration_open">Регистрация открыта</option>
+                  <option value="registration_closed">Регистрация закрыта</option>
+                  <option value="completed">Завершено</option>
+                </select>
+              </div>
+              <div className="flex-1 min-w-0">
+                <label className="block text-gray-700 font-medium mb-2">Публикация</label>
+                <div className="flex items-center mt-2">
+                  <Switch
+                    name="published"
+                    checked={formData.published}
+                    onChange={handlePublishedChange}
+                    disabled={formData.status === "draft"}
+                    label={
+                      <>
+                        Опубликовать на сайте
+                        {formData.status === "draft" && (
+                          <span className="text-orange-500 ml-2 text-xs" style={{ fontSize: "clamp(0.625rem, 1.5vw, 0.75rem)" }}>
+                            (недоступно для черновиков)
+                          </span>
+                        )}
+                      </>
+                    }
+                  />
+                </div>
+              </div>
+            </div>
 
             <div className="flex flex-col sm:flex-row justify-between gap-4">
               <div className="flex flex-col sm:flex-row gap-4">

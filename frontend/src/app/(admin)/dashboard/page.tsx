@@ -1,4 +1,4 @@
-// frontend\src\app\(admin)\dashboard\page.tsx
+// frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
 import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
@@ -21,6 +21,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import { EventData } from "@/types/events";
 import { User } from "@/types/index";
 
+interface CustomError extends Error {
+  status?: number;
+}
+
 const fetchWithAuth = async <T,>(url: string, token: string, method: string = "GET"): Promise<T | null> => {
   try {
     const response = await fetch(url, {
@@ -32,12 +36,14 @@ const fetchWithAuth = async <T,>(url: string, token: string, method: string = "G
     });
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`Ошибка ${response.status}: ${errorText || 'Неизвестная ошибка'}`);
+      const error: CustomError = new Error(`Ошибка ${response.status}: ${errorText || 'Неизвестная ошибка'}`);
+      error.status = response.status; // Теперь TypeScript не будет жаловаться
+      throw error;
     }
     if (method === "DELETE") return null;
     return await response.json();
-  } catch {
-    return null;
+  } catch (error) {
+    throw error;
   }
 };
 
@@ -61,7 +67,7 @@ export default function DashboardPage() {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [isLoading, setIsLoading] = useState(false); // Единое состояние загрузки
+  const [isLoading, setIsLoading] = useState(false);
 
   const initialized = useRef(false);
   const observer = useRef<IntersectionObserver | null>(null);
@@ -77,30 +83,49 @@ export default function DashboardPage() {
   const fetchEvents = useCallback(async (search: string, pageNum: number, append: boolean = false) => {
     if (isLoading || !isAdminAuth) return;
     setIsLoading(true);
-
+  
     const token = getAdminToken();
     if (!token) {
       setError("Токен администратора не найден");
       setIsLoading(false);
       return;
     }
-
+  
     let url = `/admin_edits/events?page=${pageNum}&limit=10`;
     const params = new URLSearchParams();
     if (search.trim()) params.append("search", search.trim());
     if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) params.append("start_date", startDate);
     if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) params.append("end_date", endDate);
-    if (statusFilter.trim()) params.append("status", statusFilter);
-    if (params.toString()) url += `&${params.toString()}`;
-
-    const data = await fetchWithAuth<EventData[]>(url, token);
-    if (data) {
-      setHasMore(data.length === 10);
-      setEvents((prev) => (append ? [...prev, ...data] : data));
-    } else if (!append) {
-      setEvents([]);
+    if (statusFilter.trim()) {
+      const statusMap: { [key: string]: string } = {
+        "Черновик": "draft",
+        "Регистрация открыта": "registration_open",
+        "Регистрация закрыта": "registration_closed",
+        "Завершено": "completed",
+      };
+      const mappedStatus = statusMap[statusFilter] || "";
+      if (mappedStatus) params.append("status", mappedStatus);
     }
-    setIsLoading(false);
+    if (params.toString()) url += `&${params.toString()}`;
+  
+    try {
+      const data = await fetchWithAuth<EventData[]>(url, token);
+      if (data) {
+        setHasMore(data.length === 10);
+        setEvents((prev) => (append ? [...prev, ...data] : data));
+      } else if (!append) {
+        setEvents([]);
+      }
+    } catch (error: unknown) {
+      // Проверяем, является ли error объектом с полем message
+      if (error instanceof Error) {
+        setError(error.message || "Не удалось загрузить мероприятия");
+      } else {
+        setError("Не удалось загрузить мероприятия");
+      }
+    } finally {
+      setIsLoading(false);
+    }
   }, [isLoading, isAdminAuth, startDate, endDate, statusFilter, getAdminToken]);
 
   const fetchUsers = useCallback(async (search: string) => {
@@ -179,28 +204,42 @@ export default function DashboardPage() {
 
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
-
+  
     setError(null);
     setIsLoading(true);
-
+  
     const token = getAdminToken();
     if (!token) {
       setError("Токен администратора не найден");
       setIsLoading(false);
       return;
     }
-
-    const response = await fetchWithAuth(`/admin_edits/${eventToDelete}`, token, "DELETE");
-    if (response === null) {
-      setEvents((prev) => prev.filter((event) => event.id !== eventToDelete));
-      await fetchEvents(eventSearch, 1);
-    } else {
-      setError("Не удалось удалить мероприятие");
+  
+    try {
+      const response = await fetchWithAuth<null>(`/admin_edits/${eventToDelete}`, token, "DELETE");
+      if (response === null) {
+        setEvents((prev) => prev.filter((event) => event.id !== eventToDelete));
+        await fetchEvents(eventSearch, 1);
+      }
+    } catch (error: unknown) {
+      // Проверяем, является ли error объектом CustomError
+      if (error instanceof Error) {
+        const customError = error as CustomError;
+        if (customError.status === 400) {
+          setError("Мероприятие можно удалить только в статусе 'черновик'");
+        } else if (customError.status === 404) {
+          setError("Мероприятие не найдено");
+        } else {
+          setError(`Не удалось удалить мероприятие: ${customError.message}`);
+        }
+      } else {
+        setError("Не удалось удалить мероприятие: неизвестная ошибка");
+      }
+    } finally {
+      setIsLoading(false);
+      setShowDeleteModal(false);
+      setEventToDelete(null);
     }
-
-    setIsLoading(false);
-    setShowDeleteModal(false);
-    setEventToDelete(null);
   };
 
   return (
@@ -413,10 +452,10 @@ export default function DashboardPage() {
                       className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hover:shadow-md transition-all duration-300 text-base"
                     >
                       <option value="">Все статусы</option>
-                      <option value="draft">Черновик</option>
-                      <option value="registration_open">Регистрация открыта</option>
-                      <option value="registration_closed">Регистрация закрыта</option>
-                      <option value="completed">Завершено</option>
+                      <option value="Черновик">Черновик</option>
+                      <option value="Регистрация открыта">Регистрация открыта</option>
+                      <option value="Регистрация закрыта">Регистрация закрыта</option>
+                      <option value="Завершено">Завершено</option>
                     </select>
                   </div>
                   <button
@@ -486,7 +525,7 @@ export default function DashboardPage() {
                               }}
                               className="w-full px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-base min-h-[44px] flex items-center justify-center"
                             >
-                              <FaTrashAlt className="mr-2" />
+                              <FaTrashAlt className="mr-2 w-4 h-4" />
                               Удалить
                             </button>
                           )}
@@ -515,9 +554,9 @@ export default function DashboardPage() {
                         const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
                         return (
-                          <tr 
-                            key={event.id ?? index} 
-                            ref={index === events.length - 1 ? lastEventElementRef : null}
+                          <tr
+                            key={event.id ?? index}
+                            ref={index === events.length -                            1 ? lastEventElementRef : null}
                             className="hover:bg-gray-50 transition-colors duration-150"
                           >
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.id ?? "N/A"}</td>
@@ -543,25 +582,32 @@ export default function DashboardPage() {
                               <p className="text-sm text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-base">
-                              <button
-                                onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
-                                className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 mr-4"
-                              >
-                                Редактировать
-                              </button>
-                              {event.status === "draft" && (
+                              <div className="flex items-center space-x-4">
                                 <button
-                                  onClick={() => {
-                                    if (event.id) {
-                                      setEventToDelete(event.id);
-                                      setShowDeleteModal(true);
-                                    }
-                                  }}
-                                  className="text-red-500 hover:text-red-600 transition-colors duration-200"
+                                  onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
+                                  className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 min-h-[24px] flex items-center"
                                 >
-                                  <FaTrashAlt className="w-4 h-4" />
+                                  Редактировать
                                 </button>
-                              )}
+                                <div className="w-6 h-6 flex items-center justify-center">
+                                  {event.status === "draft" ? (
+                                    <button
+                                      onClick={() => {
+                                        if (event.id) {
+                                          setEventToDelete(event.id);
+                                          setShowDeleteModal(true);
+                                        }
+                                      }}
+                                      className="text-red-500 hover:text-red-600 transition-colors duration-200 inline-flex items-center justify-center w-6 h-6"
+                                      title="Удалить мероприятие"
+                                    >
+                                      <FaTrashAlt className="w-4 h-4" />
+                                    </button>
+                                  ) : (
+                                    <span className="w-6 h-6" />
+                                  )}
+                                </div>
+                              </div>
                             </td>
                           </tr>
                         );

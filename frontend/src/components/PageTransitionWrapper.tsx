@@ -1,9 +1,8 @@
-"use client";
-
 import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePageLoad } from "@/contexts/PageLoadContext";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
+import Loading from "@/components/Loading"; // Добавляем импорт
 
 interface PageTransitionWrapperProps {
   children: React.ReactNode;
@@ -28,7 +27,7 @@ export default function PageTransitionWrapper({ children, disableLoading = false
           transition={{ duration: 0.2 }}
           className="fixed inset-0 bg-white bg-opacity-70 z-50 flex items-center justify-center min-h-[100vh] max-w-[100vw]"
         >
-          <span style={{ fontSize: "clamp(1rem, 3vw, 1.25rem)" }}>Загрузка...</span>
+          <Loading type="spinner" color="orange" size="medium" /> {/* Подключаем крутящийся спиннер */}
         </motion.div>
       ) : (
         <motion.div

@@ -1,3 +1,4 @@
+// frontend\src\app\(public)\page.tsx
 "use client";
 
 import React, { useEffect } from "react";
@@ -8,14 +9,14 @@ import { FeatureCardProps } from "@/types/index";
 import { usePageLoad } from "@/contexts/PageLoadContext";
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, description, ctaText }) => (
-  <Link href={href} className="group">
-    <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md hover:shadow-xl transition-all duration-300 transform group-hover:-translate-y-1 min-h-[250px] flex flex-col">
-      <div className="w-12 h-12 sm:w-14 sm:h-14 bg-orange-100 rounded-full flex items-center justify-center mb-4 sm:mb-5">
+  <Link href={href} className="group h-full">
+    <div className="bg-white rounded-xl p-4 sm:p-6 shadow-md hover:shadow-xl transition-all duration-300 transform group-hover:-translate-y-1 flex flex-col h-full">
+      <div className="w-12 h-12 sm:w-14 sm:h-14 bg-orange-100 rounded-full flex items-center justify-center mb-4 sm:mb-5 shrink-0">
         <Icon className="w-6 h-6 sm:w-8 sm:h-8 text-orange-500" />
       </div>
       <h3 className="text-lg sm:text-xl font-bold mb-4">{title}</h3>
-      <p className="text-gray-700 flex-grow text-base">{description}</p>
-      <div className="mt-4 text-orange-500 group-hover:text-orange-600 flex items-center text-base">
+      <p className="text-gray-700 text-base flex-grow">{description}</p>
+      <div className="mt-4 text-orange-500 group-hover:text-orange-600 flex items-center text-base shrink-0">
         {ctaText}
         <FaArrowRight className="w-4 h-4 sm:w-5 sm:h-5 ml-2 transform group-hover:translate-x-1 transition-transform duration-300" />
       </div>

@@ -194,7 +194,8 @@ export default function EventPage() {
               <motion.h1
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-4xl font-bold text-white text-center px-4 max-w-3xl"
+                className="text-4xl font-bold text-white text-center px-4 max-w-[90vw]"
+  style={{ fontSize: "clamp(1.5rem, 5vw, 2.5rem)" }}
               >
                 {event.title}
               </motion.h1>
@@ -257,8 +258,8 @@ export default function EventPage() {
           {event.description && (
             <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
               <h2 className="text-2xl font-semibold mb-4">Описание</h2>
-              <FormattedDescription content={event.description} className="text-gray-600" disableFontSize={false} />
-            </motion.section>
+              <FormattedDescription content={event.description} className="text-gray-600 max-w-full overflow-wrap-break-word" disableFontSize={false} />            
+              </motion.section>
           )}
         </div>
       </main>

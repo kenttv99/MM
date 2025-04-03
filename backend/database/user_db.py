@@ -164,7 +164,9 @@ class User(Base):
     registrations = relationship("Registration", back_populates="user")
     # Связь с медиа, загруженным пользователем
     user_medias = relationship("Media", foreign_keys=[Media.user_uploaded_by_id], back_populates="user_uploaded_by")
-    activities = relationship("UserActivity", back_populates="user")  # Новая связь
+    activities = relationship("UserActivity", back_populates="user")
+    
+    notifications = relationship("Notification", back_populates="user")
     
 class UserActivity(Base):
     __tablename__ = "user_activities"
@@ -199,6 +201,21 @@ class Admin(Base):
     
     # Связь с медиа, загруженным администратором
     admin_medias = relationship("Media", foreign_keys=[Media.admin_uploaded_by_id], back_populates="admin_uploaded_by")
+    
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    fingerprint = Column(String(64), nullable=True)
+    message = Column(Text, nullable=False)
+    type = Column(String(50), nullable=False)
+    event_id = Column(Integer, ForeignKey("events.id"), nullable=False)
+    is_viewed = Column(Boolean, default=False)
+    created_at = Column(TIMESTAMP, default=datetime.utcnow)
+
+    user = relationship("User", back_populates="notifications")
+    event = relationship("Event")
 
 # Функция для инициализации базы данных
 async def init_db():

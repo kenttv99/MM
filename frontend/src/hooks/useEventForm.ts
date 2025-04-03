@@ -44,12 +44,18 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-    
+  
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked;
       setFieldValue(name as keyof EventFormData, checked);
     } else if (type === "number") {
-      const numericValue = parseFloat(value) || 0;
+      // Check if the value is just "0" when starting to type
+      const input = e.target as HTMLInputElement;
+      const numericValue = value === "0" && input.selectionStart === 1 ? 
+        "" : // Clear the field if it's just "0"
+        value === "" ? 0 : // Handle empty string
+        parseFloat(value.replace(/^0+(?=\d)/, "")); // Remove leading zeros
+      
       setFieldValue(name as keyof EventFormData, numericValue);
     } else {
       setFieldValue(name as keyof EventFormData, value);

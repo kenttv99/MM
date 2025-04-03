@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { FaChevronRight } from "react-icons/fa";
+import { FaChevronRight} from "react-icons/fa";
 import React, { useEffect, useState, useCallback } from "react";
 
 const extractIdFromSlug = (slug: string): string => {
@@ -49,7 +49,7 @@ const Breadcrumbs: React.FC = () => {
       }
       return { href, label, isLast: index === pathSegments.length - 1 };
     });
-    if (pathname !== "/") crumbs.unshift({ href: "/", label: "Главная страница", isLast: false });
+    if (pathname !== "/") crumbs.unshift({ href: "/", label: "Главная", isLast: false });
     return crumbs;
   }, [pathname]);
 
@@ -59,28 +59,41 @@ const Breadcrumbs: React.FC = () => {
   }, [pathname, generateBreadcrumbs]);
 
   return (
-    <nav className="flex items-center gap-2 text-gray-600 py-2 sm:py-4 container mx-auto px-4 sm:px-5 overflow-x-auto snap-x whitespace-nowrap">
-      {breadcrumbs.map((crumb) => (
-        <React.Fragment key={crumb.href}>
-          {crumb.isLast ? (
-            <span
-              className="font-medium text-orange-800 snap-start"
-              style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}
-            >
-              {crumb.label}
-            </span>
-          ) : (
-            <Link
-              href={crumb.href}
-              className="hover:text-orange-700 transition-colors snap-start"
-              style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}
-            >
-              {crumb.label}
-            </Link>
-          )}
-          {!crumb.isLast && <FaChevronRight className="w-2 h-2 text-gray-600 min-w-[8px] snap-start" />}
-        </React.Fragment>
-      ))}
+    <nav className="flex items-center gap-2 text-gray-600 py-2 sm:py-4 container mx-auto px-4 sm:px-5 overflow-x-auto scrollbar-hide">
+      <div className="flex flex-wrap items-center gap-2 max-w-full">
+        {breadcrumbs.map((crumb) => (
+          <React.Fragment key={crumb.href}>
+            {crumb.isLast ? (
+              <span
+                className="font-medium text-orange-800 truncate max-w-[150px] sm:max-w-[200px] md:max-w-none"
+                style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}
+                title={crumb.label}
+              >
+                {crumb.label}
+              </span>
+            ) : (
+              <>
+                <Link
+                  href={crumb.href}
+                  className="hover:text-orange-700 transition-colors flex items-center"
+                  title={crumb.label}
+                >
+                  {/* {index === 0 ? (
+                    <FaHome className="text-gray-600 hover:text-orange-700 w-3 h-3 mr-1" />
+                  ) : null} */}
+                  <span 
+                    className="truncate max-w-[80px] sm:max-w-[120px] md:max-w-none" 
+                    style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}
+                  >
+                    {crumb.label}
+                  </span>
+                </Link>
+                <FaChevronRight className="w-2 h-2 text-gray-400 flex-shrink-0" />
+              </>
+            )}
+          </React.Fragment>
+        ))}
+      </div>
     </nav>
   );
 };

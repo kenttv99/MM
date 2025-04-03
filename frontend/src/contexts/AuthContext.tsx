@@ -44,6 +44,11 @@ interface JwtPayload {
   [key: string]: unknown;
 }
 
+interface CustomError extends Error {
+  isAuthError?: boolean;
+  status?: number;
+}
+
 function decodeJwt(token: string): JwtPayload | null {
   try {
     const parts = token.split(".");
@@ -96,7 +101,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem(STORAGE_KEYS.USER_DATA, JSON.stringify(freshData));
       return true;
     } catch (error) {
-      console.error("Failed to refresh user data:", error);
+      const err = error as CustomError;
+      if (err.isAuthError) {
+        return false; // Silently fail for auth errors
+      }
+      console.warn("Failed to refresh user data:", error);
       return false;
     }
   };
@@ -104,7 +113,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const checkAuth = useCallback(async (): Promise<boolean> => {
     const now = Date.now();
     
-    // Throttle check frequency
     if (now - lastCheckTime.current < CHECK_INTERVAL) {
       setAuthCheckCount((prev) => prev + 1);
       if (authCheckCount + 1 >= MAX_AUTH_CHECKS) {
@@ -115,7 +123,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     lastCheckTime.current = now;
 
-    // Reuse existing promise if one is in flight
     if (authCheckPromise.current) {
       return authCheckPromise.current;
     }
@@ -131,17 +138,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         let token = localStorage.getItem(STORAGE_KEYS.TOKEN);
 
-        // No token means not authenticated
         if (!token) {
-          setIsAuth(false);
-          setUserData(null);
           return false;
         }
 
-        // Clean token format
         if (token.startsWith("Bearer ")) token = token.slice(7).trim();
         
-        // Check token expiration
         if (isTokenExpired(token)) {
           localStorage.removeItem(STORAGE_KEYS.TOKEN);
           localStorage.removeItem(STORAGE_KEYS.USER_DATA);
@@ -150,7 +152,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return false;
         }
 
-        // Try to use cached user data
         const cachedData = localStorage.getItem(STORAGE_KEYS.USER_DATA);
         let userDataFromCache = null;
         const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -167,7 +168,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUserData(userDataFromCache);
             setIsAuth(true);
 
-            // Try to refresh data in background
             const refreshed = await refreshUserData(token);
             if (!refreshed) {
               console.warn("Using cached data as refresh failed");
@@ -178,7 +178,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
 
-        // Refresh user data from server
         const refreshed = await refreshUserData(token);
         if (refreshed) {
           return true;
@@ -191,6 +190,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUserData(null);
           return false;
         }
+      } catch (err) {
+        const error = err as CustomError;
+        if (error.isAuthError) {
+          // Silently handle auth errors (e.g., 401 from /me)
+          return false;
+        }
+        console.warn("Unexpected error during auth check:", err);
+        setIsAuth(false);
+        setUserData(null);
+        return false;
       } finally {
         setIsLoading(false);
         isChecking.current = false;
@@ -201,7 +210,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     })();
 
     return authCheckPromise.current;
-  }, [authCheckCount, isAuth]);
+  }, [authCheckCount, isAuth, refreshUserData]);
 
   const handleLoginSuccess = useCallback((token: string, user: UserData) => {
     localStorage.setItem(STORAGE_KEYS.TOKEN, token);
@@ -244,8 +253,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       hasInitialized.current = true;
 
       checkAuth()
-        .catch(error => {
-          console.error("Auth initialization error:", error);
+        .then((authenticated) => {
+          if (!authenticated) {
+            console.log("User is not authenticated on initial load - this is expected");
+          }
+        })
+        .catch((err) => {
+          const error = err as CustomError;
+          if (!error.isAuthError) {
+            console.warn("Unexpected error during initial auth check:", err);
+          }
         })
         .finally(() => {
           setIsLoading(false);

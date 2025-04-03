@@ -1583,3 +1583,41 @@ h11._util.LocalProtocolError: can't handle event type Response when role=SERVER 
 2025-04-02 15:01:51,360 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-02 15:37:37,616 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-02 16:17:55,864 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 00:34:48,300 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 03:50:29,269 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 03:50:31,572 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 03:50:46,349 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 03:50:53,068 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 03:50:55,413 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-03 12:40:08,325 - root - ERROR - Error logging admin activity: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: INSERT или UPDATE в таблице "user_activities" нарушает ограничение внешнего ключа "user_activities_user_id_fkey"
+DETAIL:  Ключ (user_id)=(1) отсутствует в таблице "users".
+[SQL: INSERT INTO user_activities (user_id, ip_address, cookies, user_agent, action, created_at, device_fingerprint) VALUES ($1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::TIMESTAMP WITHOUT TIME ZONE, $7::VARCHAR) RETURNING user_activities.id]
+[parameters: (1, '127.0.0.1', 'next-auth.csrf-token=548735245255ed12a218c7df520c38264b58b9c721d3183cd0067161af2cb00d%7C82fb559a7b01833c42145f5b5a99a2fbd48d471020972ca8f065d1042fefe49c; next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000%2Flogin; __next_hmr_refresh_hash__=5ceba0c449952b0980fe87b44c0115fe633457081244afec', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36', 'register', datetime.datetime(2025, 4, 3, 9, 40, 8, 265737), 'e74d05de07ea4158aa7a55b1ed735c17fbc13109cb634b56431ea3649f52c48b')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-03 12:40:08,341 - root - ERROR - Error registering admin: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: INSERT или UPDATE в таблице "user_activities" нарушает ограничение внешнего ключа "user_activities_user_id_fkey"
+DETAIL:  Ключ (user_id)=(1) отсутствует в таблице "users".
+[SQL: INSERT INTO user_activities (user_id, ip_address, cookies, user_agent, action, created_at, device_fingerprint) VALUES ($1::INTEGER, $2::VARCHAR, $3::VARCHAR, $4::VARCHAR, $5::VARCHAR, $6::TIMESTAMP WITHOUT TIME ZONE, $7::VARCHAR) RETURNING user_activities.id]
+[parameters: (1, '127.0.0.1', 'next-auth.csrf-token=548735245255ed12a218c7df520c38264b58b9c721d3183cd0067161af2cb00d%7C82fb559a7b01833c42145f5b5a99a2fbd48d471020972ca8f065d1042fefe49c; next-auth.callback-url=http%3A%2F%2Flocalhost%3A3000%2Flogin; __next_hmr_refresh_hash__=5ceba0c449952b0980fe87b44c0115fe633457081244afec', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36', 'register', datetime.datetime(2025, 4, 3, 9, 40, 8, 265737), 'e74d05de07ea4158aa7a55b1ed735c17fbc13109cb634b56431ea3649f52c48b')]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-03 16:03:50,772 - root - ERROR - Error deleting event 2: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "events" нарушает ограничение внешнего ключа "notifications_event_id_fkey" таблицы "notifications"
+DETAIL:  На ключ (id)=(2) всё ещё есть ссылки в таблице "notifications".
+[SQL: DELETE FROM events WHERE events.id = $1::INTEGER]
+[parameters: (2,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-03 16:03:55,854 - root - ERROR - Error deleting event 2: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "events" нарушает ограничение внешнего ключа "notifications_event_id_fkey" таблицы "notifications"
+DETAIL:  На ключ (id)=(2) всё ещё есть ссылки в таблице "notifications".
+[SQL: DELETE FROM events WHERE events.id = $1::INTEGER]
+[parameters: (2,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-03 18:53:23,416 - root - ERROR - Error deleting event 2: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "events" нарушает ограничение внешнего ключа "notifications_event_id_fkey" таблицы "notifications"
+DETAIL:  На ключ (id)=(2) всё ещё есть ссылки в таблице "notifications".
+[SQL: DELETE FROM events WHERE events.id = $1::INTEGER]
+[parameters: (2,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-03 19:06:51,892 - root - ERROR - Error retrieving events for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedFunctionError'>: оператор не существует: timestamp without time zone >= character varying
+HINT:  Оператор с данными именем и типами аргументов не найден. Возможно, вам следует добавить явные приведения типов.
+[SQL: SELECT events.id, events.title, events.description, events.start_date, events.end_date, events.location, events.image_url, events.price, events.published, events.created_at, events.updated_at, events.status 
+FROM events 
+WHERE events.start_date >= $1::VARCHAR]
+[parameters: ('2025-03-29',)]
+(Background on this error at: https://sqlalche.me/e/20/f405)

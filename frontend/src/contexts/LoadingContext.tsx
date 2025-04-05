@@ -13,124 +13,117 @@ interface LoadingContextType {
 
 const LoadingContext = createContext<LoadingContextType | undefined>(undefined);
 
-export const LoadingProvider = ({ children }: { children: React.ReactNode }) => {
-  const [isStaticLoading, setStaticLoadingState] = useState(true);
-  const [isDynamicLoading, setDynamicLoadingState] = useState(false);
+export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isStaticLoading, setIsStaticLoading] = useState(false);
+  const [isDynamicLoading, setIsDynamicLoading] = useState(false);
   const pathname = usePathname();
-  const hasReset = useRef<boolean>(false);
-  const lastPathname = useRef<string>(pathname);
+  const isMounted = useRef(false);
   const loadingTimeout = useRef<NodeJS.Timeout | null>(null);
-  const isInitialMount = useRef<boolean>(true);
-  const isMounted = useRef<boolean>(false);
   const autoResetTimeout = useRef<NodeJS.Timeout | null>(null);
+  const pathChangeCount = useRef<number>(0);
+  const isStateChanging = useRef<boolean>(false);
 
-  // Автоматический сброс состояния загрузки через 5 секунд
-  useEffect(() => {
-    if (isStaticLoading) {
-      if (autoResetTimeout.current) {
-        clearTimeout(autoResetTimeout.current);
-      }
-      
-      autoResetTimeout.current = setTimeout(() => {
-        if (isMounted.current) {
-          console.log("Auto-resetting loading state after timeout");
-          setStaticLoadingState(false);
-          setDynamicLoadingState(false);
-          hasReset.current = true;
-        }
-      }, 5000); // 5 секунд максимум для загрузки
-    }
-    
-    return () => {
-      if (autoResetTimeout.current) {
-        clearTimeout(autoResetTimeout.current);
-      }
-    };
-  }, [isStaticLoading]);
+  // Функции для управления состоянием загрузки
+  const setStaticLoading = useCallback((value: boolean) => {
+    if (!isMounted.current || isStateChanging.current) return;
+    console.log("LoadingContext: setStaticLoading", value);
+    setIsStaticLoading(value);
+  }, []);
 
-  const setStaticLoading = useCallback((loading: boolean) => {
-    if (!isMounted.current) return;
-    
-    if (loadingTimeout.current) {
-      clearTimeout(loadingTimeout.current);
-    }
-    
-    loadingTimeout.current = setTimeout(() => {
-      console.log("setStaticLoading:", loading, "pathname:", pathname);
-      setStaticLoadingState(loading);
-      if (loading) {
-        hasReset.current = false;
-      }
-    }, 50);
-  }, [pathname]);
-
-  const setDynamicLoading = useCallback((loading: boolean) => {
-    if (!isMounted.current) return;
-    
-    if (loadingTimeout.current) {
-      clearTimeout(loadingTimeout.current);
-    }
-    
-    loadingTimeout.current = setTimeout(() => {
-      console.log("setDynamicLoading:", loading, "pathname:", pathname);
-      setDynamicLoadingState(loading);
-    }, 50);
-  }, [pathname]);
+  const setDynamicLoading = useCallback((value: boolean) => {
+    if (!isMounted.current || isStateChanging.current) return;
+    console.log("LoadingContext: setDynamicLoading", value);
+    setIsDynamicLoading(value);
+  }, []);
 
   const resetLoading = useCallback(() => {
-    if (!isMounted.current) return;
-    
-    if (!hasReset.current) {
-      console.log("Resetting loading state for pathname:", pathname);
-      setStaticLoadingState(true);
-      setDynamicLoadingState(false);
-      hasReset.current = true;
-    } else {
-      console.log("Skipping resetLoading, already set manually for pathname:", pathname);
-    }
-  }, [pathname]);
+    if (!isMounted.current || isStateChanging.current) return;
+    console.log("LoadingContext: resetLoading");
+    setIsStaticLoading(false);
+    setIsDynamicLoading(false);
+  }, []);
 
+  // Эффект для инициализации при монтировании
   useEffect(() => {
-    console.log("LoadingContext useEffect triggered for pathname:", pathname);
-    
-    // Устанавливаем флаг монтирования
+    console.log("LoadingContext: Component mounted");
     isMounted.current = true;
     
-    // Пропускаем первый рендер и ждем инициализации AuthContext
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      return () => {
-        isMounted.current = false;
-        if (loadingTimeout.current) {
-          clearTimeout(loadingTimeout.current);
+    // Сбрасываем все таймауты при размонтировании
+    return () => {
+      console.log("LoadingContext: Component unmounted");
+      isMounted.current = false;
+      
+      // Сохраняем ссылки на таймауты в переменные внутри эффекта
+      const loadingTimeoutValue = loadingTimeout.current;
+      const autoResetTimeoutValue = autoResetTimeout.current;
+      
+      if (loadingTimeoutValue) {
+        clearTimeout(loadingTimeoutValue);
+      }
+      if (autoResetTimeoutValue) {
+        clearTimeout(autoResetTimeoutValue);
+      }
+    };
+  }, []);
+
+  // Эффект для отслеживания изменения пути
+  useEffect(() => {
+    if (!isMounted.current) return;
+    
+    console.log("LoadingContext: Pathname changed to", pathname);
+    pathChangeCount.current += 1;
+    
+    // Устанавливаем флаг изменения состояния
+    isStateChanging.current = true;
+    
+    // Сбрасываем состояние загрузки с задержкой
+    const timeout = setTimeout(() => {
+      if (isMounted.current) {
+        // Для страницы мероприятий не сбрасываем состояние загрузки сразу,
+        // так как EventsPage сам управляет состоянием загрузки
+        if (pathname === "/events") {
+          console.log("LoadingContext: Skipping reset for /events path");
+          isStateChanging.current = false;
+          return;
         }
+        
+        console.log("LoadingContext: Resetting loading states for pathname change");
+        setStaticLoading(false);
+        setDynamicLoading(false);
+        isStateChanging.current = false;
+      }
+    }, 500); // Увеличиваем задержку до 500мс
+    
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [pathname, setStaticLoading, setDynamicLoading]);
+
+  // Эффект для автоматического сброса состояния загрузки
+  useEffect(() => {
+    if (!isMounted.current || isStateChanging.current) return;
+    
+    // Если состояние загрузки активно, устанавливаем таймер для автоматического сброса
+    if (isStaticLoading || isDynamicLoading) {
+      const timeout = setTimeout(() => {
+        if (isMounted.current && !isStateChanging.current) {
+          console.log("LoadingContext: Auto-resetting loading states");
+          resetLoading();
+        }
+      }, 5000);
+      
+      autoResetTimeout.current = timeout;
+      
+      return () => {
         if (autoResetTimeout.current) {
           clearTimeout(autoResetTimeout.current);
         }
       };
     }
-
-    // Сбрасываем состояния только при смене пути и после инициализации AuthContext
-    if (lastPathname.current !== pathname && !isInitialMount.current) {
-      resetLoading();
-      lastPathname.current = pathname;
-    }
-
-    return () => {
-      isMounted.current = false;
-      if (loadingTimeout.current) {
-        clearTimeout(loadingTimeout.current);
-      }
-      if (autoResetTimeout.current) {
-        clearTimeout(autoResetTimeout.current);
-      }
-    };
-  }, [pathname, resetLoading]);
+  }, [isStaticLoading, isDynamicLoading, resetLoading]);
 
   return (
-    <LoadingContext.Provider
-      value={{ isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading }}
-    >
+    <LoadingContext.Provider value={{ isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading }}>
       {children}
     </LoadingContext.Provider>
   );

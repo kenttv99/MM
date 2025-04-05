@@ -7,10 +7,11 @@ import Link from "next/link";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
 import { AnimatePresence, motion } from "framer-motion";
-import { apiFetch, clearCache } from "@/utils/api";
+import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 import { useLoading } from "@/contexts/LoadingContext";
+import { usePathname } from "next/navigation";
 
 const ITEMS_PER_PAGE = 6;
 
@@ -189,153 +190,293 @@ interface FilterState {
   endDate: string;
 }
 
-const EventsPage = () => {
-  const { setStaticLoading, setDynamicLoading, isDynamicLoading } = useLoading();
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
+const EventsPage: React.FC = () => {
+  const { setStaticLoading, setDynamicLoading } = useLoading();
   const [events, setEvents] = useState<EventData[]>([]);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
+  const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
   const [error, setError] = useState<string | null>(null);
-  const [serverError, setServerError] = useState(false);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [allEventsLoaded, setAllEventsLoaded] = useState(false);
+  const loadTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
   const lastCardRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
-  const hasLoadedInitial = useRef<boolean>(false);
-  const isInitialMount = useRef<boolean>(true);
-  const loadingTimeout = useRef<NodeJS.Timeout | null>(null);
+  const isFirstLoad = useRef(true);
+  const isMounted = useRef(false);
+  const isDataLoading = useRef(false);
+  const pathname = usePathname();
+  const hasInitialized = useRef(false);
+  const pathChangeCount = useRef(0);
+  const loadAttempted = useRef(false);
+  const prevPathname = useRef(pathname);
 
-  const loadEvents = useCallback(async (pageNum: number, append = false, filters: FilterState) => {
-    if (loadingTimeout.current) {
-      clearTimeout(loadingTimeout.current);
-    }
-
-    loadingTimeout.current = setTimeout(async () => {
-      setDynamicLoading(true);
-      setError(null);
-      setServerError(false);
-
-      const abortController = new AbortController();
-      const params = new URLSearchParams({
-        page: pageNum.toString(),
-        limit: ITEMS_PER_PAGE.toString(),
-      });
-      if (filters.startDate) params.append("start_date", formatDateForAPI(filters.startDate));
-      if (filters.endDate) params.append("end_date", formatDateForAPI(filters.endDate));
-      const endpoint = `/v1/public/events?${params.toString()}`;
-
-      try {
-        const data = await apiFetch<EventData[]>(endpoint, {
-          signal: abortController.signal,
-          cache: pageNum === 1 ? "no-store" : "default",
-        }, setDynamicLoading);
-        setEvents(prev => (append ? [...prev, ...data] : data));
-        setHasMore(data.length === ITEMS_PER_PAGE);
-      } catch (err) {
-        if (err instanceof Error && err.message === "Request aborted") return;
-        const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятий";
-        if (errorMessage.includes("HTTP error! Status: 5")) setServerError(true);
-        else setError(errorMessage);
-        setHasMore(false);
-      } finally {
-        setDynamicLoading(false);
-      }
-    }, 100);
-  }, [setDynamicLoading]);
-
-  // Начальная загрузка
-  useEffect(() => {
-    if (hasLoadedInitial.current) return;
+  const loadEvents = useCallback(async (page: number = 1, filters: FilterState = { startDate: "", endDate: "" }, append: boolean = false) => {
+    if (!isMounted.current) return;
     
-    const initializePage = async () => {
-      hasLoadedInitial.current = true;
-      setStaticLoading(false);
-      await loadEvents(1, false, activeFilters);
-    };
-
-    initializePage();
-
-    return () => {
-      if (observerRef.current) observerRef.current.disconnect();
-      if (loadingTimeout.current) {
-        clearTimeout(loadingTimeout.current);
-      }
-    };
-  }, [loadEvents, activeFilters, setStaticLoading]);
-
-  // Обновление при изменении фильтров
-  useEffect(() => {
-    if (!hasLoadedInitial.current || isInitialMount.current) {
-      isInitialMount.current = false;
+    // Если данные уже загружаются, пропускаем новую загрузку
+    if (isDataLoading.current) {
+      console.log("EventsPage: Data is already loading, skipping");
       return;
     }
+    
+    // Устанавливаем флаг загрузки данных
+    isDataLoading.current = true;
+    loadAttempted.current = true;
+    
+    try {
+      // Если это первая загрузка, устанавливаем статическую загрузку
+      if (isFirstLoad.current) {
+        console.log("EventsPage: Setting static loading to true");
+        setStaticLoading(true);
+      } else {
+        // Иначе устанавливаем динамическую загрузку
+        console.log("EventsPage: Setting dynamic loading to true");
+        setDynamicLoading(true);
+      }
+      
+      console.log("EventsPage: Loading events page", page);
+      
+      // Загружаем данные
+      const response = await apiFetch<EventData[]>(`/v1/public/events?page=${page}&limit=${ITEMS_PER_PAGE}&start_date=${formatDateForAPI(filters.startDate)}&end_date=${formatDateForAPI(filters.endDate)}`, {
+        cache: page === 1 ? "no-store" : "default",
+      });
+      
+      // Обрабатываем ответ
+      if (response && response.length > 0) {
+        const newEvents = response;
+        
+        // Если это первая загрузка, заменяем события
+        if (!append) {
+          setEvents(newEvents);
+        } else {
+          // Иначе добавляем новые события к существующим
+          setEvents(prev => [...prev, ...newEvents]);
+        }
+        
+        // Проверяем, есть ли еще события для загрузки
+        const hasMoreEvents = newEvents.length === ITEMS_PER_PAGE;
+        setHasMore(hasMoreEvents);
+        
+        // Если нет событий или это последняя страница, устанавливаем флаг загрузки всех событий
+        if (newEvents.length === 0 || !hasMoreEvents) {
+          setAllEventsLoaded(true);
+        }
+        
+        // Увеличиваем номер страницы
+        setCurrentPage(page + 1);
+        
+        // Сбрасываем ошибку
+        setError(null);
+      } else {
+        // Обрабатываем ошибку
+        setError("Ошибка загрузки мероприятий");
+        
+        // Если это первая загрузка, очищаем события
+        if (!append) {
+          setEvents([]);
+        }
+      }
+    } catch (err) {
+      // Обрабатываем исключение
+      console.error("Error loading events:", err);
+      setError("Ошибка загрузки мероприятий");
+      
+      // Если это первая загрузка, очищаем события
+      if (!append) {
+        setEvents([]);
+      }
+    } finally {
+      // Сбрасываем флаги загрузки
+      isDataLoading.current = false;
+      
+      // Сбрасываем состояние загрузки
+      if (isFirstLoad.current) {
+        console.log("EventsPage: Data loaded, resetting static loading state");
+        setStaticLoading(false);
+        isFirstLoad.current = false;
+      } else {
+        console.log("EventsPage: Data loaded, resetting dynamic loading state");
+        setDynamicLoading(false);
+      }
+    }
+  }, [setStaticLoading, setDynamicLoading]);
 
-    setPage(1);
-    setEvents([]);
-    clearCache("/v1/public/events");
-    loadEvents(1, false, activeFilters);
-  }, [activeFilters, loadEvents]);
-
-  // Настройка Intersection Observer
+  // Эффект для начальной загрузки
   useEffect(() => {
-    if (!hasMore || isDynamicLoading) return;
+    if (isInitialLoad && isMounted.current && hasInitialized.current && !loadAttempted.current) {
+      console.log("EventsPage: Initial load");
+      isFirstLoad.current = true;
+      setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
+      loadEvents(1, activeFilters);
+      setIsInitialLoad(false);
+    }
+  }, [isInitialLoad, loadEvents, activeFilters, setStaticLoading]);
+
+  // Эффект для обновления при изменении фильтров
+  useEffect(() => {
+    if (!isInitialLoad && isMounted.current && hasInitialized.current) {
+      console.log("EventsPage: Filters changed, reloading");
+      setCurrentPage(1);
+      setAllEventsLoaded(false);
+      isFirstLoad.current = true;
+      setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
+      loadEvents(1, activeFilters);
+    }
+  }, [activeFilters, loadEvents, isInitialLoad, setStaticLoading]);
+
+  // Эффект для подгрузки при скролле
+  useEffect(() => {
+    if (!lastCardRef.current || !hasMore || !isMounted.current || !hasInitialized.current) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
-          setPage((prev) => prev + 1);
-          loadEvents(page + 1, true, activeFilters);
+          console.log("EventsPage: Loading more events");
+          const nextPage = currentPage + 1;
+          setCurrentPage(nextPage);
+          setDynamicLoading(true); // Устанавливаем состояние динамической загрузки
+          loadEvents(nextPage, activeFilters, true);
         }
       },
       { threshold: 0.1 }
     );
 
-    if (lastCardRef.current) {
-      observer.observe(lastCardRef.current);
-    }
-
+    observer.observe(lastCardRef.current);
     observerRef.current = observer;
 
     return () => {
-      observer.disconnect();
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+      }
     };
-  }, [hasMore, isDynamicLoading, page, loadEvents, activeFilters]);
+  }, [lastCardRef, hasMore, currentPage, loadEvents, activeFilters, setDynamicLoading]);
+
+  // Эффект для отслеживания монтирования компонента
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  // Эффект для отслеживания инициализации и смены пути
+  useEffect(() => {
+    // Пропускаем, если путь не изменился
+    if (prevPathname.current === pathname) {
+      return;
+    }
+    
+    console.log("EventsPage: Pathname changed to", pathname);
+    prevPathname.current = pathname;
+    pathChangeCount.current += 1;
+    
+    // Устанавливаем флаг инициализации после небольшой задержки
+    const initTimeout = setTimeout(() => {
+      if (!hasInitialized.current) {
+        console.log("EventsPage: Setting hasInitialized to true");
+        hasInitialized.current = true;
+        
+        // Если компонент уже смонтирован и загрузка еще не была попыткой, запускаем загрузку
+        if (isMounted.current && isInitialLoad && !loadAttempted.current) {
+          console.log("EventsPage: Component mounted, triggering initial load");
+          isFirstLoad.current = true;
+          setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
+          loadEvents(1, activeFilters);
+          setIsInitialLoad(false);
+        }
+      }
+    }, 100);
+    
+    return () => {
+      clearTimeout(initTimeout);
+    };
+  }, [pathname, isInitialLoad, loadEvents, activeFilters, setStaticLoading]);
+
+  // Эффект для принудительной загрузки, если предыдущие попытки не сработали
+  useEffect(() => {
+    if (isMounted.current && hasInitialized.current && !loadAttempted.current && events.length === 0) {
+      console.log("EventsPage: Forcing initial load after timeout");
+      const forceLoadTimeout = setTimeout(() => {
+        if (!loadAttempted.current) {
+          isFirstLoad.current = true;
+          setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
+          loadEvents(1, activeFilters);
+          setIsInitialLoad(false);
+        }
+      }, 1000);
+      
+      return () => {
+        clearTimeout(forceLoadTimeout);
+      };
+    }
+  }, [events.length, loadEvents, activeFilters, setStaticLoading]);
+
+  // Дополнительный эффект для запуска загрузки при монтировании
+  useEffect(() => {
+    if (isMounted.current && !loadAttempted.current && events.length === 0) {
+      console.log("EventsPage: Component mounted, checking if we need to load data");
+      const checkTimeout = setTimeout(() => {
+        if (!loadAttempted.current && events.length === 0) {
+          console.log("EventsPage: No data loaded yet, triggering load");
+          isFirstLoad.current = true;
+          setStaticLoading(true);
+          loadEvents(1, activeFilters);
+          setIsInitialLoad(false);
+        }
+      }, 300);
+      
+      return () => {
+        clearTimeout(checkTimeout);
+      };
+    }
+  }, [isMounted.current, loadAttempted.current, events.length, loadEvents, activeFilters, setStaticLoading]);
+
+  // Эффект для очистки при размонтировании
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      hasInitialized.current = false;
+      loadAttempted.current = false;
+      
+      // Сохраняем ссылку на таймаут в переменную внутри эффекта
+      const timeout = loadTimeout.current;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, []);
 
   const applyFilters = useCallback(() => {
-    const newFilters = { startDate, endDate };
-    if (newFilters.startDate === activeFilters.startDate && newFilters.endDate === activeFilters.endDate) {
+    if (activeFilters.startDate === "" && activeFilters.endDate === "") {
       setIsFilterOpen(false);
       return;
     }
-    setActiveFilters(newFilters);
+    setActiveFilters(prev => ({ ...prev }));
     setIsFilterOpen(false);
-  }, [startDate, endDate, activeFilters]);
+  }, [activeFilters]);
 
   const resetFilters = useCallback(() => {
     if (!activeFilters.startDate && !activeFilters.endDate) {
       setIsFilterOpen(false);
       return;
     }
-    setStartDate("");
-    setEndDate("");
     setActiveFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
   }, [activeFilters]);
 
   const removeFilter = useCallback((filter: "startDate" | "endDate") => {
-    const newFilters = { ...activeFilters, [filter]: "" };
-    if (filter === "startDate") setStartDate("");
-    else setEndDate("");
-    setActiveFilters(newFilters);
-  }, [activeFilters]);
+    if (filter === "startDate") setActiveFilters(prev => ({ ...prev, startDate: "" }));
+    else setActiveFilters(prev => ({ ...prev, endDate: "" }));
+  }, []);
 
   const groupedEvents = React.useMemo(() => groupEventsByDate(events), [events]);
   const isFilterActive = !!(activeFilters.startDate || activeFilters.endDate);
 
-  if (serverError) return <ErrorPlaceholder />;
+  if (error) return <ErrorPlaceholder />;
 
   return (
     <>
@@ -355,10 +496,10 @@ const EventsPage = () => {
             <AnimatePresence>
               {isFilterOpen && (
                 <DateFilter
-                  startDate={startDate}
-                  endDate={endDate}
-                  onStartDateChange={setStartDate}
-                  onEndDateChange={setEndDate}
+                  startDate={activeFilters.startDate}
+                  endDate={activeFilters.endDate}
+                  onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
+                  onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
                   onApply={applyFilters}
                   onClose={() => setIsFilterOpen(false)}
                   onReset={resetFilters}
@@ -387,7 +528,7 @@ const EventsPage = () => {
             )}
           </div>
           {error && <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
-          {events.length === 0 && !error && !isDynamicLoading ? (
+          {events.length === 0 ? (
             <div className="text-center py-12">
               <h3 className="text-xl font-semibold mb-2">
                 {isFilterActive ? "Мероприятия не найдены для выбранного диапазона дат" : "Мероприятия не найдены"}
@@ -397,20 +538,25 @@ const EventsPage = () => {
               )}
             </div>
           ) : (
-            Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
-              <div key={date} className="mb-8">
-                <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {eventsForDate.map((event, index) => {
-                    const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
-                    return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? lastCardRef : undefined} />;
-                  })}
+            <>
+              {Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
+                <div key={date} className="mb-8">
+                  <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {eventsForDate.map((event, index) => {
+                      const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
+                      return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? lastCardRef : undefined} />;
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))
-          )}
-          {!hasMore && events.length > 0 && !isDynamicLoading && (
-            <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>
+              ))}
+              
+              {allEventsLoaded && events.length > 0 && (
+                <div className="text-center py-2 mt-2">
+                  <p className="text-gray-400 text-sm">Все мероприятия загружены</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </main>

@@ -20,7 +20,7 @@ interface AuthContextType {
   checkAuth: () => Promise<boolean>;
   updateUserData: (data: UserData, resetLoading?: boolean) => void;
   handleLoginSuccess: (token: string, user: UserData) => void;
-  logout: () => void; // Новый метод
+  logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -31,7 +31,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const hasInitialized = useRef(false);
   const lastCheckTime = useRef<number>(0);
-  const { setLoading } = useLoading();
+  const { setStaticLoading } = useLoading();
 
   const CHECK_INTERVAL = 5000;
 
@@ -39,7 +39,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUserData(data);
     if (resetLoading) {
       setIsLoading(false);
-      setLoading(false);
+      setStaticLoading(false);
     }
   };
 
@@ -50,8 +50,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsAuth(true);
     setUserData(user);
     setIsLoading(false);
-    setLoading(false);
-  }, [setIsAuth, setUserData, setIsLoading, setLoading]);
+    setStaticLoading(false);
+  }, [setStaticLoading]);
 
   const logout = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -60,8 +60,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsAuth(false);
     setUserData(null);
     setIsLoading(false);
-    setLoading(false);
-  }, [setIsAuth, setUserData, setIsLoading, setLoading]);
+    setStaticLoading(false);
+  }, [setStaticLoading]);
 
   const checkAuth = useCallback(async () => {
     const now = Date.now();
@@ -76,17 +76,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAuth(false);
       setUserData(null);
       setIsLoading(false);
-      setLoading(false);
+      setStaticLoading(false);
       return false;
     }
 
     setIsAuth(true);
     setIsLoading(false);
-    setLoading(false);
+    setStaticLoading(false);
     return true;
-  }, [isAuth, setIsAuth, setUserData, setIsLoading, setLoading]);
+  }, [isAuth, setStaticLoading]);
 
   useEffect(() => {
+    console.log("AuthContext useEffect triggered, hasInitialized:", hasInitialized.current);
     if (!hasInitialized.current) {
       hasInitialized.current = true;
       checkAuth();

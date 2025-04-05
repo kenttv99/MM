@@ -1,4 +1,4 @@
-// frontend\src\app\(public)\page.tsx
+// frontend/src/app/(public)/page.tsx
 "use client";
 
 import React, { useEffect } from "react";
@@ -25,11 +25,12 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, desc
 );
 
 const PublicHomePage: React.FC = () => {
-  const { setLoading } = useLoading();
+  const { setStaticLoading } = useLoading();
 
   useEffect(() => {
-    setLoading(false); // Статическая страница, загружается сразу
-  }, [setLoading]);
+    console.log("PublicHomePage useEffect triggered, setting static loading to false");
+    setStaticLoading(false); // Статическая страница, загружается сразу
+  }, [setStaticLoading]);
 
   const features: FeatureCardProps[] = [
     {

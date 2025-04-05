@@ -1,42 +1,23 @@
 // frontend/src/app/(admin)/admin-login/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import dynamic from "next/dynamic";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import AdminHeader from "@/components/AdminHeader";
 import { apiFetch } from "@/utils/api";
 
-const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  router.push(url.pathname + url.search);
-};
+// Динамическая загрузка AdminHeader без SSR
+const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
 
 export default function AdminLoginPage() {
-  const router = useRouter();
-  const { checkAuth } = useAdminAuth();
+  const { loginAdmin } = useAdminAuth();
   const [formValues, setFormValues] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-
-  useEffect(() => {
-    const initialLoad = async () => {
-      try {
-        const isAuthenticated = await checkAuth();
-        if (isAuthenticated) {
-          navigateTo(router, "/admin-profile");
-        }
-      } catch (err) {
-        console.error("AdminLoginPage: checkAuth failed:", err);
-      }
-    };
-    initialLoad();
-  }, [checkAuth, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -45,21 +26,30 @@ export default function AdminLoginPage() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    if (isLoading) return;
+
     setError("");
     setIsLoading(true);
 
     try {
-      const data = await apiFetch<{ token: string }>("/admin/login", {
+      const data = await apiFetch<{ access_token: string; id: number; email: string; fio?: string }>("/admin/login", {
         method: "POST",
         body: JSON.stringify(formValues),
       });
-      localStorage.setItem("admin_token", data.token);
+      if (!data.access_token) {
+        throw new Error("Токен отсутствует в ответе сервера");
+      }
+      const adminData = {
+        id: data.id,
+        email: data.email,
+        fio: data.fio || "Администратор",
+      };
       setIsSuccess(true);
-      setTimeout(() => navigateTo(router, "/admin-profile"), 1500);
+      setIsLoading(false);
+      loginAdmin(data.access_token, adminData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Произошла ошибка");
       setIsSuccess(false);
-    } finally {
       setIsLoading(false);
     }
   };
@@ -79,7 +69,7 @@ export default function AdminLoginPage() {
               icon={FaEnvelope}
               name="email"
               required
-              disabled={isSuccess}
+              disabled={isSuccess || isLoading}
             />
             <InputField
               type="password"
@@ -89,7 +79,7 @@ export default function AdminLoginPage() {
               icon={FaLock}
               name="password"
               required
-              disabled={isSuccess}
+              disabled={isSuccess || isLoading}
             />
             {error && (
               <div className="text-red-500 bg-red-50 p-3 rounded-lg border-l-4 border-red-500 text-sm mb-6">
@@ -98,13 +88,13 @@ export default function AdminLoginPage() {
             )}
             {isSuccess && (
               <div className="text-green-600 bg-green-50 p-3 rounded-lg border-l-4 border-green-500 text-sm mb-6">
-                Вход успешен!
+                Вход успешен! Перенаправление...
               </div>
             )}
             <div className="flex justify-end space-x-4">
               <ModalButton
                 variant="secondary"
-                onClick={() => navigateTo(router, "/")}
+                onClick={() => window.location.href = "/"}
                 disabled={isLoading || isSuccess}
               >
                 На главную

@@ -15,6 +15,17 @@ from constants import SECRET_KEY, ALGORITHM
 # Контекст для хэширования паролей
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+def generate_device_fingerprint(request: Request) -> str:
+    """Генерация фингерпринта устройства на основе заголовков запроса."""
+    ip_address = request.headers.get("X-Forwarded-For", request.client.host)
+    user_agent = request.headers.get("User-Agent", "Unknown")
+    cookies = "; ".join([f"{key}={value}" for key, value in request.cookies.items()]) if request.cookies else None
+    accept_language = request.headers.get("Accept-Language", "")
+    accept_encoding = request.headers.get("Accept-Encoding", "")
+    
+    fingerprint_data = f"{ip_address}{user_agent}{cookies or ''}{accept_language}{accept_encoding}"
+    return hashlib.sha256(fingerprint_data.encode("utf-8")).hexdigest()
+
 async def create_user(session: AsyncSession, fio: str, email: str, password: str, telegram: str, whatsapp: str) -> User:
     """Создание нового пользователя с хэшированием пароля."""
     # Получаем текущее время из базы данных
@@ -147,28 +158,17 @@ async def log_user_activity(
 ):
     """Логирование активности пользователя с фингерпринтом устройства, предотвращение дубликатов."""
     try:
-        # Получаем IP-адрес из заголовка X-Forwarded-For (для прокси) или напрямую
         ip_address = request.headers.get("X-Forwarded-For", request.client.host)
-        # Получаем куки (если они есть)
         cookies = "; ".join([f"{key}={value}" for key, value in request.cookies.items()]) if request.cookies else None
-        # Получаем User-Agent
         user_agent = request.headers.get("User-Agent", "Unknown")
-        # Дополнительные заголовки для фингерпринта
-        accept_language = request.headers.get("Accept-Language", "")
-        accept_encoding = request.headers.get("Accept-Encoding", "")
+        
+        # Используем новую функцию
+        device_fingerprint = generate_device_fingerprint(request)
 
-        # Генерируем фингерпринт устройства
-        fingerprint_data = f"{ip_address}{user_agent}{cookies or ''}{accept_language}{accept_encoding}"
-        device_fingerprint = hashlib.sha256(fingerprint_data.encode("utf-8")).hexdigest()
-
-        # Получаем текущее время из базы данных
         result = await db.execute(select(func.now()))
         now = result.scalar()
-
-        # Исправление: приводим now к offset-naive, убирая временную зону
         now_naive = now.replace(tzinfo=None)
 
-        # Проверяем существование записи с теми же данными за последние 5 минут
         stmt = select(UserActivity).where(
             UserActivity.user_id == user_id,
             UserActivity.ip_address == ip_address,
@@ -180,7 +180,6 @@ async def log_user_activity(
         existing_activity = result.scalars().first()
 
         if not existing_activity:
-            # Если записи нет, создаем новую
             activity = UserActivity(
                 user_id=user_id,
                 ip_address=ip_address,
@@ -193,7 +192,6 @@ async def log_user_activity(
             db.add(activity)
             await db.commit()
         else:
-            # Если запись существует, обновляем created_at
             existing_activity.created_at = now_naive
             await db.commit()
             logger.info(f"Duplicate activity ignored for user_id={user_id}, action={action}")

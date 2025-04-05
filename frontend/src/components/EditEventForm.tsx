@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useCallback, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback} from "react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
 import { EventFormData, TicketTypeEnum } from "@/types/events";
@@ -53,12 +53,20 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [isHeadingDropdownOpen, setIsHeadingDropdownOpen] = useState(false);
   const [selectedHeadingLevel, setSelectedHeadingLevel] = useState<number>(2);
 
-  // Функция для применения заголовка выбранного уровня
+  // const handleNumberFocus = (e: React.FocusEvent<HTMLInputElement>) => {
+  //   if (e.target.value === "0") {
+  //     e.target.value = "";
+  //   }
+  // };
+
+  // const handleNumberBlur = (e: React.FocusEvent<HTMLInputElement>) => {
+  //   if (e.target.value === "") {
+  //     setFieldValue(e.target.name as keyof EventFormData, 0);
+  //   }
+  // };
+
   const handleHeadingSelect = (level: number) => {
-    // Сначала обновляем уровень заголовка
     setSelectedHeadingLevel(level);
-    
-    // Затем применяем форматирование к тексту
     if (textAreaRef.current) {
       const textArea = textAreaRef.current;
       const start = textArea.selectionStart;
@@ -66,20 +74,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
       const selectedText = textArea.value.substring(start, end) || "Заголовок";
       const beforeText = textArea.value.substring(0, start);
       const afterText = textArea.value.substring(end);
-      
-      // Создаем префикс заголовка (# для h1, ## для h2, и т.д.)
       const headingPrefix = "#".repeat(level) + " ";
       const newText = `${beforeText}${headingPrefix}${selectedText}${afterText}`;
-      
-      // Обновляем текст
       setFieldValue("description", newText);
-      
-      // Добавляем в историю
-      const newValue = newText;
-      setDescriptionHistory(prev => [...prev.slice(0, historyIndex + 1), newValue].slice(-20));
+      setDescriptionHistory(prev => [...prev.slice(0, historyIndex + 1), newText].slice(-20));
       setHistoryIndex(prev => prev + 1);
-      
-      // Устанавливаем фокус и выделение
       setTimeout(() => {
         textArea.focus();
         textArea.setSelectionRange(
@@ -88,15 +87,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
         );
       }, 0);
     }
-    
-    // Закрываем выпадающий список
     setIsHeadingDropdownOpen(false);
   };
 
-  // Функция для применения форматирования (без заголовков)
   const applyFormatting = (format: string, defaultText = "Текст") => {
     if (!textAreaRef.current) return;
-    
     const textArea = textAreaRef.current;
     const start = textArea.selectionStart;
     const end = textArea.selectionEnd;
@@ -121,25 +116,19 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
       case "size+": newText = `${beforeText}{+size+}${selectedText}{+size+}${afterText}`; break;
       case "size-": newText = `${beforeText}{-size-}${selectedText}{-size-}${afterText}`; break;
       case "heading":
-        // Для кнопки заголовка используем текущий выбранный уровень
         const headingPrefix = "#".repeat(selectedHeadingLevel) + " ";
         newText = `${beforeText}${headingPrefix}${selectedText}${afterText}`;
         break;
       default: return;
     }
 
-    // Обновляем текст
     setFieldValue("description", newText);
-    
-    // Добавляем в историю
     setDescriptionHistory(prev => [...prev.slice(0, historyIndex + 1), newText].slice(-20));
     setHistoryIndex(prev => prev + 1);
-    
-    // Устанавливаем фокус и выделение
     setTimeout(() => {
       textArea.focus();
       if (format === "heading") {
-        const prefixLength = selectedHeadingLevel + 1; // #..# плюс пробел
+        const prefixLength = selectedHeadingLevel + 1;
         textArea.setSelectionRange(start + prefixLength, start + prefixLength + selectedText.length);
       } else if (format === "link") {
         textArea.setSelectionRange(start + 1, start + 1 + selectedText.length);
@@ -156,12 +145,12 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     setHistoryIndex(prev => prev + 1);
   };
 
-  const handleUndo = () => {
+  const handleUndo = useCallback(() => {
     if (historyIndex > 0) {
       setHistoryIndex(prev => prev - 1);
       setFieldValue("description", descriptionHistory[historyIndex - 1]);
     }
-  };
+  }, [historyIndex, descriptionHistory, setFieldValue])
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -172,7 +161,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [historyIndex, descriptionHistory]);
+  }, [handleUndo]);
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
@@ -200,7 +189,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     alert("Функция предварительного просмотра находится в разработке.");
   };
 
-  // Эффект для проверки дат
   useEffect(() => {
     if (formData.start_date && formData.end_date) {
       const start = new Date(`${formData.start_date}T${formData.start_time || "00:00"}`);
@@ -212,7 +200,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     }
   }, [formData.start_date, formData.end_date, formData.start_time, formData.end_time, setFieldValue]);
 
-  // Эффект для закрытия выпадающего списка при клике вне
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -226,13 +213,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Вычисляемые значения для статистики
   const availableQuantity = formData.ticket_type_available_quantity || 0;
   const soldQuantity = formData.ticket_type_sold_quantity || 0;
   const remainingQuantity = availableQuantity - soldQuantity;
   const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
-  // Показываем загрузку
   if (isLoading) {
     return <div className="text-center py-10">Загрузка данных мероприятия...</div>;
   }
@@ -323,7 +308,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Описание</label>
               <div className="flex flex-nowrap gap-2 mb-2 bg-gray-100 p-2 rounded-lg overflow-x-auto snap-x">
-                {/* Кнопка заголовка с отображением текущего уровня */}
                 <div className="relative flex items-center snap-start">
                   <button
                     type="button"
@@ -349,7 +333,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   </button>
                 </div>
 
-                {/* Остальные кнопки форматирования */}
                 <button
                   type="button"
                   onClick={() => applyFormatting("bold")}
@@ -418,9 +401,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   type="button"
                   onClick={handleUndo}
                   disabled={historyIndex === 0}
-                  className={`p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center ${
-                    historyIndex === 0 ? "text-gray-400 cursor-not-allowed" : ""
-                  }`}
+                  className={`p-2 rounded hover:bg-gray-200 text-gray-700 min-w-[40px] min-h-[40px] flex items-center justify-center ${historyIndex === 0 ? "text-gray-400 cursor-not-allowed" : ""}`}
                   title="Отменить (Ctrl+Z)"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -429,7 +410,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                 </button>
               </div>
 
-              {/* Выпадающий список для выбора уровня заголовка */}
               {isHeadingDropdownOpen && headingButtonRef.current && createPortal(
                 <div
                   className="absolute bg-white border border-gray-200 rounded-lg shadow-lg z-50 w-24"
@@ -443,9 +423,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                       key={level}
                       type="button"
                       onClick={() => handleHeadingSelect(level)}
-                      className={`block w-full text-left px-4 py-2 hover:bg-gray-100 ${
-                        selectedHeadingLevel === level ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'
-                      }`}
+                      className={`block w-full text-left px-4 py-2 hover:bg-gray-100 ${selectedHeadingLevel === level ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-700'}`}
                     >
                       H{level}
                     </button>
@@ -543,18 +521,15 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                 <div className="flex items-center">
                   <FaMoneyBillWave className="text-gray-400 mr-2 shrink-0 w-5 h-5" />
                   <input
-                    id="price"
-                    type="number"
-                    name="price"
-                    value={formData.price === 0 && document.activeElement?.id === "price" ? "" : formData.price}
-                    onChange={handleChange}
-                    min="0"
-                    step="0.01"
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-                    onFocus={(e) => {
-                      if (e.target.value === "0") e.target.value = "";
-                    }}
-                  />
+        id="price"
+        type="number"
+        name="price"
+        value={formData.price}
+        onChange={handleChange}
+        min="0"
+        step="0.01"
+        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+      />
                 </div>
               </div>
               <div className="flex-1 min-w-0">
@@ -595,13 +570,13 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
               <div className="flex-1 min-w-0">
                 <label className="block text-gray-700 font-medium mb-2">Количество мест</label>
                 <input
-                  type="number"
-                  name="ticket_type_available_quantity"
-                  value={formData.ticket_type_available_quantity}
-                  onChange={handleChange}
-                  min="0"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-                />
+      type="number"
+      name="ticket_type_available_quantity"
+      value={formData.ticket_type_available_quantity}
+      onChange={handleChange}
+      min="0"
+      className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+    />
               </div>
             </div>
 

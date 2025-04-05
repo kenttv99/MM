@@ -23,10 +23,11 @@ export interface EventData {
   status: "draft" | "registration_open" | "registration_closed" | "completed";
   ticket_type?: TicketType;
   registrations_count?: number;
+  notificationSent?: boolean; // Добавлено новое поле для отслеживания отправки уведомлений
 }
 
 export interface EventFormData {
-  id?: number;
+  id?: number;  // Добавлено
   title: string;
   description?: string;
   start_date: string;
@@ -38,22 +39,20 @@ export interface EventFormData {
   image_url?: string | null;
   price: number;
   published: boolean;
-  created_at: string;
-  updated_at: string;
   status: EventStatus;
   ticket_type_name: string;
   ticket_type_available_quantity: number;
   ticket_type_free_registration: boolean;
   ticket_type_sold_quantity?: number;
-  registrations_count?: number;
+  registrations_count?: number;  // Добавлено
   remove_image?: boolean;
 }
 
 export type EventStatus = "draft" | "registration_open" | "registration_closed" | "completed";
 
 export enum TicketTypeEnum {
-free = "free",
-standart = "standart",
-vip = "vip",
-org = "org",
+  free = "free",
+  standart = "standart",
+  vip = "vip",
+  org = "org",
 }

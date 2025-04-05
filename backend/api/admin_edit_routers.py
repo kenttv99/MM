@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
-from backend.database.user_db import AsyncSession, Notification, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType
+from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select, delete
@@ -526,10 +526,6 @@ async def delete_event(
         # Удаление связанных записей из ticket_types
         ticket_query = delete(TicketType).where(TicketType.event_id == event_id)
         await db.execute(ticket_query)
-
-        # Удаление связанных записей из notifications
-        notifications_query = delete(Notification).where(Notification.event_id == event_id)
-        await db.execute(notifications_query)
 
         # Удаление файла изображения, если он существует
         if event.image_url:

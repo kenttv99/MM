@@ -2,7 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { FaChevronRight} from "react-icons/fa";
+import { FaChevronRight } from "react-icons/fa";
 import React, { useEffect, useState, useCallback } from "react";
 
 const extractIdFromSlug = (slug: string): string => {
@@ -15,8 +15,12 @@ const Breadcrumbs: React.FC = () => {
   const [breadcrumbs, setBreadcrumbs] = useState<{ href: string; label: string; isLast: boolean }[]>([]);
 
   const generateBreadcrumbs = useCallback(() => {
+    if (pathname === "/") return []; // Не отображаем на главной
+
     const pathSegments = pathname.split("/").filter((segment) => segment);
-    const crumbs = pathSegments.map((segment, index) => {
+    const crumbs = [{ href: "/", label: "Главная", isLast: false }];
+
+    pathSegments.forEach((segment, index) => {
       const isEventSlug = pathSegments[index - 1] === "event";
       let href = "";
       let label = "";
@@ -32,6 +36,7 @@ const Breadcrumbs: React.FC = () => {
           case "edit-user": href = "/edit-user"; label = "Редактирование пользователя"; break;
           default: href = `/${segment}`; label = segment.charAt(0).toUpperCase() + segment.slice(1);
         }
+        crumbs.push({ href, label, isLast: pathSegments.length - 1 === index });
       } else if (isEventSlug) {
         const eventId = extractIdFromSlug(segment);
         let cachedTitle = `Мероприятие ${eventId}`;
@@ -44,12 +49,10 @@ const Breadcrumbs: React.FC = () => {
         } catch (error) {
           console.error("Error accessing localStorage:", error);
         }
-        href = `/event/${cachedSlug}`;
-        label = cachedTitle;
+        crumbs.push({ href: `/event/${cachedSlug}`, label: cachedTitle, isLast: true });
       }
-      return { href, label, isLast: index === pathSegments.length - 1 };
     });
-    if (pathname !== "/") crumbs.unshift({ href: "/", label: "Главная", isLast: false });
+
     return crumbs;
   }, [pathname]);
 
@@ -57,6 +60,8 @@ const Breadcrumbs: React.FC = () => {
     const crumbs = generateBreadcrumbs();
     setBreadcrumbs(crumbs);
   }, [pathname, generateBreadcrumbs]);
+
+  if (breadcrumbs.length === 0) return null;
 
   return (
     <nav className="flex items-center gap-2 text-gray-600 py-2 sm:py-4 container mx-auto px-4 sm:px-5 overflow-x-auto scrollbar-hide">
@@ -78,11 +83,8 @@ const Breadcrumbs: React.FC = () => {
                   className="hover:text-orange-700 transition-colors flex items-center"
                   title={crumb.label}
                 >
-                  {/* {index === 0 ? (
-                    <FaHome className="text-gray-600 hover:text-orange-700 w-3 h-3 mr-1" />
-                  ) : null} */}
-                  <span 
-                    className="truncate max-w-[80px] sm:max-w-[120px] md:max-w-none" 
+                  <span
+                    className="truncate max-w-[80px] sm:max-w-[120px] md:max-w-none"
                     style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}
                   >
                     {crumb.label}

@@ -1,14 +1,13 @@
 // frontend/src/app/(public)/events/page.tsx
 "use client";
-
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
 import { AnimatePresence, motion } from "framer-motion";
-import { apiFetch } from "@/utils/api";
+import { apiFetch, clearCache } from "@/utils/api";
 import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 import { useLoading } from "@/contexts/LoadingContext";
@@ -18,22 +17,16 @@ const ITEMS_PER_PAGE = 6;
 const generateSlug = (title: string, id: number): string => {
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
-    й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
+    й: "y", к: "k", л: "l", м: "m", н: "н", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
-    ю: "yu", я: "ya", " ": "-"
+    ю: "yu", я: "ya", " ": "-",
   };
-  const slug = title
-    .toLowerCase()
-    .split("")
-    .map((char) => translitMap[char] || char)
-    .join("")
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const slug = title.toLowerCase().split("").map(char => translitMap[char] || char).join("")
+    .replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
   return slug ? `${slug}-${id}` : `event-${id}`;
 };
 
-const formatDateForDisplay = (dateString: string) => {
+const formatDateForDisplay = (dateString: string): string => {
   try {
     return new Date(dateString).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
   } catch {
@@ -42,18 +35,18 @@ const formatDateForDisplay = (dateString: string) => {
 };
 
 const formatDateForAPI = (dateString: string): string => {
-  if (!dateString) return '';
+  if (!dateString) return "";
   try {
     const date = new Date(dateString);
-    return date.toISOString().split('T')[0];
+    return date.toISOString().split("T")[0];
   } catch {
-    return '';
+    return "";
   }
 };
 
 const groupEventsByDate = (events: EventData[]) => {
   const grouped: { [key: string]: EventData[] } = {};
-  events.forEach((event) => {
+  events.forEach(event => {
     const dateKey = formatDateForDisplay(event.start_date);
     grouped[dateKey] = grouped[dateKey] || [];
     grouped[dateKey].push(event);
@@ -86,7 +79,7 @@ const DateFilter: React.FC<{
   };
 
   return (
-    <motion.div 
+    <motion.div
       initial={{ opacity: 0, y: -10 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -10 }}
@@ -94,9 +87,7 @@ const DateFilter: React.FC<{
     >
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-medium">Фильтр по датам</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
-          <FaTimes size={16} />
-        </button>
+        <button onClick={onClose} className="text-gray-500 hover:text-gray-700"><FaTimes size={16} /></button>
       </div>
       <div className="space-y-4">
         <div className="space-y-2">
@@ -142,54 +133,55 @@ const DateFilter: React.FC<{
   );
 };
 
-const EventCard: React.FC<{ event: EventData; lastCardRef?: React.RefObject<HTMLDivElement | null> }> = React.memo(({ event, lastCardRef }) => {
-  const isCompleted = event.status === "completed";
-
-  return (
-    <div ref={lastCardRef}>
-      <Link href={`/event/${generateSlug(event.title, event.id || 0)}`}>
-        <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 min-h-[300px] flex flex-col">
-          <div className="relative h-48">
-            {event.image_url ? (
-              <Image src={event.image_url} alt={event.title} fill className="object-cover rounded-t-xl" />
-            ) : (
-              <div className="w-full h-full bg-gray-200 flex items-center justify-center rounded-t-xl">
-                <span className="text-gray-500">Нет изображения</span>
-              </div>
-            )}
-            <span className={`absolute top-2 right-2 px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status)}`}>
-              {event.status === "registration_open" ? "Регистрация открыта" : event.status === "registration_closed" ? "Регистрация закрыта" : "Завершено"}
-            </span>
-          </div>
-          <div className="p-4 flex-grow flex flex-col">
-            <h3 className="text-lg font-semibold mb-2">{event.title}</h3>
-            <FormattedDescription 
-              content={event.description || "Описание отсутствует"} 
-              className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow" 
-              disableFontSize={true}
-              disableLinks={true} // Отключаем ссылки в превью
-            />
-            <div className="text-gray-500 text-sm mt-auto flex flex-col sm:flex-row justify-between">
-              <span className="flex items-center mb-2 sm:mb-0">
-                <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                {formatDateForDisplay(event.start_date)}
-              </span>
-              {event.ticket_type && !isCompleted && (
-                <span className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
-                  {event.status === "registration_open" && event.ticket_type.remaining_quantity !== undefined && event.ticket_type.remaining_quantity > 0
-                    ? `Осталось мест: ${event.ticket_type.remaining_quantity}`
-                    : "Места распределены"}
-                </span>
+const EventCard: React.FC<{ event: EventData; lastCardRef?: React.RefObject<HTMLDivElement | null> }> = React.memo(
+  ({ event, lastCardRef }) => {
+    const isCompleted = event.status === "completed";
+    return (
+      <div ref={lastCardRef}>
+        <Link href={`/event/${generateSlug(event.title, event.id || 0)}`}>
+          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 min-h-[300px] flex flex-col">
+            <div className="relative h-48">
+              {event.image_url ? (
+                <Image src={event.image_url} alt={event.title} fill className="object-cover rounded-t-xl" />
+              ) : (
+                <div className="w-full h-full bg-gray-200 flex items-center justify-center rounded-t-xl">
+                  <span className="text-gray-500">Нет изображения</span>
+                </div>
               )}
+              <span className={`absolute top-2 right-2 px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status)}`}>
+                {event.status === "registration_open" ? "Регистрация открыта" : event.status === "registration_closed" ? "Регистрация закрыта" : "Завершено"}
+              </span>
+            </div>
+            <div className="p-4 flex-grow flex flex-col">
+              <h3 className="text-lg font-semibold mb-2">{event.title}</h3>
+              <FormattedDescription
+                content={event.description || "Описание отсутствует"}
+                className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow"
+                disableFontSize={true}
+                disableLinks={true}
+              />
+              <div className="text-gray-500 text-sm mt-auto flex flex-col sm:flex-row justify-between">
+                <span className="flex items-center mb-2 sm:mb-0">
+                  <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  {formatDateForDisplay(event.start_date)}
+                </span>
+                {event.ticket_type && !isCompleted && (
+                  <span className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
+                    {event.status === "registration_open" && event.ticket_type.remaining_quantity !== undefined && event.ticket_type.remaining_quantity > 0
+                      ? `Осталось мест: ${event.ticket_type.remaining_quantity}`
+                      : "Места распределены"}
+                  </span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      </Link>
-    </div>
-  );
-});
+        </Link>
+      </div>
+    );
+  }
+);
 EventCard.displayName = "EventCard";
 
 interface FilterState {
@@ -198,214 +190,127 @@ interface FilterState {
 }
 
 const EventsPage = () => {
-  const { setLoading } = useLoading(); // Используем useLoading
-
+  const { setStaticLoading, setDynamicLoading, isDynamicLoading } = useLoading();
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  
-  const [page, setPage] = useState(1);
+  const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
   const [events, setEvents] = useState<EventData[]>([]);
+  const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasServerError, setHasServerError] = useState(false); // Локальное состояние
-  const [hasNetworkError, setHasNetworkError] = useState(false); // Локальное состояние
-  
-  const isFetchingRef = useRef(false);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const lastCardRef = useRef<HTMLDivElement | null>(null);
+  const [serverError, setServerError] = useState(false);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
-  const isMounted = useRef(true);
-  const fetchControllerRef = useRef<AbortController | null>(null);
-  
-  const [activeFilters, setActiveFilters] = useState<FilterState>({
-    startDate: "",
-    endDate: ""
-  });
-  
-  const isFilterActive = !!(activeFilters.startDate || activeFilters.endDate);
+  const lastCardRef = useRef<HTMLDivElement | null>(null);
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const hasLoadedInitial = useRef(false);
 
-  const fetchEvents = useCallback(async (pageNum: number, append: boolean = false, filters: FilterState) => {
-    if (isFetchingRef.current || !isMounted.current || hasServerError || hasNetworkError) {
-      return;
-    }
-    
-    isFetchingRef.current = true;
-    setIsLoading(true);
-    setLoading(true); // Устанавливаем глобальное состояние загрузки
-    
-    fetchControllerRef.current = new AbortController();
-    
+  const loadEvents = useCallback(async (pageNum: number, append = false, filters: FilterState) => {
+    setDynamicLoading(true);
+    setError(null);
+    setServerError(false);
+
+    const abortController = new AbortController();
     const params = new URLSearchParams({
       page: pageNum.toString(),
       limit: ITEMS_PER_PAGE.toString(),
     });
-    
-    if (filters.startDate) {
-      const formattedDate = formatDateForAPI(filters.startDate);
-      if (formattedDate) {
-        params.append("start_date", formattedDate);
-      }
-    }
-    
-    if (filters.endDate) {
-      const formattedDate = formatDateForAPI(filters.endDate);
-      if (formattedDate) {
-        params.append("end_date", formattedDate);
-      }
-    }
+    if (filters.startDate) params.append("start_date", formatDateForAPI(filters.startDate));
+    if (filters.endDate) params.append("end_date", formatDateForAPI(filters.endDate));
+    const endpoint = `/v1/public/events?${params.toString()}`;
 
     try {
-      const url = `/v1/public/events?${params.toString()}`;
-      
-      const data = await apiFetch<EventData[]>(url, { 
-        cache: "no-store",
-        signal: fetchControllerRef.current.signal 
-      }, setLoading); // Передаем setLoading в apiFetch
-      
-      if (isMounted.current) {
-        setEvents((prev) => {
-          const newEvents = append ? [...prev, ...data] : data;
-          return newEvents;
-        });
-        
-        setHasMore(data.length === ITEMS_PER_PAGE);
-        setError(null);
-      }
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        return;
-      }
-      
-      if (!isMounted.current) return;
-      
-      const error = err instanceof Error ? err : new Error("Неизвестная ошибка");
-      
-      if (error.message.includes("HTTP error! Status: 5")) {
-        setHasServerError(true);
-      } else if (error.message.includes("Request timed out") || error.message.includes("Network Error")) {
-        setHasNetworkError(true);
-      } else {
-        setError(error.message || "Ошибка загрузки мероприятий");
-        setHasMore(false);
-      }
+      const data = await apiFetch<EventData[]>(endpoint, {
+        signal: abortController.signal,
+        cache: pageNum === 1 ? "no-store" : "default",
+      }, setDynamicLoading);
+      setEvents(prev => (append ? [...prev, ...data] : data));
+      setHasMore(data.length === ITEMS_PER_PAGE);
+    } catch (err) {
+      if (err instanceof Error && err.message === "Request aborted") return;
+      const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятий";
+      if (errorMessage.includes("HTTP error! Status: 5")) setServerError(true);
+      else setError(errorMessage);
+      setHasMore(false);
     } finally {
-      if (isMounted.current) {
-        isFetchingRef.current = false;
-        setIsLoading(false);
-        setLoading(false); // Сбрасываем глобальное состояние загрузки
-      }
+      setDynamicLoading(false);
     }
-  }, [hasServerError, hasNetworkError, setLoading]);
+  }, [setDynamicLoading]);
 
+  // Начальная загрузка с пустым массивом зависимостей
   useEffect(() => {
-    isMounted.current = true;
-    fetchEvents(1, false, { startDate: "", endDate: "" });
-    
+    if (hasLoadedInitial.current) return;
+    hasLoadedInitial.current = true;
+    setStaticLoading(false);
+    loadEvents(1, false, activeFilters);
+
     return () => {
-      isMounted.current = false;
-      if (fetchControllerRef.current) {
-        fetchControllerRef.current.abort();
-      }
+      if (observerRef.current) observerRef.current.disconnect();
     };
-  }, [fetchEvents]);
+  }, []); // Пустой массив зависимостей
 
-  const loadMore = useCallback(() => {
-    if (!hasMore || isLoading || hasServerError || hasNetworkError || isFetchingRef.current) return;
-    const nextPage = page + 1;
-    setPage(nextPage);
-    fetchEvents(nextPage, true, activeFilters);
-  }, [hasMore, isLoading, hasServerError, hasNetworkError, page, fetchEvents, activeFilters]);
-
+  // Обновление при изменении фильтров
   useEffect(() => {
-    if (!lastCardRef.current) return;
+    if (!hasLoadedInitial.current) return;
+    setPage(1);
+    setEvents([]);
+    clearCache("/v1/public/events");
+    loadEvents(1, false, activeFilters);
+  }, [activeFilters, loadEvents]);
+
+  // Бесконечная прокрутка
+  useEffect(() => {
+    if (!lastCardRef.current || !hasMore || isDynamicLoading) return;
+    if (observerRef.current) observerRef.current.disconnect();
 
     observerRef.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          loadMore();
+      entries => {
+        if (entries[0].isIntersecting && hasMore && !isDynamicLoading) {
+          const nextPage = page + 1;
+          setPage(nextPage);
+          loadEvents(nextPage, true, activeFilters);
         }
       },
-      {
-        threshold: 0,
-        rootMargin: "0px 0px -50% 0px",
-      }
+      { threshold: 0.1, rootMargin: "0px 0px 500px 0px" }
     );
 
-    const currentRef = lastCardRef.current;
-    if (currentRef) {
-      observerRef.current.observe(currentRef);
-    }
-
-    return () => {
-      if (currentRef && observerRef.current) {
-        observerRef.current.unobserve(currentRef);
-      }
-    };
-  }, [events, loadMore]);
+    observerRef.current.observe(lastCardRef.current);
+    return () => observerRef.current?.disconnect();
+  }, [events, hasMore, page, isDynamicLoading, activeFilters, loadEvents]);
 
   const applyFilters = useCallback(() => {
-    const newFilters: FilterState = { 
-      startDate, 
-      endDate 
-    };
-    
+    const newFilters = { startDate, endDate };
+    if (newFilters.startDate === activeFilters.startDate && newFilters.endDate === activeFilters.endDate) {
+      setIsFilterOpen(false);
+      return;
+    }
     setActiveFilters(newFilters);
-    setPage(1);
-    setEvents([]);
-    setHasMore(true);
-    setHasServerError(false);
-    setHasNetworkError(false);
-    fetchEvents(1, false, newFilters);
     setIsFilterOpen(false);
-  }, [startDate, endDate, fetchEvents]);
+  }, [startDate, endDate, activeFilters]);
 
   const resetFilters = useCallback(() => {
+    if (!activeFilters.startDate && !activeFilters.endDate) {
+      setIsFilterOpen(false);
+      return;
+    }
     setStartDate("");
     setEndDate("");
-    
-    const newFilters: FilterState = { 
-      startDate: "", 
-      endDate: "" 
-    };
-    
-    setActiveFilters(newFilters);
-    setPage(1);
-    setEvents([]);
-    setHasMore(true);
-    setHasServerError(false);
-    setHasNetworkError(false);
-    fetchEvents(1, false, newFilters);
+    setActiveFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
-  }, [fetchEvents]);
+  }, [activeFilters]);
 
   const removeFilter = useCallback((filter: "startDate" | "endDate") => {
-    const newFilters = { ...activeFilters };
-    newFilters[filter] = "";
-    
+    const newFilters = { ...activeFilters, [filter]: "" };
+    if (filter === "startDate") setStartDate("");
+    else setEndDate("");
     setActiveFilters(newFilters);
-    
-    if (filter === "startDate") {
-      setStartDate("");
-    } else {
-      setEndDate("");
-    }
-    
-    setPage(1);
-    setEvents([]);
-    setHasMore(true);
-    setHasServerError(false);
-    setHasNetworkError(false);
-    fetchEvents(1, false, newFilters);
-  }, [activeFilters, fetchEvents]);
+  }, [activeFilters]);
 
-  const groupedEvents = useMemo(() => groupEventsByDate(events), [events]);
+  const groupedEvents = React.useMemo(() => groupEventsByDate(events), [events]);
+  const isFilterActive = !!(activeFilters.startDate || activeFilters.endDate);
 
-  if (hasServerError || hasNetworkError) {
-    return <ErrorPlaceholder />;
-  }
+  if (serverError) return <ErrorPlaceholder />;
 
   return (
     <>
@@ -457,15 +362,13 @@ const EventsPage = () => {
             )}
           </div>
           {error && <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
-          {events.length === 0 && !isLoading ? (
+          {events.length === 0 && !error && !isDynamicLoading ? (
             <div className="text-center py-12">
               <h3 className="text-xl font-semibold mb-2">
                 {isFilterActive ? "Мероприятия не найдены для выбранного диапазона дат" : "Мероприятия не найдены"}
               </h3>
               {isFilterActive && (
-                <button onClick={resetFilters} className="px-4 py-2 bg-orange-500 text-white rounded-lg">
-                  Сбросить фильтры
-                </button>
+                <button onClick={resetFilters} className="px-4 py-2 bg-orange-500 text-white rounded-lg">Сбросить фильтры</button>
               )}
             </div>
           ) : (
@@ -474,27 +377,16 @@ const EventsPage = () => {
                 <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                   {eventsForDate.map((event, index) => {
-                    const isLastCard =
-                      groupIndex === Object.keys(groupedEvents).length - 1 &&
-                      index === eventsForDate.length - 1;
-                    return (
-                      <EventCard
-                        key={event.id}
-                        event={event}
-                        lastCardRef={isLastCard ? lastCardRef : undefined}
-                      />
-                    );
+                    const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
+                    return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? lastCardRef : undefined} />;
                   })}
                 </div>
               </div>
             ))
           )}
-          {isLoading && (
-            <div className="flex justify-center py-8">
-              <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-            </div>
+          {!hasMore && events.length > 0 && !isDynamicLoading && (
+            <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>
           )}
-          {!hasMore && events.length > 0 && !isLoading && <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>}
         </div>
       </main>
       <Footer />

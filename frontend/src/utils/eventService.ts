@@ -24,8 +24,6 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   formData.append("price", String(eventData.price));
   formData.append("published", String(eventData.published));
   formData.append("status", eventData.status);
-  formData.append("created_at", eventData.created_at || new Date().toISOString());
-  formData.append("updated_at", new Date().toISOString());
   formData.append("ticket_type_name", eventData.ticket_type_name);
   formData.append("ticket_type_available_quantity", String(eventData.ticket_type_available_quantity));
   formData.append("ticket_type_free_registration", String(eventData.ticket_type_free_registration));
@@ -36,6 +34,11 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   
   formData.append("remove_image", String(eventData.remove_image || false));
   
+  // Добавляем created_at и updated_at с текущей датой в формате ISO
+  const now = new Date().toISOString();
+  formData.append("created_at", now);
+  formData.append("updated_at", now);
+
   return formData;
 };
 
@@ -85,7 +88,7 @@ export const updateEvent = async (eventId: number, eventData: EventFormData): Pr
   const responseBody = await response.text();
 
   if (!response.ok) {
-    throw new Error(responseBody || "Ошибка при обновлении пользователя");
+    throw new Error(responseBody || "Ошибка при обновлении мероприятия");
   }
 
   try {

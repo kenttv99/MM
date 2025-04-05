@@ -5,15 +5,7 @@ import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import {
-  FaSearch,
-  FaUsers,
-  FaCalendarAlt,
-  FaPlus,
-  FaTrashAlt,
-  FaFilter,
-  FaTimes,
-  FaCheck,
-  FaInfoCircle,
+  FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt, FaFilter, FaTimes, FaCheck, FaInfoCircle, FaBell,
 } from "react-icons/fa";
 import AdminHeader from "@/components/AdminHeader";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
@@ -25,19 +17,32 @@ interface CustomError extends Error {
   status?: number;
 }
 
-const fetchWithAuth = async <T,>(url: string, token: string, method: string = "GET"): Promise<T | null> => {
+const fetchWithAuth = async <T,>(url: string, token: string, method: string = "GET", body?: Record<string, unknown>): Promise<T | null> => {
+  if (!token) {
+    throw new Error("Токен администратора отсутствует");
+  }
+
+  console.log("Токен перед запросом:", token); // Отладка токена
+
   try {
+    const headers: HeadersInit = {
+      Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token.trim()}`, // Убеждаемся, что префикс "Bearer" присутствует
+      Accept: "application/json",
+    };
+    if (body && method !== "GET") {
+      headers["Content-Type"] = "application/json";
+    }
+
     const response = await fetch(url, {
       method,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/json",
-      },
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
     });
+
     if (!response.ok) {
       const errorText = await response.text();
       const error: CustomError = new Error(`Ошибка ${response.status}: ${errorText || 'Неизвестная ошибка'}`);
-      error.status = response.status; // Теперь TypeScript не будет жаловаться
+      error.status = response.status;
       throw error;
     }
     if (method === "DELETE") return null;
@@ -83,14 +88,15 @@ export default function DashboardPage() {
   const fetchEvents = useCallback(async (search: string, pageNum: number, append: boolean = false) => {
     if (isLoading || !isAdminAuth) return;
     setIsLoading(true);
-  
+
     const token = getAdminToken();
     if (!token) {
       setError("Токен администратора не найден");
       setIsLoading(false);
+      router.push("/admin-login");
       return;
     }
-  
+
     let url = `/admin_edits/events?page=${pageNum}&limit=10`;
     const params = new URLSearchParams();
     if (search.trim()) params.append("search", search.trim());
@@ -107,7 +113,7 @@ export default function DashboardPage() {
       if (mappedStatus) params.append("status", mappedStatus);
     }
     if (params.toString()) url += `&${params.toString()}`;
-  
+
     try {
       const data = await fetchWithAuth<EventData[]>(url, token);
       if (data) {
@@ -117,16 +123,17 @@ export default function DashboardPage() {
         setEvents([]);
       }
     } catch (error: unknown) {
-      // Проверяем, является ли error объектом с полем message
-      if (error instanceof Error) {
-        setError(error.message || "Не удалось загрузить мероприятия");
+      const err = error as CustomError;
+      if (err.status === 401) {
+        setError("Сессия истекла. Пожалуйста, войдите снова.");
+        router.push("/admin-login"); // Редирект на логин, а не профиль
       } else {
-        setError("Не удалось загрузить мероприятия");
+        setError(err.message || "Не удалось загрузить мероприятия");
       }
     } finally {
       setIsLoading(false);
     }
-  }, [isLoading, isAdminAuth, startDate, endDate, statusFilter, getAdminToken]);
+  }, [isLoading, isAdminAuth, startDate, endDate, statusFilter, getAdminToken, router]);
 
   const fetchUsers = useCallback(async (search: string) => {
     if (isLoading || !isAdminAuth) return;
@@ -136,17 +143,63 @@ export default function DashboardPage() {
     if (!token) {
       setError("Токен администратора не найден");
       setIsLoading(false);
+      router.push("/admin-login");
       return;
     }
 
     const url = search.trim() ? `/admin_edits/users?search=${encodeURIComponent(search)}` : "/admin_edits/users";
-    const data = await fetchWithAuth<User[]>(url, token);
-    setUsers(data || []);
-    setIsLoading(false);
-  }, [isLoading, isAdminAuth, getAdminToken]);
+    try {
+      const data = await fetchWithAuth<User[]>(url, token);
+      setUsers(data || []);
+    } catch (error: unknown) {
+      const err = error as CustomError;
+      if (err.status === 401) {
+        setError("Сессия истекла. Пожалуйста, войдите снова.");
+        router.push("/admin-login"); // Редирект на логин
+      } else {
+        setError(err.message || "Не удалось загрузить пользователей");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading, isAdminAuth, getAdminToken, router]);
+
+  const sendNotification = useCallback(async (eventId: number, eventTitle: string) => {
+    if (!isAdminAuth) return;
+    setIsLoading(true);
+    setError(null);
+
+    const token = getAdminToken();
+    if (!token) {
+      setError("Токен администратора не найден");
+      setIsLoading(false);
+      router.push("/admin-login");
+      return;
+    }
+
+    try {
+      const message = `Новое мероприятие "${eventTitle}" добавлено!`;
+      await fetchWithAuth("/notifications/send", token, "POST", { event_id: eventId, message });
+      setEvents((prev) =>
+        prev.map((event) =>
+          event.id === eventId ? { ...event, notificationSent: true } as EventData : event
+        )
+      );
+    } catch (error: unknown) {
+      const err = error as CustomError;
+      if (err.status === 401) {
+        setError("Сессия истекла. Пожалуйста, войдите снова.");
+        router.push("/admin-login"); // Редирект на логин
+      } else {
+        setError(err.message || "Не удалось отправить уведомление");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isAdminAuth, getAdminToken, router]);
 
   useEffect(() => {
-    if (initialized.current || !isAdminAuth) return;
+    if (initialized.current) return;
     initialized.current = true;
 
     if (!isAdminAuth) {
@@ -204,17 +257,18 @@ export default function DashboardPage() {
 
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
-  
+
     setError(null);
     setIsLoading(true);
-  
+
     const token = getAdminToken();
     if (!token) {
       setError("Токен администратора не найден");
       setIsLoading(false);
+      router.push("/admin-login");
       return;
     }
-  
+
     try {
       const response = await fetchWithAuth<null>(`/admin_edits/${eventToDelete}`, token, "DELETE");
       if (response === null) {
@@ -222,18 +276,16 @@ export default function DashboardPage() {
         await fetchEvents(eventSearch, 1);
       }
     } catch (error: unknown) {
-      // Проверяем, является ли error объектом CustomError
-      if (error instanceof Error) {
-        const customError = error as CustomError;
-        if (customError.status === 400) {
-          setError("Мероприятие можно удалить только в статусе 'черновик'");
-        } else if (customError.status === 404) {
-          setError("Мероприятие не найдено");
-        } else {
-          setError(`Не удалось удалить мероприятие: ${customError.message}`);
-        }
+      const err = error as CustomError;
+      if (err.status === 401) {
+        setError("Сессия истекла. Пожалуйста, войдите снова.");
+        router.push("/admin-login"); // Редирект на логин
+      } else if (err.status === 400) {
+        setError("Мероприятие можно удалить только в статусе 'черновик'");
+      } else if (err.status === 404) {
+        setError("Мероприятие не найдено");
       } else {
-        setError("Не удалось удалить мероприятие: неизвестная ошибка");
+        setError(`Не удалось удалить мероприятие: ${err.message}`);
       }
     } finally {
       setIsLoading(false);
@@ -262,7 +314,6 @@ export default function DashboardPage() {
       `}</style>
       <AdminHeader />
       <main className="container mx-auto px-4 sm:px-6 pt-24 pb-12">
-        {/* Общая информация */}
         <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100 mb-8">
           <div className="flex items-center mb-4">
             <FaInfoCircle className="text-blue-500 text-xl mr-3" />
@@ -302,16 +353,13 @@ export default function DashboardPage() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
-          {/* Users Section */}
           <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100">
             <div className="flex justify-between items-center mb-6">
               <div className="flex items-center">
                 <FaUsers className="text-blue-500 text-xl mr-3" />
                 <h2 className="text-xl font-semibold text-gray-800">Пользователи</h2>
               </div>
-              {isLoading && (
-                <div className="text-sm text-blue-500">Загрузка...</div>
-              )}
+              {isLoading && <div className="text-sm text-blue-500">Загрузка...</div>}
             </div>
             <div className="mb-6">
               <InputField
@@ -378,7 +426,6 @@ export default function DashboardPage() {
             )}
           </div>
 
-          {/* Events Section */}
           <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100">
             <div className="flex flex-col sm:flex-row justify-between items-center mb-3">
               <div className="flex items-center mb-4 sm:mb-0">
@@ -386,9 +433,7 @@ export default function DashboardPage() {
                 <h2 className="text-xl font-semibold text-gray-800">Мероприятия</h2>
               </div>
               <div className="flex items-center">
-                {isLoading && (
-                  <div className="text-sm text-blue-500 mr-3">Загрузка...</div>
-                )}
+                {isLoading && <div className="text-sm text-blue-500 mr-3">Загрузка...</div>}
                 <button
                   onClick={() => setIsFilterOpen(!isFilterOpen)}
                   className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 shadow-sm min-h-[44px] text-base"
@@ -529,6 +574,14 @@ export default function DashboardPage() {
                               Удалить
                             </button>
                           )}
+                          <button
+                            onClick={() => event.id && sendNotification(event.id, event.title)}
+                            className="w-full px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-base min-h-[44px] flex items-center justify-center"
+                            disabled={isLoading || event.notificationSent}
+                          >
+                            <FaBell className="mr-2 w-4 h-4" />
+                            {event.notificationSent ? "Отправлено" : "Отправить уведомление"}
+                          </button>
                         </div>
                       </div>
                     );
@@ -556,7 +609,7 @@ export default function DashboardPage() {
                         return (
                           <tr
                             key={event.id ?? index}
-                            ref={index === events.length -                            1 ? lastEventElementRef : null}
+                            ref={index === events.length - 1 ? lastEventElementRef : null}
                             className="hover:bg-gray-50 transition-colors duration-150"
                           >
                             <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.id ?? "N/A"}</td>
@@ -607,6 +660,14 @@ export default function DashboardPage() {
                                     <span className="w-6 h-6" />
                                   )}
                                 </div>
+                                <button
+                                  onClick={() => event.id && sendNotification(event.id, event.title)}
+                                  className="text-green-500 hover:text-green-600 transition-colors duration-200 inline-flex items-center justify-center w-6 h-6"
+                                  title="Отправить уведомление"
+                                  disabled={isLoading || event.notificationSent}
+                                >
+                                  <FaBell className="w-4 h-4" />
+                                </button>
                               </div>
                             </td>
                           </tr>
@@ -618,8 +679,8 @@ export default function DashboardPage() {
               </>
             ) : (
               <p className="text-gray-500 text-center py-6 text-base">
-                {eventSearch.trim() || startDate || endDate || statusFilter ? 
-                  "Мероприятия не найдены" : 
+                {eventSearch.trim() || startDate || endDate || statusFilter ?
+                  "Мероприятия не найдены" :
                   (isLoading ? "Загрузка мероприятий..." : "Нет доступных мероприятий")}
               </p>
             )}
@@ -627,7 +688,6 @@ export default function DashboardPage() {
         </div>
       </main>
 
-      {/* Delete confirmation modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
           <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-sm border border-gray-100">

@@ -1,4 +1,3 @@
-// frontend/src/components/Notifications.tsx
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -14,107 +13,54 @@ interface NotificationItem {
   isViewed: boolean;
 }
 
-interface NotificationResponse {
-  id: number;
-  type: string;
-  message: string;
-  created_at: string;
-  is_viewed: boolean;
-}
-
-interface CustomError extends Error {
-  isAuthError?: boolean;
-}
-
-const requestNotificationPermission = async (): Promise<boolean> => {
-  if (!("Notification" in window)) {
-    console.log("Browser does not support notifications");
-    return false;
-  }
-  if (Notification.permission !== "granted") {
-    const permission = await Notification.requestPermission();
-    return permission === "granted";
-  }
-  return true;
-};
-
-const showNotification = (title: string, options?: NotificationOptions) => {
-  if (Notification.permission === "granted") {
-    new Notification(title, options);
-  } else {
-    console.log("Notifications not permitted");
-  }
-};
+// Заглушка с начальными данными для уведомлений
+const MOCK_NOTIFICATIONS: NotificationItem[] = [];
 
 const Notifications: React.FC = () => {
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>(MOCK_NOTIFICATIONS);
   const notificationRef = useRef<HTMLDivElement>(null);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
-  const { isAuth, userData } = useAuth();
-  const hasFetched = useRef(false);
+  const { isAuth } = useAuth();
 
-  const fetchNotifications = useCallback(async () => {
-    if (!isAuth) {
-      console.log("User not authenticated - skipping notifications fetch");
-      setNotifications([]);
-      return;
-    }
-  
+  const markNotificationViewed = useCallback(async (templateId: number) => {
     try {
-      const response = await apiFetch<NotificationResponse[]>("/user_edits/notifications", {
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem("token")}`,
-        },
-      });
-      setNotifications(
-        response.map((n) => ({
-          id: n.id,
-          title: n.type === "publication" ? "Новое мероприятие" : "Изменение статуса",
-          body: n.message,
-          timestamp: n.created_at,
-          isViewed: n.is_viewed,
-        }))
-      );
-    } catch (error) {
-      const err = error as CustomError;
-      if (err.isAuthError) {
-        console.log("User not authenticated for notifications - skipping fetch silently");
-        setNotifications([]);
-      } else {
-        console.warn("Failed to fetch notifications:", error);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (isAuth) {
+        headers.Authorization = `Bearer ${localStorage.getItem("token")}`;
       }
+
+      await apiFetch("/notifications/view", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ template_id: templateId }),
+      });
+    } catch (error) {
+      console.warn("Failed to mark notification as viewed:", error);
     }
   }, [isAuth]);
 
-  // Загрузка серверных уведомлений и приветственное уведомление
-  useEffect(() => {
-    const initializeNotifications = async () => {
-      if (!hasFetched.current) {
-        await fetchNotifications();
-        hasFetched.current = true;
-      }
-
-      // Проверка и показ приветственного уведомления
-      const permissionGranted = await requestNotificationPermission();
-      if (permissionGranted && isAuth && userData) {
-        showNotification("Добро пожаловать!", {
-          body: `Вы вошли как ${userData.fio || userData.email}`,
-        });
-      }
-    };
-
-    initializeNotifications();
-
-    const interval = setInterval(() => {
+  const clearNotifications = useCallback(async () => {
+    try {
+      const headers: Record<string, string> = {};
       if (isAuth) {
-        fetchNotifications();
+        headers.Authorization = `Bearer ${localStorage.getItem("token")}`;
       }
-    }, 30000);
 
-    return () => clearInterval(interval);
-  }, [isAuth, userData, fetchNotifications]);
+      await apiFetch("/notifications/clear", {
+        method: "DELETE",
+        headers,
+      });
+      setNotifications([]); // Очищаем список на клиенте
+      setIsNotificationsOpen(false); // Закрываем панель
+    } catch (error) {
+      console.warn("Failed to clear notifications:", error);
+    }
+  }, [isAuth]);
 
+  // Обработчик клика вне панели уведомлений
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (
@@ -126,12 +72,14 @@ const Notifications: React.FC = () => {
       ) {
         console.log("Closing notification panel");
         setIsNotificationsOpen(false);
+        const unreadNotifications = notifications.filter((n) => !n.isViewed);
+        unreadNotifications.forEach((notif) => markNotificationViewed(notif.id));
         setNotifications((prev) => prev.map((notif) => ({ ...notif, isViewed: true })));
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isNotificationsOpen]);
+  }, [isNotificationsOpen, notifications, markNotificationViewed]);
 
   const toggleNotifications = useCallback(() => {
     console.log("Toggling notifications, current state:", isNotificationsOpen);
@@ -181,18 +129,28 @@ const Notifications: React.FC = () => {
       {isNotificationsOpen && (
         <div
           ref={notificationRef}
-          className="absolute left-0 top-[calc(100%+0.5rem)] w-64 bg-white rounded-md shadow-lg py-4 border border-gray-200 z-[1000] max-h-[120px] overflow-y-auto"
+          className="absolute left-0 top-[calc(100%+0.5rem)] w-64 bg-white rounded-md shadow-lg py-4 border border-gray-200 z-[1000] max-h-[200px] overflow-y-auto"
         >
           {notifications.length > 0 ? (
-            <ul className="divide-y divide-gray-200">
-              {notifications.map((notif) => (
-                <li key={notif.id} className="px-4 py-2 hover:bg-gray-50">
-                  <p className="text-sm font-medium text-gray-900">{notif.title}</p>
-                  <p className="text-xs text-gray-500">{notif.body}</p>
-                  <p className="text-xs text-gray-400">{new Date(notif.timestamp).toLocaleTimeString()}</p>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="divide-y divide-gray-200">
+                {notifications.map((notif) => (
+                  <li key={notif.id} className="px-4 py-2 hover:bg-gray-50">
+                    <p className="text-sm font-medium text-gray-900">{notif.title}</p>
+                    <p className="text-xs text-gray-500">{notif.body}</p>
+                    <p className="text-xs text-gray-400">{new Date(notif.timestamp).toLocaleTimeString()}</p>
+                  </li>
+                ))}
+              </ul>
+              <div className="px-4 pt-2">
+                <button
+                  onClick={clearNotifications}
+                  className="w-full px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm transition-colors"
+                >
+                  Очистить все
+                </button>
+              </div>
+            </>
           ) : (
             <div className="text-center text-gray-500 text-sm px-2">Нет уведомлений</div>
           )}

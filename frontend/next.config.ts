@@ -12,7 +12,7 @@ const nextConfig = {
       { source: "/v1/public/events/:path*", destination: `${USER_API_URL}/v1/public/events/:path*` },
       { source: "/register", destination: `${USER_API_URL}/register` },
       { source: "/images/:path*", destination: `${USER_API_URL}/images/:path*` },
-      
+      { source: "/notifications/:path*", destination: `${USER_API_URL}/notifications/:path*` }, // Добавлено
 
       // Административный сервер (порт 8001)
       { source: "/admin/:path*", destination: `${ADMIN_API_URL}/admin/:path*` },
@@ -24,10 +24,9 @@ const nextConfig = {
       {
         protocol: "http",
         hostname: "localhost",
-        port: "8000", // Оставляем порт для изображений пользователей
+        port: "8000",
         pathname: "/images/users_avatars/**",
       },
-      // Добавляем паттерн для администраторских изображений, если нужно
       {
         protocol: "http",
         hostname: "localhost",

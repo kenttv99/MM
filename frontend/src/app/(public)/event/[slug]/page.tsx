@@ -1,5 +1,5 @@
+// frontend/src/app/(public)/event/[slug]/page.tsx
 "use client";
-
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
@@ -20,22 +20,17 @@ import AuthModal from "@/components/common/AuthModal";
 import { FaCalendarAlt } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
+import { useLoading } from "@/contexts/LoadingContext";
 
 const generateSlug = (title: string, id: number): string => {
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
     й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
-    ю: "yu", я: "ya", " ": "-"
+    ю: "yu", я: "ya", " ": "-",
   };
-  const slug = title
-    .toLowerCase()
-    .split("")
-    .map((char) => translitMap[char] || char)
-    .join("")
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  const slug = title.toLowerCase().split("").map(char => translitMap[char] || char).join("")
+    .replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
   return slug ? `${slug}-${id}` : `event-${id}`;
 };
 
@@ -45,21 +40,20 @@ export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
   const router = useRouter();
   const [event, setEvent] = useState<EventData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [hasServerError, setHasServerError] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const { isAuth, checkAuth } = useAuth();
-  const [hasRedirected, setHasRedirected] = useState(false);
-  const eventFetchedRef = useRef(false);
+  const { setStaticLoading, setDynamicLoading, resetLoading } = useLoading();
   const abortControllerRef = useRef<AbortController | null>(null);
+  const hasRedirectedRef = useRef(false);
 
   const fetchEvent = useCallback(async () => {
-    if (eventFetchedRef.current) return;
-    setIsLoading(true);
-    setHasServerError(false);
+    if (!slug) return;
+    setDynamicLoading(true);
     setFetchError(null);
+    setHasServerError(false);
     const eventId = extractIdFromSlug(slug);
 
     if (abortControllerRef.current) abortControllerRef.current.abort();
@@ -69,36 +63,42 @@ export default function EventPage() {
       const data = await apiFetch<EventData>(`/v1/public/events/${eventId}`, {
         cache: "no-store",
         signal: abortControllerRef.current.signal,
-      });
+      }, setDynamicLoading);
       if (data) {
         const correctSlug = generateSlug(data.title, data.id || parseInt(eventId));
-        if (slug !== correctSlug && !hasRedirected) {
-          setHasRedirected(true);
+        if (slug !== correctSlug && !hasRedirectedRef.current) {
+          hasRedirectedRef.current = true;
           router.replace(`/event/${correctSlug}`, { scroll: false });
+          return;
         }
         setEvent(data);
-        eventFetchedRef.current = true;
+        try {
+          localStorage.setItem(`event-title-${eventId}`, data.title);
+          localStorage.setItem(`event-slug-${eventId}`, correctSlug);
+        } catch (error) {
+          console.error("Error saving to localStorage:", error);
+        }
       }
-    } catch (err: unknown) {
+    } catch (err) {
+      if (err instanceof Error && err.message === "Request aborted") return;
       const error = err instanceof Error ? err : new Error("Неизвестная ошибка");
-      if ("isServerError" in error && error.isServerError) {
-        setHasServerError(true);
-      } else if (error.message === "Не удалось подключиться к серверу. Проверьте соединение.") {
-        setHasServerError(true);
-      } else {
-        setFetchError(error.message || "Не удалось загрузить мероприятие");
-      }
+      if (error.message.includes("HTTP error! Status: 5")) setHasServerError(true);
+      else if (error.message.includes("Request timed out") || error.message.includes("Network Error")) setHasServerError(true);
+      else setFetchError(error.message || "Не удалось загрузить мероприятие");
     } finally {
-      setIsLoading(false);
+      setDynamicLoading(false);
+      abortControllerRef.current = null;
     }
-  }, [slug, router, hasRedirected]);
+  }, [slug, router, setDynamicLoading]);
 
   useEffect(() => {
-    if (slug) fetchEvent();
+    setStaticLoading(false); // Статический контент готов сразу
+    fetchEvent();
     return () => {
       if (abortControllerRef.current) abortControllerRef.current.abort();
+      resetLoading();
     };
-  }, [slug, fetchEvent]);
+  }, [fetchEvent, setStaticLoading, resetLoading]);
 
   useEffect(() => {
     const handleAuthChange = () => checkAuth();
@@ -115,21 +115,15 @@ export default function EventPage() {
   const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
   const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-grow flex items-center justify-center">
-          <div className="w-8 h-8 border-4 border-orange-500 border-t-transparent rounded-full animate-spin" />
-        </main>
-        <Footer />
-      </div>
-    );
-  }
-
   if (hasServerError) return <ErrorPlaceholder />;
   if (fetchError) return notFound();
-  if (!event) return null;
+  if (!event) return (
+    <div className="min-h-screen flex flex-col">
+      <Header />
+      <main className="flex-grow" />
+      <Footer />
+    </div>
+  );
 
   if (event.status === "draft" || !event.published) {
     return (
@@ -141,13 +135,8 @@ export default function EventPage() {
               <FaCalendarAlt className="text-orange-500 w-8 h-8" />
             </div>
             <h3 className="text-xl font-semibold mb-2">Мероприятие недоступно</h3>
-            <p className="text-gray-600 text-center max-w-md mb-6">
-              Это мероприятие пока недоступно для просмотра.
-            </p>
-            <button
-              onClick={() => router.push("/events")}
-              className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
-            >
+            <p className="text-gray-600 text-center max-w-md mb-6">Это мероприятие пока недоступно для просмотра.</p>
+            <button onClick={() => router.push("/events")} className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
               Вернуться к мероприятиям
             </button>
           </div>
@@ -162,16 +151,10 @@ export default function EventPage() {
   const availableQuantity = event.ticket_type?.available_quantity || 0;
   const remainingQuantity = availableQuantity - (event.ticket_type?.sold_quantity || 0);
   const soldQuantity = event.ticket_type?.sold_quantity || 0;
-  const displayStatus =
-    event.status === "registration_open" && remainingQuantity === 0
-      ? "Регистрация закрыта (мест нет)"
-      : event.status === "registration_open"
-      ? "Регистрация открыта"
-      : event.status === "registration_closed"
-      ? "Регистрация закрыта"
-      : event.status === "completed"
-      ? "Мероприятие завершено"
-      : "Черновик";
+  const displayStatus = event.status === "registration_open" && remainingQuantity === 0 ? "Регистрация закрыта (мест нет)" :
+    event.status === "registration_open" ? "Регистрация открыта" :
+    event.status === "registration_closed" ? "Регистрация закрыта" :
+    event.status === "completed" ? "Мероприятие завершено" : "Черновик";
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -195,32 +178,21 @@ export default function EventPage() {
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 className="text-4xl font-bold text-white text-center px-4 max-w-[90vw]"
-  style={{ fontSize: "clamp(1.5rem, 5vw, 2.5rem)" }}
+                style={{ fontSize: "clamp(1.5rem, 5vw, 2.5rem)" }}
               >
                 {event.title}
               </motion.h1>
             </div>
           </div>
         </motion.section>
-
         <div className="container mx-auto px-6 py-12">
           {event.ticket_type && (
             <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
-              <EventDetails
-                date={eventDate}
-                time={eventTime}
-                location={event.location || "Не указано"}
-                price={event.price}
-                freeRegistration={event.ticket_type.free_registration}
-              />
+              <EventDetails date={eventDate} time={eventTime} location={event.location || "Не указано"} price={event.price} freeRegistration={event.ticket_type.free_registration} />
             </motion.section>
           )}
           <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
-            <div
-              className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${
-                displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""
-              }`}
-            >
+            <div className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""}`}>
               <h2 className="text-2xl font-semibold mb-4 text-center">{displayStatus}</h2>
               <EventRegistration
                 eventId={event.id || parseInt(extractIdFromSlug(slug))}
@@ -239,18 +211,9 @@ export default function EventPage() {
                 displayStatus={displayStatus}
               />
               {!isAuth && (
-                <motion.p
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="text-center mt-6 text-gray-700 bg-orange-50 py-3 px-6 rounded-full"
-                >
+                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center mt-6 text-gray-700 bg-orange-50 py-3 px-6 rounded-full">
                   Для бронирования билета{" "}
-                  <button
-                    onClick={handleLoginClick}
-                    className="text-orange-600 font-semibold hover:underline"
-                  >
-                    войдите в аккаунт
-                  </button>
+                  <button onClick={handleLoginClick} className="text-orange-600 font-semibold hover:underline">войдите в аккаунт</button>
                 </motion.p>
               )}
             </div>
@@ -258,8 +221,8 @@ export default function EventPage() {
           {event.description && (
             <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
               <h2 className="text-2xl font-semibold mb-4">Описание</h2>
-              <FormattedDescription content={event.description} className="text-gray-600 max-w-full overflow-wrap-break-word" disableFontSize={false} />            
-              </motion.section>
+              <FormattedDescription content={event.description} className="text-gray-600 max-w-full overflow-wrap-break-word" disableFontSize={false} />
+            </motion.section>
           )}
         </div>
       </main>

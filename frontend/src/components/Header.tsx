@@ -16,7 +16,10 @@ import Notifications from "./Notifications";
 const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
   const [imgError, setImgError] = useState(false);
 
-  useEffect(() => setImgError(false), [avatarUrl]);
+  useEffect(() => {
+    console.log("AvatarDisplay useEffect: Resetting imgError for avatarUrl:", avatarUrl);
+    setImgError(false);
+  }, [avatarUrl]);
 
   const sizeClasses = "w-10 h-10 min-w-[40px] min-h-[40px]";
   
@@ -45,36 +48,60 @@ const Header: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
 
+  // Лог при монтировании и рендере
+  console.log("Header rendered, isAuth:", isAuth, "userData:", userData, "isMobileMenuOpen:", isMobileMenuOpen);
+
   useEffect(() => {
-    const handleScroll = () => setIsScrolled(window.scrollY > 20);
+    console.log("Header useEffect for scroll event mounted");
+    const handleScroll = () => {
+      console.log("Scroll event triggered, scrollY:", window.scrollY);
+      setIsScrolled(window.scrollY > 20);
+    };
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    return () => {
+      console.log("Header useEffect for scroll event unmounted");
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   const toggleMobileMenu = useCallback(() => {
-    console.log("Toggling mobile menu:", !isMobileMenuOpen);
-    setIsMobileMenuOpen((prev) => !prev);
+    console.log("toggleMobileMenu called, current isMobileMenuOpen:", isMobileMenuOpen);
+    setIsMobileMenuOpen((prev) => {
+      console.log("toggleMobileMenu setting new value:", !prev);
+      return !prev;
+    });
   }, [isMobileMenuOpen]);
 
   const openLogin = useCallback(() => {
+    console.log("openLogin called");
     setIsRegisterMode(false);
     setIsModalOpen(true);
   }, []);
 
   const openRegistration = useCallback(() => {
+    console.log("openRegistration called");
     setIsRegisterMode(true);
     setIsModalOpen(true);
   }, []);
 
   const handleModalClose = useCallback(() => {
+    console.log("handleModalClose called");
     setIsModalOpen(false);
     setIsRegisterMode(false);
   }, []);
 
-  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
-  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+  const toggleToLogin = useCallback(() => {
+    console.log("toggleToLogin called");
+    setIsRegisterMode(false);
+  }, []);
+
+  const toggleToRegister = useCallback(() => {
+    console.log("toggleToRegister called");
+    setIsRegisterMode(true);
+  }, []);
 
   const handleLogout = useCallback(() => {
+    console.log("handleLogout called");
     logout();
     setIsMobileMenuOpen(false);
   }, [logout]);
@@ -85,7 +112,6 @@ const Header: React.FC = () => {
   ];
   const authNavItemsMobile: NavItem[] = [
     { href: "/profile", label: "Профиль" },
-    { href: "/notifications", label: "Уведомления" },
     { href: "/partner", label: "Стать партнером" },
     { label: "Выход", onClick: handleLogout },
   ];
@@ -146,10 +172,11 @@ const Header: React.FC = () => {
               <Link
                 href="/partner"
                 className="text-orange-500 hover:text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50 text-sm sm:text-base min-w-[100px] text-center"
+                onClick={() => console.log("Navigated to /partner from desktop")}
               >
                 Стать партнером
               </Link>
-              <Link href="/profile" className="text-orange-500 hover:text-orange-600">
+              <Link href="/profile" className="text-orange-500 hover:text-orange-600" onClick={() => console.log("Navigated to /profile from desktop")}>
                 <AvatarDisplay
                   avatarUrl={userData?.avatar_url}
                   fio={userData?.fio}
@@ -220,6 +247,7 @@ const Header: React.FC = () => {
                 {item.onClick ? (
                   <button
                     onClick={() => {
+                      console.log(`Mobile nav item clicked: ${item.label}`);
                       setIsMobileMenuOpen(false);
                       item.onClick?.();
                     }}
@@ -231,7 +259,10 @@ const Header: React.FC = () => {
                   <Link
                     href={item.href || "#"}
                     className="block w-full py-3 text-gray-800 hover:text-orange-500 transition-colors duration-200 text-xl font-medium min-h-[48px]"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                    onClick={() => {
+                      console.log(`Mobile nav item navigated: ${item.label} to ${item.href}`);
+                      setIsMobileMenuOpen(false);
+                    }}
                   >
                     {item.label}
                   </Link>

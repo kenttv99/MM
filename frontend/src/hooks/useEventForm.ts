@@ -1,9 +1,7 @@
-// frontend/src/hooks/useEventForm.ts
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { EventFormData, EventData } from '@/types/events';
 import { createEvent, updateEvent, fetchEvent } from '@/utils/eventService';
 
-// Global event cache to persist across renders
 const eventCache: Record<string, EventData> = {};
 
 interface UseEventFormOptions {
@@ -19,16 +17,13 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
   const [success, setSuccess] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialValues.image_url || null);
   
-  // Refs to track state between renders
   const mounted = useRef(true);
   const isFetching = useRef(false);
   const loadedEventId = useRef<string | null>(null);
   const controller = useRef<AbortController | null>(null);
 
-  // Handle cleanup on unmount
   useEffect(() => {
     mounted.current = true;
-    
     return () => {
       mounted.current = false;
       if (controller.current) {
@@ -44,19 +39,17 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
-  
+    
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked;
       setFieldValue(name as keyof EventFormData, checked);
     } else if (type === "number") {
-      // Check if the value is just "0" when starting to type
-      const input = e.target as HTMLInputElement;
-      const numericValue = value === "0" && input.selectionStart === 1 ? 
-        "" : // Clear the field if it's just "0"
-        value === "" ? 0 : // Handle empty string
-        parseFloat(value.replace(/^0+(?=\d)/, "")); // Remove leading zeros
-      
+      // Убираем ведущие нули и преобразуем в число
+      const cleanedValue = value.replace(/^0+(?=\d)/, ""); // Удаляем ведущие нули, если за ними следуют цифры
+      const numericValue = cleanedValue === "" ? 0 : parseFloat(cleanedValue) || 0;
       setFieldValue(name as keyof EventFormData, numericValue);
+      // Синхронизируем значение в DOM
+      e.target.value = numericValue.toString();
     } else {
       setFieldValue(name as keyof EventFormData, value);
     }
@@ -78,31 +71,24 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, []);
 
-  // Load event data - with strong protection against duplicate loads
   const loadEvent = useCallback(async (eventId: string): Promise<void> => {
-    // Skip if same event is already loaded
     if (loadedEventId.current === eventId) {
       console.log(`Event ${eventId} already loaded, skipping fetch`);
       return;
     }
     
-    // Skip if a fetch is already in progress
     if (isFetching.current) {
       console.log('Fetch already in progress, skipping duplicate request');
       return;
     }
 
-    // Mark as fetching to prevent concurrent calls
     isFetching.current = true;
     
-    // Check cache first
     if (eventCache[eventId]) {
       console.log(`Loading event ${eventId} from cache`);
       const cachedData = eventCache[eventId];
-      
       const startDate = new Date(cachedData.start_date);
       const endDate = cachedData.end_date ? new Date(cachedData.end_date) : undefined;
-      
       const mappedData: EventFormData = {
         ...cachedData,
         start_date: startDate.toISOString().split("T")[0],
@@ -138,26 +124,21 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     setIsLoading(true);
     setError(null);
     
-    // Abort any existing request
     if (controller.current) {
       controller.current.abort();
     }
     
-    // Create new controller for this request
     controller.current = new AbortController();
     
     try {
       console.log(`Fetching event with ID: ${eventId}`);
       const eventData = await fetchEvent(eventId);
-      
-      // Save to cache for future use
       eventCache[eventId] = eventData;
       
       if (!mounted.current) return;
       
       const startDate = new Date(eventData.start_date);
       const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
-      
       const mappedData: EventFormData = {
         ...eventData,
         start_date: startDate.toISOString().split("T")[0],
@@ -178,7 +159,6 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         setImagePreview(eventData.image_url);
       }
       
-      // Mark this event as loaded
       loadedEventId.current = eventId;
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -213,12 +193,10 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     setSuccess(null);
     setIsLoading(true);
     
-    // Abort any existing request
     if (controller.current) {
       controller.current.abort();
     }
     
-    // Create new controller for this request
     controller.current = new AbortController();
     
     try {
@@ -226,7 +204,6 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         ? await updateEvent(formData.id, formData)
         : await createEvent(formData);
       
-      // Update cache
       if (result && result.id) {
         eventCache[result.id.toString()] = result;
       }

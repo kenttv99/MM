@@ -47,7 +47,7 @@ app.include_router(notification_router, prefix="", tags=["Notifications"])  # П
 @app.middleware("http")
 async def refresh_token_middleware(request: Request, call_next):
     response = await call_next(request)
-    if request.url.path.startswith("/v1/public/"):
+    if request.url.path.startswith(("/v1/public/", "/notifications/public")):
         return response
 
     auth_header = request.headers.get("Authorization")

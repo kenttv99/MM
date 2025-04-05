@@ -15,15 +15,15 @@ INCLUDE_EXTENSIONS = [
 # Разрешенные пути
 INCLUDE_PATHS = [
     # "backend/",
-    "frontend/src/",
+    # "frontend/src/",
     # "servers/",
-    # "frontend/src/components",
-    # "frontend/src/hooks",
-    # "frontend/src/utils",
+    "frontend/src/components",
+    "frontend/src/hooks",
+    "frontend/src/utils",
     # "frontend/src/app",
-    # "frontend/src/types",
-    # "frontend/src/contexts",
-    # "frontend/src/app/(public)/",
+    "frontend/src/types",
+    "frontend/src/contexts",
+    "frontend/src/app/(public)/",
     # "frontend/src/app/(auth)/"
 ]
 
@@ -34,7 +34,7 @@ INCLUDE_FILES = [
     "frontend/next.config.ts",
     "frontend/tailwind.config.ts",
     #  "frontend/src/app/globals.css",
-    # "frontend/src/app/(admin)/dashboard/page.tsx",
+    # "frontend/src/app/(admin)/admin-login/page.tsx",
     # "frontend/src/app/(admin)/edit-user/page.tsx",
     # "frontend/src/components/EditEventForm.tsx",
     # "frontend/src/components/Notifications.tsx",

@@ -1,13 +1,14 @@
 # backend/api/user_auth_routers.py
 from fastapi import APIRouter, Body, Depends, HTTPException, status, Request
 from backend.schemas_enums.schemas import ChangePassword, ChangePasswordResponse, UserCreate, UserLogin, UserResponse
-from backend.config.auth import create_user, get_user_by_username, pwd_context, create_access_token, get_current_user, log_user_activity
-from backend.database.user_db import AsyncSession, User, get_async_db
+from backend.config.auth import create_user, get_user_by_username, pwd_context, create_access_token, get_current_user, log_user_activity, generate_device_fingerprint
+from backend.database.user_db import AsyncSession, User, get_async_db, NotificationView
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import timedelta
 from backend.config.rate_limiter import rate_limit
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES
+from sqlalchemy import update
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ bearer_scheme = HTTPBearer()
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @rate_limit("register")
 async def register_user(user: UserCreate, db: AsyncSession = Depends(get_async_db), request: Request = None):
-    """Регистрация нового пользователя."""
+    """Регистрация нового пользователя с перепривязкой уведомлений."""
     existing_user = await get_user_by_username(db, user.email)
     if existing_user:
         logger.warning(f"Attempt to register existing email: {user.email}")
@@ -26,7 +27,23 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_async_d
         )
     
     try:
+        # Создание нового пользователя
         new_user = await create_user(db, user.fio, user.email, user.password, user.telegram, user.whatsapp)
+        
+        # Перепривязка уведомлений от фингерпринта к user_id
+        device_fingerprint = generate_device_fingerprint(request)
+        stmt = (
+            update(NotificationView)
+            .where(NotificationView.fingerprint == device_fingerprint)
+            .where(NotificationView.user_id.is_(None))  # Добавляем проверку
+            .values(user_id=new_user.id, fingerprint=None)
+        )
+        result = await db.execute(stmt)
+        migrated_count = result.rowcount
+        if migrated_count > 0:
+            logger.info(f"Migrated {migrated_count} notifications from fingerprint {device_fingerprint} to user {new_user.email}")
+
+        await db.commit()
         await log_user_activity(db, new_user.id, request, action="register")
         logger.info(f"User registered successfully: {new_user.email}")
         return new_user
@@ -41,10 +58,9 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_async_d
 @router.post("/login")
 @rate_limit("login")
 async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), request: Request = None):
-    """Авторизация пользователя с возвратом токена и данных пользователя."""
+    """Авторизация пользователя с возвратом токена и данных пользователя, перепривязка уведомлений."""
     db_user = await get_user_by_username(db, user.email)
     if not db_user or not pwd_context.verify(user.password, db_user.password_hash):
-        # Логируем неудачную попытку входа только если пользователь существует
         if db_user:
             await log_user_activity(db, db_user.id, request, action="login_failed")
         logger.warning(f"Failed login attempt for email: {user.email}")
@@ -57,6 +73,24 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
     access_token = await create_access_token(
         data={"sub": db_user.email}, session=db, expires_delta=access_token_expires
     )
+    
+    try:
+        device_fingerprint = generate_device_fingerprint(request)
+        stmt = (
+            update(NotificationView)
+            .where(NotificationView.fingerprint == device_fingerprint)
+            .where(NotificationView.user_id.is_(None))  # Добавляем проверку
+            .values(user_id=db_user.id, fingerprint=None)
+        )
+        result = await db.execute(stmt)
+        migrated_count = result.rowcount
+        if migrated_count > 0:
+            logger.info(f"Migrated {migrated_count} notifications from fingerprint {device_fingerprint} to user {db_user.email}")
+    except Exception as e:
+        logger.error(f"Error rebinding notifications during login for {db_user.email}: {str(e)}")
+        await db.rollback()
+    
+    await db.commit()
     await log_user_activity(db, db_user.id, request, action="login")
     logger.info(f"User logged in successfully: {db_user.email}")
     return {
@@ -74,7 +108,7 @@ async def login_user(user: UserLogin, db: AsyncSession = Depends(get_async_db), 
 async def change_user_password(
     data: ChangePassword = Body(...),
     token: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-    db = Depends(get_async_db),
+    db=Depends(get_async_db),
     request: Request = None
 ):
     current_user = await get_current_user(token.credentials, db)

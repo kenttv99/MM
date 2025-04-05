@@ -31,9 +31,34 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
   const hasInitialized = useRef(false);
   const lastCheckTime = useRef<number>(0);
+  const isMounted = useRef<boolean>(false);
+  const authTimeout = useRef<NodeJS.Timeout | null>(null);
   const { setStaticLoading } = useLoading();
 
   const CHECK_INTERVAL = 5000;
+
+  // Автоматический сброс состояния загрузки через 3 секунды
+  useEffect(() => {
+    if (isLoading) {
+      if (authTimeout.current) {
+        clearTimeout(authTimeout.current);
+      }
+      
+      authTimeout.current = setTimeout(() => {
+        if (isMounted.current) {
+          console.log("AuthContext: Auto-resetting loading state after timeout");
+          setIsLoading(false);
+          setStaticLoading(false);
+        }
+      }, 3000); // 3 секунды максимум для проверки авторизации
+    }
+    
+    return () => {
+      if (authTimeout.current) {
+        clearTimeout(authTimeout.current);
+      }
+    };
+  }, [isLoading, setStaticLoading]);
 
   const updateUserData = (data: UserData, resetLoading = true) => {
     setUserData(data);
@@ -88,11 +113,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     console.log("AuthContext useEffect triggered, hasInitialized:", hasInitialized.current);
+    
+    // Устанавливаем флаг монтирования
+    isMounted.current = true;
+    
     if (!hasInitialized.current) {
       hasInitialized.current = true;
-      checkAuth();
+      // Сначала проверяем авторизацию
+      checkAuth().then(() => {
+        // После проверки авторизации сбрасываем состояние загрузки
+        if (isMounted.current) {
+          setIsLoading(false);
+          setStaticLoading(false);
+        }
+      });
     }
-  }, [checkAuth]);
+    
+    // Очистка при размонтировании
+    return () => {
+      isMounted.current = false;
+      if (authTimeout.current) {
+        clearTimeout(authTimeout.current);
+      }
+    };
+  }, [checkAuth, setStaticLoading]);
 
   return (
     <AuthContext.Provider value={{ isAuth, userData, isLoading, checkAuth, updateUserData, handleLoginSuccess, logout }}>

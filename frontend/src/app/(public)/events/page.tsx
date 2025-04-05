@@ -204,80 +204,105 @@ const EventsPage = () => {
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
   const lastCardRef = useRef<HTMLDivElement | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
-  const hasLoadedInitial = useRef(false);
+  const hasLoadedInitial = useRef<boolean>(false);
+  const isInitialMount = useRef<boolean>(true);
+  const loadingTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const loadEvents = useCallback(async (pageNum: number, append = false, filters: FilterState) => {
-    setDynamicLoading(true);
-    setError(null);
-    setServerError(false);
-
-    const abortController = new AbortController();
-    const params = new URLSearchParams({
-      page: pageNum.toString(),
-      limit: ITEMS_PER_PAGE.toString(),
-    });
-    if (filters.startDate) params.append("start_date", formatDateForAPI(filters.startDate));
-    if (filters.endDate) params.append("end_date", formatDateForAPI(filters.endDate));
-    const endpoint = `/v1/public/events?${params.toString()}`;
-
-    try {
-      const data = await apiFetch<EventData[]>(endpoint, {
-        signal: abortController.signal,
-        cache: pageNum === 1 ? "no-store" : "default",
-      }, setDynamicLoading);
-      setEvents(prev => (append ? [...prev, ...data] : data));
-      setHasMore(data.length === ITEMS_PER_PAGE);
-    } catch (err) {
-      if (err instanceof Error && err.message === "Request aborted") return;
-      const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятий";
-      if (errorMessage.includes("HTTP error! Status: 5")) setServerError(true);
-      else setError(errorMessage);
-      setHasMore(false);
-    } finally {
-      setDynamicLoading(false);
+    if (loadingTimeout.current) {
+      clearTimeout(loadingTimeout.current);
     }
+
+    loadingTimeout.current = setTimeout(async () => {
+      setDynamicLoading(true);
+      setError(null);
+      setServerError(false);
+
+      const abortController = new AbortController();
+      const params = new URLSearchParams({
+        page: pageNum.toString(),
+        limit: ITEMS_PER_PAGE.toString(),
+      });
+      if (filters.startDate) params.append("start_date", formatDateForAPI(filters.startDate));
+      if (filters.endDate) params.append("end_date", formatDateForAPI(filters.endDate));
+      const endpoint = `/v1/public/events?${params.toString()}`;
+
+      try {
+        const data = await apiFetch<EventData[]>(endpoint, {
+          signal: abortController.signal,
+          cache: pageNum === 1 ? "no-store" : "default",
+        }, setDynamicLoading);
+        setEvents(prev => (append ? [...prev, ...data] : data));
+        setHasMore(data.length === ITEMS_PER_PAGE);
+      } catch (err) {
+        if (err instanceof Error && err.message === "Request aborted") return;
+        const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятий";
+        if (errorMessage.includes("HTTP error! Status: 5")) setServerError(true);
+        else setError(errorMessage);
+        setHasMore(false);
+      } finally {
+        setDynamicLoading(false);
+      }
+    }, 100);
   }, [setDynamicLoading]);
 
-  // Начальная загрузка с пустым массивом зависимостей
+  // Начальная загрузка
   useEffect(() => {
     if (hasLoadedInitial.current) return;
-    hasLoadedInitial.current = true;
-    setStaticLoading(false);
-    loadEvents(1, false, activeFilters);
+    
+    const initializePage = async () => {
+      hasLoadedInitial.current = true;
+      setStaticLoading(false);
+      await loadEvents(1, false, activeFilters);
+    };
+
+    initializePage();
 
     return () => {
       if (observerRef.current) observerRef.current.disconnect();
+      if (loadingTimeout.current) {
+        clearTimeout(loadingTimeout.current);
+      }
     };
-  }, []); // Пустой массив зависимостей
+  }, [loadEvents, activeFilters, setStaticLoading]);
 
   // Обновление при изменении фильтров
   useEffect(() => {
-    if (!hasLoadedInitial.current) return;
+    if (!hasLoadedInitial.current || isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
     setPage(1);
     setEvents([]);
     clearCache("/v1/public/events");
     loadEvents(1, false, activeFilters);
   }, [activeFilters, loadEvents]);
 
-  // Бесконечная прокрутка
+  // Настройка Intersection Observer
   useEffect(() => {
-    if (!lastCardRef.current || !hasMore || isDynamicLoading) return;
-    if (observerRef.current) observerRef.current.disconnect();
+    if (!hasMore || isDynamicLoading) return;
 
-    observerRef.current = new IntersectionObserver(
-      entries => {
-        if (entries[0].isIntersecting && hasMore && !isDynamicLoading) {
-          const nextPage = page + 1;
-          setPage(nextPage);
-          loadEvents(nextPage, true, activeFilters);
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setPage((prev) => prev + 1);
+          loadEvents(page + 1, true, activeFilters);
         }
       },
-      { threshold: 0.1, rootMargin: "0px 0px 500px 0px" }
+      { threshold: 0.1 }
     );
 
-    observerRef.current.observe(lastCardRef.current);
-    return () => observerRef.current?.disconnect();
-  }, [events, hasMore, page, isDynamicLoading, activeFilters, loadEvents]);
+    if (lastCardRef.current) {
+      observer.observe(lastCardRef.current);
+    }
+
+    observerRef.current = observer;
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMore, isDynamicLoading, page, loadEvents, activeFilters]);
 
   const applyFilters = useCallback(() => {
     const newFilters = { startDate, endDate };

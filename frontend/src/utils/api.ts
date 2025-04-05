@@ -7,9 +7,10 @@ const lastRequestTimes: { [key: string]: number } = {};
 const responseCache: { [key: string]: { data: unknown; timestamp: number } } = {};
 
 // Константы
-const DEBOUNCE_DELAY = 200; // Уменьшено для более быстрой реакции UI
+const DEBOUNCE_DELAY = 300; // Увеличено для уменьшения количества запросов
 const FETCH_TIMEOUT = 15000; // 15 секунд на выполнение запроса
-const CACHE_TTL = 5000; // 5 секунд жизни кэша для обеспечения свежести данных
+const CACHE_TTL = 10000; // 10 секунд жизни кэша для обеспечения свежести данных
+const MIN_REQUEST_INTERVAL = 500; // Минимальный интервал между запросами
 
 /**
  * Очистка кэша по шаблону URL
@@ -49,10 +50,14 @@ export async function apiFetch<T>(
   const requestKey = `${endpoint}-${JSON.stringify(options.body || {})}-${options.method || 'GET'}`;
   const now = Date.now();
 
-  // Проверка дебаунса
+  // Проверка минимального интервала между запросами
   const lastRequestTime = lastRequestTimes[requestKey];
+  if (lastRequestTime && now - lastRequestTime < MIN_REQUEST_INTERVAL) {
+    throw new Error(`Request too frequent`);
+  }
+
+  // Проверка дебаунса
   if (lastRequestTime && now - lastRequestTime < DEBOUNCE_DELAY) {
-    console.log(`Request to ${endpoint} skipped (debounced). Interval: ${now - lastRequestTime}ms`);
     throw new Error(`Request debounced`);
   }
   lastRequestTimes[requestKey] = now;
@@ -60,15 +65,13 @@ export async function apiFetch<T>(
   // Проверка кэша для GET-запросов
   const isGetRequest = !options.method || options.method === 'GET';
   if (isGetRequest && responseCache[requestKey] && now - responseCache[requestKey].timestamp < CACHE_TTL) {
-    console.log(`Using cached response for ${endpoint}`);
-    if (setLoading) setLoading(false); // Сбрасываем загрузку при использовании кэша
+    if (setLoading) setLoading(false);
     return responseCache[requestKey].data as T;
   }
 
   // Отмена предыдущего запроса с тем же ключом
   if (activeRequests[requestKey]) {
     activeRequests[requestKey].controller.abort();
-    console.log(`Aborting previous request for ${endpoint}`);
     delete activeRequests[requestKey];
   }
 
@@ -139,7 +142,6 @@ export async function apiFetch<T>(
   const cleanupRequest = () => {
     if (activeRequests[requestKey] && activeRequests[requestKey].controller === controller) {
       delete activeRequests[requestKey];
-      console.log(`Request to ${endpoint} completed and removed from active requests`);
     }
   };
 
@@ -147,14 +149,19 @@ export async function apiFetch<T>(
   const combinedPromise = Promise.race([fetchPromise, timeoutPromise])
     .then((result) => {
       cleanupRequest();
-      if (setLoading) setLoading(false); // Сбрасываем загрузку при успешном завершении
+      if (setLoading) {
+        // Используем setTimeout для предотвращения мерцания состояния загрузки
+        setTimeout(() => setLoading(false), 100);
+      }
       return result;
     })
     .catch((error) => {
       cleanupRequest();
-      if (setLoading) setLoading(false); // Сбрасываем загрузку даже при ошибке
+      if (setLoading) {
+        // Используем setTimeout для предотвращения мерцания состояния загрузки
+        setTimeout(() => setLoading(false), 100);
+      }
       if (error.name === 'AbortError') {
-        console.log(`Request to ${endpoint} was aborted`);
         throw new Error('Request aborted');
       }
       if (navigator.onLine === false) {
@@ -167,8 +174,7 @@ export async function apiFetch<T>(
 
   // Сохраняем запрос в активные
   activeRequests[requestKey] = { controller, promise: combinedPromise };
-  if (setLoading) setLoading(true); // Устанавливаем загрузку перед началом запроса
-  console.log(`Starting request to ${endpoint}`);
+  if (setLoading) setLoading(true);
 
   return combinedPromise;
 }

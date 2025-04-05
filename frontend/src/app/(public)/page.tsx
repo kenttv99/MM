@@ -1,7 +1,7 @@
 // frontend/src/app/(public)/page.tsx
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 import Link from "next/link";
 import Footer from "@/components/Footer";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
@@ -25,12 +25,17 @@ const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, desc
 );
 
 const PublicHomePage: React.FC = () => {
-  const { setStaticLoading } = useLoading();
+  const { setStaticLoading, isStaticLoading } = useLoading();
+  const hasReset = useRef(false);
 
   useEffect(() => {
-    console.log("PublicHomePage useEffect triggered, setting static loading to false");
-    setStaticLoading(false); // Статическая страница, загружается сразу
-  }, [setStaticLoading]);
+    // Сбрасываем состояние загрузки только один раз при монтировании
+    if (!hasReset.current && isStaticLoading) {
+      console.log("PublicHomePage useEffect triggered, setting static loading to false");
+      setStaticLoading(false);
+      hasReset.current = true;
+    }
+  }, [isStaticLoading, setStaticLoading]);
 
   const features: FeatureCardProps[] = [
     {

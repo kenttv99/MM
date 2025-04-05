@@ -1,7 +1,7 @@
 // frontend/src/components/Header.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import Logo from "./Logo";
@@ -17,7 +17,6 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
-    console.log("AvatarDisplay useEffect: Resetting imgError for avatarUrl:", avatarUrl);
     setImgError(false);
   }, [avatarUrl]);
 
@@ -47,61 +46,76 @@ const Header: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
-
-  // Лог при монтировании и рендере
-  console.log("Header rendered, isAuth:", isAuth, "userData:", userData, "isMobileMenuOpen:", isMobileMenuOpen);
+  const lastScrollY = useRef<number>(0);
+  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
+  const isInitialMount = useRef<boolean>(true);
 
   useEffect(() => {
-    console.log("Header useEffect for scroll event mounted");
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+    }
+  }, [isAuth, userData, isMobileMenuOpen]);
+
+  useEffect(() => {
+    let isScrolling = false;
+
     const handleScroll = () => {
-      console.log("Scroll event triggered, scrollY:", window.scrollY);
-      setIsScrolled(window.scrollY > 20);
+      if (!isScrolling) {
+        isScrolling = true;
+        
+        if (scrollTimeout.current) {
+          clearTimeout(scrollTimeout.current);
+        }
+
+        scrollTimeout.current = setTimeout(() => {
+          const currentScrollY = window.scrollY;
+          // Only update state if scroll position has changed significantly (more than 20px)
+          if (Math.abs(currentScrollY - lastScrollY.current) > 20) {
+            setIsScrolled(currentScrollY > 20);
+            lastScrollY.current = currentScrollY;
+          }
+          isScrolling = false;
+        }, 100); // Throttle to max once every 100ms
+      }
     };
-    window.addEventListener("scroll", handleScroll);
+
+    window.addEventListener("scroll", handleScroll, { passive: true });
     return () => {
-      console.log("Header useEffect for scroll event unmounted");
+      if (scrollTimeout.current) {
+        clearTimeout(scrollTimeout.current);
+      }
       window.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
   const toggleMobileMenu = useCallback(() => {
-    console.log("toggleMobileMenu called, current isMobileMenuOpen:", isMobileMenuOpen);
-    setIsMobileMenuOpen((prev) => {
-      console.log("toggleMobileMenu setting new value:", !prev);
-      return !prev;
-    });
-  }, [isMobileMenuOpen]);
+    setIsMobileMenuOpen((prev) => !prev);
+  }, []);
 
   const openLogin = useCallback(() => {
-    console.log("openLogin called");
     setIsRegisterMode(false);
     setIsModalOpen(true);
   }, []);
 
   const openRegistration = useCallback(() => {
-    console.log("openRegistration called");
     setIsRegisterMode(true);
     setIsModalOpen(true);
   }, []);
 
   const handleModalClose = useCallback(() => {
-    console.log("handleModalClose called");
     setIsModalOpen(false);
     setIsRegisterMode(false);
   }, []);
 
   const toggleToLogin = useCallback(() => {
-    console.log("toggleToLogin called");
     setIsRegisterMode(false);
   }, []);
 
   const toggleToRegister = useCallback(() => {
-    console.log("toggleToRegister called");
     setIsRegisterMode(true);
   }, []);
 
   const handleLogout = useCallback(() => {
-    console.log("handleLogout called");
     logout();
     setIsMobileMenuOpen(false);
   }, [logout]);
@@ -115,12 +129,6 @@ const Header: React.FC = () => {
     { href: "/partner", label: "Стать партнером" },
     { label: "Выход", onClick: handleLogout },
   ];
-
-  const menuVariants = {
-    closed: { x: "100%", opacity: 0, transition: { duration: 0.3 } },
-    open: { x: 0, opacity: 1, transition: { duration: 0.3, staggerChildren: 0.1 } },
-  };
-  const menuItemVariants = { closed: { opacity: 0, y: 20 }, open: { opacity: 1, y: 0 } };
 
   return (
     <header
@@ -172,11 +180,10 @@ const Header: React.FC = () => {
               <Link
                 href="/partner"
                 className="text-orange-500 hover:text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-50 text-sm sm:text-base min-w-[100px] text-center"
-                onClick={() => console.log("Navigated to /partner from desktop")}
               >
                 Стать партнером
               </Link>
-              <Link href="/profile" className="text-orange-500 hover:text-orange-600" onClick={() => console.log("Navigated to /profile from desktop")}>
+              <Link href="/profile" className="text-orange-500 hover:text-orange-600">
                 <AvatarDisplay
                   avatarUrl={userData?.avatar_url}
                   fio={userData?.fio}
@@ -222,10 +229,10 @@ const Header: React.FC = () => {
 
       {isMobileMenuOpen && (
         <motion.div
-          initial="closed"
-          animate="open"
-          exit="closed"
-          variants={menuVariants}
+          initial={{ x: "100%", opacity: 0 }}
+          animate={{ x: 0, opacity: 1 }}
+          exit={{ x: "100%", opacity: 0 }}
+          transition={{ duration: 0.3 }}
           className="fixed inset-0 bg-white/95 z-50 md:hidden flex flex-col overflow-y-auto"
         >
           <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-white">
@@ -243,11 +250,17 @@ const Header: React.FC = () => {
           </div>
           <nav className="flex-grow flex flex-col items-center justify-center space-y-8 p-6">
             {(isAuth ? authNavItemsMobile : guestNavItems).map((item, index) => (
-              <motion.div key={index} variants={menuItemVariants} className="w-full text-center">
+              <motion.div 
+                key={index} 
+                className="w-full text-center"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: index * 0.1 }}
+                style={{ opacity: 0 }}
+              >
                 {item.onClick ? (
                   <button
                     onClick={() => {
-                      console.log(`Mobile nav item clicked: ${item.label}`);
                       setIsMobileMenuOpen(false);
                       item.onClick?.();
                     }}
@@ -260,7 +273,6 @@ const Header: React.FC = () => {
                     href={item.href || "#"}
                     className="block w-full py-3 text-gray-800 hover:text-orange-500 transition-colors duration-200 text-xl font-medium min-h-[48px]"
                     onClick={() => {
-                      console.log(`Mobile nav item navigated: ${item.label} to ${item.href}`);
                       setIsMobileMenuOpen(false);
                     }}
                   >

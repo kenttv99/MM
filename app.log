@@ -1695,3 +1695,12 @@ WHERE events.start_date >= $1::VARCHAR]
 2025-04-04 15:08:48,114 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-04 15:09:48,129 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-04 15:09:48,131 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-05 17:06:06,984 - asyncio - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 88, in _run
+    self._context.run(self._callback, *self._args)
+  File "C:\Users\kentt\AppData\Local\Programs\Python\Python312\Lib\asyncio\proactor_events.py", line 165, in _call_connection_lost
+    self._sock.shutdown(socket.SHUT_RDWR)
+ConnectionResetError: [WinError 10054] Удаленный хост принудительно разорвал существующее подключение
+2025-04-05 22:15:29,509 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

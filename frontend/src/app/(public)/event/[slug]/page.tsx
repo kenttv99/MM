@@ -1,7 +1,7 @@
 // frontend/src/app/(public)/event/[slug]/page.tsx
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -17,95 +17,175 @@ import { ru } from "date-fns/locale";
 import Login from "@/components/Login";
 import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
-import { FaCalendarAlt } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
-import { useLoading } from "@/contexts/LoadingContext";
-
-const generateSlug = (title: string, id: number): string => {
-  const translitMap: { [key: string]: string } = {
-    а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
-    й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
-    у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
-    ю: "yu", я: "ya", " ": "-",
-  };
-  const slug = title.toLowerCase().split("").map(char => translitMap[char] || char).join("")
-    .replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
-  return slug ? `${slug}-${id}` : `event-${id}`;
-};
+import { ApiResponse } from "@/types/api";
 
 const extractIdFromSlug = (slug: string): string => slug.split("-").pop() || "";
 
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
-  const router = useRouter();
   const [event, setEvent] = useState<EventData | null>(null);
   const [hasServerError, setHasServerError] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
-  const { isAuth, checkAuth } = useAuth();
-  const { setStaticLoading, setDynamicLoading, resetLoading } = useLoading();
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const hasRedirectedRef = useRef(false);
-
-  const fetchEvent = useCallback(async () => {
-    if (!slug) return;
-    setDynamicLoading(true);
-    setFetchError(null);
-    setHasServerError(false);
-    const eventId = extractIdFromSlug(slug);
-
-    if (abortControllerRef.current) abortControllerRef.current.abort();
-    abortControllerRef.current = new AbortController();
-
-    try {
-      const data = await apiFetch<EventData>(`/v1/public/events/${eventId}`, {
-        cache: "no-store",
-        signal: abortControllerRef.current.signal,
-      }, setDynamicLoading);
-      if (data) {
-        const correctSlug = generateSlug(data.title, data.id || parseInt(eventId));
-        if (slug !== correctSlug && !hasRedirectedRef.current) {
-          hasRedirectedRef.current = true;
-          router.replace(`/event/${correctSlug}`, { scroll: false });
-          return;
-        }
-        setEvent(data);
-        try {
-          localStorage.setItem(`event-title-${eventId}`, data.title);
-          localStorage.setItem(`event-slug-${eventId}`, correctSlug);
-        } catch (error) {
-          console.error("Error saving to localStorage:", error);
-        }
-      }
-    } catch (err) {
-      if (err instanceof Error && err.message === "Request aborted") return;
-      const error = err instanceof Error ? err : new Error("Неизвестная ошибка");
-      if (error.message.includes("HTTP error! Status: 5")) setHasServerError(true);
-      else if (error.message.includes("Request timed out") || error.message.includes("Network Error")) setHasServerError(true);
-      else setFetchError(error.message || "Не удалось загрузить мероприятие");
-    } finally {
-      setDynamicLoading(false);
-      abortControllerRef.current = null;
+  const { isAuth } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+  const fetchInProgressRef = useRef(false);
+  const hasInitialFetchRef = useRef(false);
+  const isMountedRef = useRef(false);
+  const lastLogTimeRef = useRef(0);
+  const lastFetchTimeRef = useRef(0);
+  const globalLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mountCountRef = useRef(0);
+  
+  // Функция для логирования с ограничением частоты
+  const logWithThrottle = (message: string) => {
+    const now = Date.now();
+    if (now - lastLogTimeRef.current > 500) { // Логируем не чаще чем раз в 500мс
+      console.log(message);
+      lastLogTimeRef.current = now;
     }
-  }, [slug, router, setDynamicLoading]);
-
+  };
+  
+  // Функция для проверки, можно ли делать новый запрос
+  const canMakeNewRequest = useCallback(() => {
+    const now = Date.now();
+    // Не делаем запросы чаще чем раз в 2 секунды
+    if (now - lastFetchTimeRef.current < 2000) {
+      logWithThrottle("EventPage: Skipping fetch due to rate limiting");
+      return false;
+    }
+    return true;
+  }, []);
+  
+  // Функция для сброса глобальной блокировки
+  const resetGlobalLock = useCallback(() => {
+    if (globalLockTimeoutRef.current) {
+      clearTimeout(globalLockTimeoutRef.current);
+      globalLockTimeoutRef.current = null;
+    }
+    
+    // Устанавливаем таймаут для сброса глобальной блокировки
+    globalLockTimeoutRef.current = setTimeout(() => {
+      logWithThrottle("EventPage: Resetting global lock timeout");
+      fetchInProgressRef.current = false;
+      globalLockTimeoutRef.current = null;
+    }, 5000); // Сбрасываем через 5 секунд
+  }, []);
+  
+  // Handle auth changes
   useEffect(() => {
-    setStaticLoading(false); // Статический контент готов сразу
-    fetchEvent();
-    return () => {
-      if (abortControllerRef.current) abortControllerRef.current.abort();
-      resetLoading();
+    const handleAuthChange = () => {
+      logWithThrottle("EventPage: Auth change detected");
+      // Только сбрасываем флаг начальной загрузки
+      hasInitialFetchRef.current = false;
     };
-  }, [fetchEvent, setStaticLoading, resetLoading]);
-
-  useEffect(() => {
-    const handleAuthChange = () => checkAuth();
     window.addEventListener("auth-change", handleAuthChange);
     return () => window.removeEventListener("auth-change", handleAuthChange);
-  }, [checkAuth]);
+  }, []);
 
+  // Fetch event data
+  useEffect(() => {
+    if (!slug) {
+      logWithThrottle("EventPage: No slug provided");
+      setIsLoading(false);
+      return;
+    }
+    
+    if (event && hasInitialFetchRef.current) {
+      logWithThrottle("EventPage: Event data already loaded");
+      setIsLoading(false);
+      return;
+    }
+    
+    if (fetchInProgressRef.current) {
+      logWithThrottle("EventPage: Fetch already in progress");
+      return;
+    }
+    
+    let isRequestCancelled = false;
+    
+    const fetchEventData = async () => {
+      if (isRequestCancelled) return;
+      
+      try {
+        fetchInProgressRef.current = true;
+        setIsLoading(true);
+        
+        const timestamp = Date.now();
+        const url = `/v1/public/events/${slug}?t=${timestamp}`;
+        
+        logWithThrottle(`EventPage: Fetching event data from ${url}`);
+        
+        const response = await apiFetch<EventData>(url, {
+          cache: "no-store"
+        });
+        
+        if (isRequestCancelled) return;
+        
+        if (response && typeof response === 'object' && 'title' in response) {
+          logWithThrottle("EventPage: Event data received successfully");
+          setEvent(response as EventData);
+          setFetchError(null);
+          setHasServerError(false);
+          hasInitialFetchRef.current = true;
+        } else {
+          logWithThrottle("EventPage: Invalid event data received");
+          setFetchError("Мероприятие не найдено");
+        }
+      } catch (err) {
+        if (!isRequestCancelled) {
+          console.error("EventPage: Error fetching event:", err);
+          setFetchError(err instanceof Error ? err.message : "Ошибка загрузки мероприятия");
+        }
+      } finally {
+        if (!isRequestCancelled) {
+          setIsLoading(false);
+          fetchInProgressRef.current = false;
+        }
+      }
+    };
+    
+    // Добавляем небольшую задержку перед запуском запроса
+    const initDelay = setTimeout(() => {
+      if (!isRequestCancelled) {
+        fetchEventData();
+      }
+    }, 100);
+    
+    return () => {
+      isRequestCancelled = true;
+      clearTimeout(initDelay);
+      fetchInProgressRef.current = false;
+    };
+  }, [slug, event]);
+  
+  // Component mount/unmount handling
+  useEffect(() => {
+    const currentMountCount = mountCountRef.current;
+    mountCountRef.current++;
+    isMountedRef.current = true;
+    logWithThrottle(`EventPage: Component mounted (${currentMountCount + 1})`);
+    
+    return () => {
+      isMountedRef.current = false;
+      logWithThrottle(`EventPage: Component unmounted (${currentMountCount + 1})`);
+      
+      // Сбрасываем состояние при размонтировании
+      setIsLoading(false);
+      fetchInProgressRef.current = false;
+      
+      // Очищаем таймауты
+      if (globalLockTimeoutRef.current) {
+        clearTimeout(globalLockTimeoutRef.current);
+        globalLockTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // Event handlers
   const handleBookingClick = useCallback(() => console.log("Booking click triggered"), []);
   const handleLoginClick = useCallback(() => {
     setIsRegisterMode(false);
@@ -114,48 +194,99 @@ export default function EventPage() {
   const handleModalClose = useCallback(() => setIsModalOpen(false), []);
   const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
   const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+  
+  // Handle booking success
+  const handleBookingSuccess = useCallback(() => {
+    if (!slug || fetchInProgressRef.current) return;
+    if (!canMakeNewRequest()) return;
+    
+    // Set loading state
+    setIsLoading(true);
+    fetchInProgressRef.current = true;
+    lastFetchTimeRef.current = Date.now();
+    
+    // Create an AbortController for this fetch
+    const controller = new AbortController();
+    
+    // Fetch updated event data
+    apiFetch<EventData>(`/v1/public/events/${slug}?t=${Date.now()}`, {
+      cache: "no-store",
+      signal: controller.signal
+    })
+      .then((response: ApiResponse<EventData>) => {
+        // Check if response is an aborted response
+        if (response && 'aborted' in response) {
+          logWithThrottle("EventPage: Request was aborted: " + response.reason);
+          
+          // Если запрос был отклонен из-за глобальной блокировки, установим таймаут для сброса
+          if (response.reason === "global_lock") {
+            resetGlobalLock();
+          }
+          return;
+        }
+        
+        // Check if response is valid event data
+        if (response && typeof response === 'object' && 'title' in response) {
+          setEvent(response as EventData);
+          setFetchError(null);
+          setHasServerError(false);
+        }
+      })
+      .catch((err) => {
+        // Check if the error is due to abort
+        if (err.name === 'AbortError') {
+          logWithThrottle("EventPage: Request was aborted by the browser");
+          return;
+        }
+        
+        console.error("EventPage: Error fetching updated event data:", err);
+      })
+      .finally(() => {
+        setIsLoading(false);
+        fetchInProgressRef.current = false;
+      });
+      
+    // Return the controller for cleanup
+    return controller;
+  }, [slug, canMakeNewRequest, resetGlobalLock]);
 
-  if (hasServerError) return <ErrorPlaceholder />;
-  if (fetchError) return notFound();
-  if (!event) return (
-    <div className="min-h-screen flex flex-col">
-      <Header />
-      <main className="flex-grow" />
-      <Footer />
-    </div>
-  );
+  // Debug render states
+  useEffect(() => {
+    if (isMountedRef.current) {
+      logWithThrottle(`EventPage: Render state - isLoading: ${isLoading} event: ${event ? "exists" : "null"} fetchError: ${fetchError}`);
+    }
+  }, [isLoading, event, fetchError]);
 
-  if (event.status === "draft" || !event.published) {
+  // Render error states
+  if (hasServerError) {
+    logWithThrottle("EventPage: Rendering server error");
+    return <ErrorPlaceholder />;
+  }
+  
+  if (fetchError) {
+    logWithThrottle("EventPage: Rendering fetch error");
+    return notFound();
+  }
+  
+  // Render loading state
+  if (!event || isLoading) {
+    logWithThrottle("EventPage: Rendering loading state");
     return (
       <div className="min-h-screen flex flex-col">
         <Header />
-        <main className="flex-grow container mx-auto px-4 py-12">
-          <div className="flex flex-col items-center justify-center py-12 bg-white rounded-lg shadow-sm">
-            <div className="w-16 h-16 bg-orange-100 rounded-full flex items-center justify-center mb-4">
-              <FaCalendarAlt className="text-orange-500 w-8 h-8" />
-            </div>
-            <h3 className="text-xl font-semibold mb-2">Мероприятие недоступно</h3>
-            <p className="text-gray-600 text-center max-w-md mb-6">Это мероприятие пока недоступно для просмотра.</p>
-            <button onClick={() => router.push("/events")} className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600">
-              Вернуться к мероприятиям
-            </button>
+        <main className="flex-grow flex items-center justify-center">
+          <div className="animate-pulse flex flex-col items-center">
+            <div className="h-12 w-12 bg-orange-200 rounded-full mb-4"></div>
+            <div className="h-4 bg-orange-200 rounded w-48 mb-2"></div>
+            <div className="h-4 bg-orange-200 rounded w-32"></div>
           </div>
         </main>
         <Footer />
       </div>
     );
   }
-
-  const eventDate = format(new Date(event.start_date), "d MMMM yyyy", { locale: ru });
-  const eventTime = format(new Date(event.start_date), "HH:mm", { locale: ru });
-  const availableQuantity = event.ticket_type?.available_quantity || 0;
-  const remainingQuantity = availableQuantity - (event.ticket_type?.sold_quantity || 0);
-  const soldQuantity = event.ticket_type?.sold_quantity || 0;
-  const displayStatus = event.status === "registration_open" && remainingQuantity === 0 ? "Регистрация закрыта (мест нет)" :
-    event.status === "registration_open" ? "Регистрация открыта" :
-    event.status === "registration_closed" ? "Регистрация закрыта" :
-    event.status === "completed" ? "Мероприятие завершено" : "Черновик";
-
+  
+  // Render event content
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -170,7 +301,7 @@ export default function EventPage() {
               <Image src={event.image_url} alt={event.title} fill className="object-cover" priority />
             ) : (
               <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                <span className="text-gray-500">Нет изображения</span>
+                <span className="text-gray-500"></span>
               </div>
             )}
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
@@ -185,55 +316,129 @@ export default function EventPage() {
             </div>
           </div>
         </motion.section>
+
         <div className="container mx-auto px-6 py-12">
           {event.ticket_type && (
-            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
-              <EventDetails date={eventDate} time={eventTime} location={event.location || "Не указано"} price={event.price} freeRegistration={event.ticket_type.free_registration} />
+            <motion.section 
+              initial={{ opacity: 0, y: 20 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              className="mb-12"
+            >
+              <EventDetails 
+                date={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
+                time={format(new Date(event.start_date), "HH:mm", { locale: ru })}
+                location={event.location || "Не указано"}
+                price={event.price}
+                freeRegistration={event.ticket_type.free_registration}
+              />
             </motion.section>
           )}
-          <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mb-12">
-            <div className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${displayStatus !== "Регистрация открыта" ? "opacity-50 pointer-events-none" : ""}`}>
-              <h2 className="text-2xl font-semibold mb-4 text-center">{displayStatus}</h2>
+
+          <motion.section 
+            initial={{ opacity: 0, y: 20 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            className="mb-12"
+          >
+            <div className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${
+              event.status !== "registration_open" || 
+              (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
+                ? "opacity-50 pointer-events-none" 
+                : ""
+            }`}>
+              <h2 className="text-2xl font-semibold mb-4 text-center">
+                {event.status === "registration_open" && 
+                 (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
+                  ? "Регистрация закрыта (мест нет)"
+                  : event.status === "registration_open" 
+                    ? "Регистрация открыта"
+                    : event.status === "registration_closed" 
+                      ? "Регистрация закрыта"
+                      : event.status === "completed" 
+                        ? "Мероприятие завершено" 
+                        : "Черновик"}
+              </h2>
+
               <EventRegistration
                 eventId={event.id || parseInt(extractIdFromSlug(slug))}
                 eventTitle={event.title}
-                eventDate={eventDate}
-                eventTime={eventTime}
+                eventDate={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
+                eventTime={format(new Date(event.start_date), "HH:mm", { locale: ru })}
                 eventLocation={event.location || "Не указано"}
                 ticketType={event.ticket_type?.name || "Стандартный"}
-                availableQuantity={availableQuantity}
-                soldQuantity={soldQuantity}
+                availableQuantity={event.ticket_type?.available_quantity || 0}
+                soldQuantity={event.ticket_type?.sold_quantity || 0}
                 price={event.price}
                 freeRegistration={event.ticket_type?.free_registration || false}
                 onBookingClick={handleBookingClick}
                 onLoginClick={handleLoginClick}
-                onBookingSuccess={fetchEvent}
-                displayStatus={displayStatus}
+                onBookingSuccess={handleBookingSuccess}
+                displayStatus={event.status === "registration_open" && 
+                             (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
+                              ? "Регистрация закрыта (мест нет)"
+                              : event.status === "registration_open" 
+                                ? "Регистрация открыта"
+                                : event.status === "registration_closed" 
+                                  ? "Регистрация закрыта"
+                                  : event.status === "completed" 
+                                    ? "Мероприятие завершено" 
+                                    : "Черновик"}
               />
+
               {!isAuth && (
-                <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-center mt-6 text-gray-700 bg-orange-50 py-3 px-6 rounded-full">
+                <motion.p 
+                  initial={{ opacity: 0 }} 
+                  animate={{ opacity: 1 }} 
+                  className="text-center mt-6 text-gray-700 bg-orange-50 py-3 px-6 rounded-full"
+                >
                   Для бронирования билета{" "}
-                  <button onClick={handleLoginClick} className="text-orange-600 font-semibold hover:underline">войдите в аккаунт</button>
+                  <button 
+                    onClick={handleLoginClick} 
+                    className="text-orange-600 font-semibold hover:underline"
+                  >
+                    войдите в аккаунт
+                  </button>
                 </motion.p>
               )}
             </div>
           </motion.section>
+
           {event.description && (
-            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="max-w-3xl mx-auto">
+            <motion.section 
+              initial={{ opacity: 0, y: 20 }} 
+              animate={{ opacity: 1, y: 0 }} 
+              className="max-w-3xl mx-auto"
+            >
               <h2 className="text-2xl font-semibold mb-4">Описание</h2>
-              <FormattedDescription content={event.description} className="text-gray-600 max-w-full overflow-wrap-break-word" disableFontSize={false} />
+              <FormattedDescription 
+                content={event.description} 
+                className="text-gray-600 max-w-full overflow-wrap-break-word" 
+                disableFontSize={false} 
+              />
             </motion.section>
           )}
         </div>
       </main>
       <Footer />
+
       <AnimatePresence>
         {isModalOpen && (
-          <AuthModal isOpen={isModalOpen} onClose={handleModalClose} title={isRegisterMode ? "Регистрация" : "Вход"}>
+          <AuthModal 
+            isOpen={isModalOpen} 
+            onClose={handleModalClose} 
+            title={isRegisterMode ? "Регистрация" : "Вход"}
+          >
             {isRegisterMode ? (
-              <Registration isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
+              <Registration 
+                isOpen={isModalOpen} 
+                onClose={handleModalClose} 
+                toggleMode={toggleToLogin} 
+              />
             ) : (
-              <Login isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
+              <Login 
+                isOpen={isModalOpen} 
+                onClose={handleModalClose} 
+                toggleMode={toggleToRegister} 
+              />
             )}
           </AuthModal>
         )}

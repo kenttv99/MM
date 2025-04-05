@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useUserForm } from "@/hooks/useUserForm";
@@ -9,7 +9,7 @@ import { FaUser, FaEnvelope, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 
-const EditUserPage: React.FC = () => {
+const EditUserPageContent: React.FC = () => {
   const searchParams = useSearchParams();
   const userId = searchParams.get("user_id");
   const router = useRouter();
@@ -104,6 +104,14 @@ const EditUserPage: React.FC = () => {
         </div>
       </main>
     </div>
+  );
+};
+
+const EditUserPage: React.FC = () => {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <EditUserPageContent />
+    </Suspense>
   );
 };
 

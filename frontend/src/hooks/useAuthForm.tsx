@@ -59,6 +59,10 @@ export const useAuthForm = ({
           body: JSON.stringify(formValues),
         });
 
+        if ('aborted' in data) {
+          throw new Error(data.reason ? String(data.reason) : "Request was aborted");
+        }
+
         if (isLogin && data.access_token) {
           const userData = {
             id: data.id || 0,

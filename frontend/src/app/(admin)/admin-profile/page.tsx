@@ -62,15 +62,18 @@ export default function AdminProfilePage() {
         },
         body: JSON.stringify({ fio: formValues.fio }),
       });
-      if (data) {
-        setFormValues((prev) => ({ ...prev, fio: data.fio }));
-        setSuccessMessage("Профиль успешно обновлен!");
-        localStorage.setItem("admin_data", JSON.stringify(data));
-        setTimeout(() => {
-          setSuccessMessage(null);
-          setIsEditing(false);
-        }, 1500);
+      
+      if ('aborted' in data) {
+        throw new Error(data.reason || "Запрос был прерван");
       }
+      
+      setFormValues((prev) => ({ ...prev, fio: data.fio }));
+      setSuccessMessage("Профиль успешно обновлен!");
+      localStorage.setItem("admin_data", JSON.stringify(data));
+      setTimeout(() => {
+        setSuccessMessage(null);
+        setIsEditing(false);
+      }, 1500);
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось обновить профиль");
       if (err instanceof Error && "status" in err && err.status === 401) {

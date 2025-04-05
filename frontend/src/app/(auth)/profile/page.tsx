@@ -137,7 +137,7 @@ const ProfilePage: React.FC = () => {
         updatedUser = await apiFetch<UserData>("/user_edits/upload-avatar", { method: "POST", body: formData });
       }
 
-      if (updatedUser) {
+      if (updatedUser && !('aborted' in updatedUser)) {
         const updatedData = {
           fio: updatedUser.fio || "",
           telegram: updatedUser.telegram || "",

@@ -9,7 +9,10 @@ const nextConfig = {
       // Пользовательский сервер (порт 8000)
       { source: "/auth/:path*", destination: `${USER_API_URL}/auth/:path*` },
       { source: "/user_edits/:path*", destination: `${USER_API_URL}/user_edits/:path*` },
+      { source: "/v1/public/events", destination: `${USER_API_URL}/v1/public/events` },
       { source: "/v1/public/events/:path*", destination: `${USER_API_URL}/v1/public/events/:path*` },
+      { source: "/api/v1/public/events", destination: `${USER_API_URL}/v1/public/events` },
+      { source: "/api/v1/public/events/:path*", destination: `${USER_API_URL}/v1/public/events/:path*` },
       { source: "/register", destination: `${USER_API_URL}/register` },
       { source: "/images/:path*", destination: `${USER_API_URL}/images/:path*` },
       { source: "/notifications/:path*", destination: `${USER_API_URL}/notifications/:path*` }, // Добавлено

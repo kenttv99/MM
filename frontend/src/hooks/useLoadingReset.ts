@@ -3,21 +3,21 @@ import { useEffect } from "react";
 import { useLoading } from "@/contexts/LoadingContext";
 
 export function useLoadingReset(resetDelay: number = 2000) {
-  const { isLoading, setLoading } = useLoading();
+  const { isDynamicLoading, setDynamicLoading } = useLoading();
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (isLoading) {
+      if (isDynamicLoading) {
         console.warn(`useLoadingReset: Force resetting loading state after ${resetDelay}ms`);
-        setLoading(false);
+        setDynamicLoading(false);
       }
     }, resetDelay);
 
     return () => {
       clearTimeout(timer);
-      setLoading(false);
+      setDynamicLoading(false);
     };
-  }, [isLoading, setLoading, resetDelay]);
+  }, [isDynamicLoading, setDynamicLoading, resetDelay]);
 
-  return { isLoading, setLoading };
+  return { isLoading: isDynamicLoading, setLoading: setDynamicLoading };
 }

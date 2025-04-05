@@ -7,11 +7,11 @@ import Link from 'next/link';
 import { useLoading } from "@/contexts/LoadingContext";
 
 export default function MediaPage() {
-  const { setLoading } = useLoading();
+  const { setStaticLoading } = useLoading();
 
   React.useEffect(() => {
-    setLoading(false); // Статическая страница
-  }, [setLoading]);
+    setStaticLoading(false); // Статическая страница
+  }, [setStaticLoading]);
 
   return (
     <>

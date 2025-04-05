@@ -12,7 +12,7 @@ import { useLoading } from "@/contexts/LoadingContext";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const isLoginPage = pathname === "/admin-login";
-  const { setLoading } = useLoading();
+  const { setDynamicLoading } = useLoading();
 
   const queryClient = useMemo(
     () =>
@@ -32,15 +32,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   useEffect(() => {
     const timer = setTimeout(() => {
       if (!isLoginPage) {
-        setLoading(false);
+        setDynamicLoading(false);
       }
     }, 300);
 
     return () => {
       clearTimeout(timer);
-      setLoading(false);
+      setDynamicLoading(false);
     };
-  }, [isLoginPage, setLoading]);
+  }, [isLoginPage, setDynamicLoading]);
 
   return (
     <AdminAuthProvider>

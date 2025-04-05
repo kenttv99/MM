@@ -1,26 +1,37 @@
-// frontend/src/app/(public)/events/page.tsx
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
 import { AnimatePresence, motion } from "framer-motion";
-import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 import { useLoading } from "@/contexts/LoadingContext";
-import { usePathname } from "next/navigation";
+import { useInView } from "react-intersection-observer";
+import { useQuery } from "@tanstack/react-query";
+import { apiFetch } from "@/utils/api";
+import Header from "@/components/Header";
 
 const ITEMS_PER_PAGE = 6;
+
+interface EventsResponse {
+  data: EventData[];
+  total: number;
+}
+
+interface EventsFilters {
+  startDate: string;
+  endDate: string;
+}
 
 const generateSlug = (title: string, id: number): string => {
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
-    й: "y", к: "k", л: "l", м: "m", н: "н", о: "o", п: "p", р: "r", с: "s", т: "t",
+    й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
-    ю: "yu", я: "ya", " ": "-",
+    ю: "yu", я: "ya", " ": "-"
   };
   const slug = title.toLowerCase().split("").map(char => translitMap[char] || char).join("")
     .replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
@@ -185,279 +196,124 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: React.RefObject<HTML
 );
 EventCard.displayName = "EventCard";
 
-interface FilterState {
-  startDate: string;
-  endDate: string;
-}
+// Skeleton loader component for event cards
+const EventCardSkeleton: React.FC = () => {
+  return (
+    <div className="bg-white rounded-xl shadow-md min-h-[300px] flex flex-col">
+      <div className="relative h-48 bg-gray-200 animate-pulse rounded-t-xl"></div>
+      <div className="p-4 flex-grow flex flex-col">
+        <div className="h-6 bg-gray-200 rounded w-3/4 mb-2 animate-pulse"></div>
+        <div className="space-y-2 mb-4 flex-grow">
+          <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
+          <div className="h-4 bg-gray-200 rounded w-5/6 animate-pulse"></div>
+          <div className="h-4 bg-gray-200 rounded w-4/6 animate-pulse"></div>
+        </div>
+        <div className="flex justify-between mt-auto">
+          <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse"></div>
+          <div className="h-4 bg-gray-200 rounded w-1/4 animate-pulse"></div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Skeleton loader for a group of events
+const EventGroupSkeleton: React.FC = () => {
+  return (
+    <div className="mb-8">
+      <div className="h-6 bg-gray-200 rounded w-1/4 mb-3 animate-pulse"></div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[1, 2, 3].map((i) => (
+          <EventCardSkeleton key={i} />
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const EventsPage: React.FC = () => {
-  const { setStaticLoading, setDynamicLoading } = useLoading();
-  const [events, setEvents] = useState<EventData[]>([]);
-  const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
-  const [error, setError] = useState<string | null>(null);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const { setDynamicLoading } = useLoading();
   const [currentPage, setCurrentPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [allEventsLoaded, setAllEventsLoaded] = useState(false);
-  const loadTimeout = useRef<NodeJS.Timeout | null>(null);
+  const [activeFilters, setActiveFilters] = useState<EventsFilters>({ startDate: "", endDate: "" });
+  const [tempFilters, setTempFilters] = useState<EventsFilters>({ startDate: "", endDate: "" });
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
-  const lastCardRef = useRef<HTMLDivElement | null>(null);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const isFirstLoad = useRef(true);
-  const isMounted = useRef(false);
-  const isDataLoading = useRef(false);
-  const pathname = usePathname();
-  const hasInitialized = useRef(false);
-  const pathChangeCount = useRef(0);
-  const loadAttempted = useRef(false);
-  const prevPathname = useRef(pathname);
-
-  const loadEvents = useCallback(async (page: number = 1, filters: FilterState = { startDate: "", endDate: "" }, append: boolean = false) => {
-    if (!isMounted.current) return;
-    
-    // Если данные уже загружаются, пропускаем новую загрузку
-    if (isDataLoading.current) {
-      console.log("EventsPage: Data is already loading, skipping");
-      return;
-    }
-    
-    // Устанавливаем флаг загрузки данных
-    isDataLoading.current = true;
-    loadAttempted.current = true;
-    
-    try {
-      // Если это первая загрузка, устанавливаем статическую загрузку
-      if (isFirstLoad.current) {
-        console.log("EventsPage: Setting static loading to true");
-        setStaticLoading(true);
-      } else {
-        // Иначе устанавливаем динамическую загрузку
-        console.log("EventsPage: Setting dynamic loading to true");
-        setDynamicLoading(true);
-      }
-      
-      console.log("EventsPage: Loading events page", page);
-      
-      // Загружаем данные
-      const response = await apiFetch<EventData[]>(`/v1/public/events?page=${page}&limit=${ITEMS_PER_PAGE}&start_date=${formatDateForAPI(filters.startDate)}&end_date=${formatDateForAPI(filters.endDate)}`, {
-        cache: page === 1 ? "no-store" : "default",
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  
+  // Используем React Query для управления данными
+  const { data, isLoading, error, isFetching } = useQuery<EventsResponse>({
+    queryKey: ['events', currentPage, activeFilters.startDate, activeFilters.endDate],
+    queryFn: async () => {
+      console.log("Fetching events with params:", {
+        page: currentPage,
+        limit: ITEMS_PER_PAGE,
+        startDate: formatDateForAPI(activeFilters.startDate),
+        endDate: formatDateForAPI(activeFilters.endDate)
       });
       
-      // Обрабатываем ответ
-      if (response && response.length > 0) {
-        const newEvents = response;
-        
-        // Если это первая загрузка, заменяем события
-        if (!append) {
-          setEvents(newEvents);
-        } else {
-          // Иначе добавляем новые события к существующим
-          setEvents(prev => [...prev, ...newEvents]);
+      const response = await apiFetch<EventData[] | EventsResponse>(
+        `/v1/public/events?page=${currentPage}&limit=${ITEMS_PER_PAGE}&start_date=${formatDateForAPI(activeFilters.startDate)}&end_date=${formatDateForAPI(activeFilters.endDate)}`,
+        {
+          cache: currentPage === 1 ? "no-store" : "default"
         }
-        
-        // Проверяем, есть ли еще события для загрузки
-        const hasMoreEvents = newEvents.length === ITEMS_PER_PAGE;
-        setHasMore(hasMoreEvents);
-        
-        // Если нет событий или это последняя страница, устанавливаем флаг загрузки всех событий
-        if (newEvents.length === 0 || !hasMoreEvents) {
-          setAllEventsLoaded(true);
-        }
-        
-        // Увеличиваем номер страницы
-        setCurrentPage(page + 1);
-        
-        // Сбрасываем ошибку
-        setError(null);
-      } else {
-        // Обрабатываем ошибку
-        setError("Ошибка загрузки мероприятий");
-        
-        // Если это первая загрузка, очищаем события
-        if (!append) {
-          setEvents([]);
-        }
-      }
-    } catch (err) {
-      // Обрабатываем исключение
-      console.error("Error loading events:", err);
-      setError("Ошибка загрузки мероприятий");
-      
-      // Если это первая загрузка, очищаем события
-      if (!append) {
-        setEvents([]);
-      }
-    } finally {
-      // Сбрасываем флаги загрузки
-      isDataLoading.current = false;
-      
-      // Сбрасываем состояние загрузки
-      if (isFirstLoad.current) {
-        console.log("EventsPage: Data loaded, resetting static loading state");
-        setStaticLoading(false);
-        isFirstLoad.current = false;
-      } else {
-        console.log("EventsPage: Data loaded, resetting dynamic loading state");
-        setDynamicLoading(false);
-      }
-    }
-  }, [setStaticLoading, setDynamicLoading]);
+      );
 
-  // Эффект для начальной загрузки
-  useEffect(() => {
-    if (isInitialLoad && isMounted.current && hasInitialized.current && !loadAttempted.current) {
-      console.log("EventsPage: Initial load");
-      isFirstLoad.current = true;
-      setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
-      loadEvents(1, activeFilters);
+      console.log("API response:", response);
+
+      if ('aborted' in response) {
+        throw new Error(response.reason || "Request was aborted");
+      }
+
+      // Handle both response formats - array or object with data property
+      if (Array.isArray(response)) {
+        console.log("Converting array response to EventsResponse format");
+        return {
+          data: response,
+          total: response.length
+        };
+      }
+
+      return response as EventsResponse;
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+  
+  // Используем react-intersection-observer для бесконечной прокрутки
+  const { ref: loadMoreRef, inView } = useInView({
+    threshold: 0.1,
+  });
+
+  // Обработка загрузки следующей страницы
+  React.useEffect(() => {
+    if (inView && data?.data?.length === ITEMS_PER_PAGE && !isFetching) {
+      setCurrentPage(prev => prev + 1);
+    }
+  }, [inView, data?.data?.length, isFetching]);
+
+  // Обновляем состояние загрузки
+  React.useEffect(() => {
+    // Set global loading state only for initial load
+    if (isInitialLoad) {
+      setDynamicLoading(isLoading);
+    }
+    
+    // Update initial load state after first data fetch
+    if (isInitialLoad && !isLoading && data) {
       setIsInitialLoad(false);
     }
-  }, [isInitialLoad, loadEvents, activeFilters, setStaticLoading]);
+  }, [isLoading, isFetching, setDynamicLoading, data, isInitialLoad]);
 
-  // Эффект для обновления при изменении фильтров
-  useEffect(() => {
-    if (!isInitialLoad && isMounted.current && hasInitialized.current) {
-      console.log("EventsPage: Filters changed, reloading");
-      setCurrentPage(1);
-      setAllEventsLoaded(false);
-      isFirstLoad.current = true;
-      setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
-      loadEvents(1, activeFilters);
-    }
-  }, [activeFilters, loadEvents, isInitialLoad, setStaticLoading]);
-
-  // Эффект для подгрузки при скролле
-  useEffect(() => {
-    if (!lastCardRef.current || !hasMore || !isMounted.current || !hasInitialized.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting) {
-          console.log("EventsPage: Loading more events");
-          const nextPage = currentPage + 1;
-          setCurrentPage(nextPage);
-          setDynamicLoading(true); // Устанавливаем состояние динамической загрузки
-          loadEvents(nextPage, activeFilters, true);
-        }
-      },
-      { threshold: 0.1 }
-    );
-
-    observer.observe(lastCardRef.current);
-    observerRef.current = observer;
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
-      }
-    };
-  }, [lastCardRef, hasMore, currentPage, loadEvents, activeFilters, setDynamicLoading]);
-
-  // Эффект для отслеживания монтирования компонента
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
-  // Эффект для отслеживания инициализации и смены пути
-  useEffect(() => {
-    // Пропускаем, если путь не изменился
-    if (prevPathname.current === pathname) {
-      return;
-    }
-    
-    console.log("EventsPage: Pathname changed to", pathname);
-    prevPathname.current = pathname;
-    pathChangeCount.current += 1;
-    
-    // Устанавливаем флаг инициализации после небольшой задержки
-    const initTimeout = setTimeout(() => {
-      if (!hasInitialized.current) {
-        console.log("EventsPage: Setting hasInitialized to true");
-        hasInitialized.current = true;
-        
-        // Если компонент уже смонтирован и загрузка еще не была попыткой, запускаем загрузку
-        if (isMounted.current && isInitialLoad && !loadAttempted.current) {
-          console.log("EventsPage: Component mounted, triggering initial load");
-          isFirstLoad.current = true;
-          setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
-          loadEvents(1, activeFilters);
-          setIsInitialLoad(false);
-        }
-      }
-    }, 100);
-    
-    return () => {
-      clearTimeout(initTimeout);
-    };
-  }, [pathname, isInitialLoad, loadEvents, activeFilters, setStaticLoading]);
-
-  // Эффект для принудительной загрузки, если предыдущие попытки не сработали
-  useEffect(() => {
-    if (isMounted.current && hasInitialized.current && !loadAttempted.current && events.length === 0) {
-      console.log("EventsPage: Forcing initial load after timeout");
-      const forceLoadTimeout = setTimeout(() => {
-        if (!loadAttempted.current) {
-          isFirstLoad.current = true;
-          setStaticLoading(true); // Устанавливаем состояние загрузки перед началом загрузки данных
-          loadEvents(1, activeFilters);
-          setIsInitialLoad(false);
-        }
-      }, 1000);
-      
-      return () => {
-        clearTimeout(forceLoadTimeout);
-      };
-    }
-  }, [events.length, loadEvents, activeFilters, setStaticLoading]);
-
-  // Дополнительный эффект для запуска загрузки при монтировании
-  useEffect(() => {
-    if (isMounted.current && !loadAttempted.current && events.length === 0) {
-      console.log("EventsPage: Component mounted, checking if we need to load data");
-      const checkTimeout = setTimeout(() => {
-        if (!loadAttempted.current && events.length === 0) {
-          console.log("EventsPage: No data loaded yet, triggering load");
-          isFirstLoad.current = true;
-          setStaticLoading(true);
-          loadEvents(1, activeFilters);
-          setIsInitialLoad(false);
-        }
-      }, 300);
-      
-      return () => {
-        clearTimeout(checkTimeout);
-      };
-    }
-  }, [isMounted.current, loadAttempted.current, events.length, loadEvents, activeFilters, setStaticLoading]);
-
-  // Эффект для очистки при размонтировании
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-      hasInitialized.current = false;
-      loadAttempted.current = false;
-      
-      // Сохраняем ссылку на таймаут в переменную внутри эффекта
-      const timeout = loadTimeout.current;
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    };
-  }, []);
-
+  // Memoize filter functions to prevent unnecessary re-renders
   const applyFilters = useCallback(() => {
-    if (activeFilters.startDate === "" && activeFilters.endDate === "") {
+    if (tempFilters.startDate === "" && tempFilters.endDate === "") {
       setIsFilterOpen(false);
       return;
     }
-    setActiveFilters(prev => ({ ...prev }));
+    setActiveFilters(tempFilters);
     setIsFilterOpen(false);
-  }, [activeFilters]);
+    setCurrentPage(1); // Сбрасываем страницу при применении фильтров
+  }, [tempFilters]);
 
   const resetFilters = useCallback(() => {
     if (!activeFilters.startDate && !activeFilters.endDate) {
@@ -465,24 +321,46 @@ const EventsPage: React.FC = () => {
       return;
     }
     setActiveFilters({ startDate: "", endDate: "" });
+    setTempFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
+    setCurrentPage(1); // Сбрасываем страницу при сбросе фильтров
   }, [activeFilters]);
 
-  const removeFilter = useCallback((filter: "startDate" | "endDate") => {
-    if (filter === "startDate") setActiveFilters(prev => ({ ...prev, startDate: "" }));
-    else setActiveFilters(prev => ({ ...prev, endDate: "" }));
-  }, []);
+  // Reset temp filters when filter modal is opened
+  React.useEffect(() => {
+    if (isFilterOpen) {
+      setTempFilters(activeFilters);
+    }
+  }, [isFilterOpen, activeFilters]);
 
-  const groupedEvents = React.useMemo(() => groupEventsByDate(events), [events]);
+  const groupedEvents = React.useMemo(() => {
+    // Skip grouping if data is not available yet
+    if (!data?.data) {
+      return {};
+    }
+    
+    // Only log when we actually have data to group
+    console.log("Grouping events by date, count:", data.data.length);
+    return groupEventsByDate(data.data);
+  }, [data?.data]); // Only depend on data.data to prevent unnecessary re-renders
+
   const isFilterActive = !!(activeFilters.startDate || activeFilters.endDate);
 
   if (error) return <ErrorPlaceholder />;
 
+  // Determine if we should show loading state
+  const showInitialLoading = isInitialLoad && isLoading;
+  const showPaginationLoading = isFetching && !isInitialLoad && data?.data && data.data.length > 0;
+  const showNoData = !data?.data || data.data.length === 0;
+
   return (
     <>
+      <Header />
       <main className="flex-grow pt-24 pb-16 px-4 bg-gray-50">
         <div className="container mx-auto">
           <h1 className="text-3xl font-bold mb-8 text-center">Все мероприятия</h1>
+          
+          {/* Filter UI */}
           <div className="mb-6 relative">
             <div className="flex justify-end">
               <button
@@ -493,13 +371,15 @@ const EventsPage: React.FC = () => {
                 <span>Фильтры {isFilterActive ? "(активны)" : ""}</span>
               </button>
             </div>
+            
+            {/* Filter dropdown */}
             <AnimatePresence>
               {isFilterOpen && (
                 <DateFilter
-                  startDate={activeFilters.startDate}
-                  endDate={activeFilters.endDate}
-                  onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
-                  onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
+                  startDate={tempFilters.startDate}
+                  endDate={tempFilters.endDate}
+                  onStartDateChange={(value) => setTempFilters(prev => ({ ...prev, startDate: value }))}
+                  onEndDateChange={(value) => setTempFilters(prev => ({ ...prev, endDate: value }))}
                   onApply={applyFilters}
                   onClose={() => setIsFilterOpen(false)}
                   onReset={resetFilters}
@@ -508,27 +388,40 @@ const EventsPage: React.FC = () => {
                 />
               )}
             </AnimatePresence>
-            {isFilterActive && !isFilterOpen && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <span className="text-sm text-gray-600 mr-2">Активные фильтры:</span>
-                {activeFilters.startDate && (
-                  <div className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs">
-                    <span>От: {formatDateForDisplay(activeFilters.startDate)}</span>
-                    <button onClick={() => removeFilter("startDate")}><FaTimes size={10} /></button>
-                  </div>
-                )}
-                {activeFilters.endDate && (
-                  <div className="inline-flex items-center gap-1 px-2 py-1 bg-orange-100 text-orange-700 rounded-full text-xs">
-                    <span>До: {formatDateForDisplay(activeFilters.endDate)}</span>
-                    <button onClick={() => removeFilter("endDate")}><FaTimes size={10} /></button>
-                  </div>
-                )}
-                <button onClick={resetFilters} className="text-xs text-orange-600 hover:underline">Сбросить все</button>
+            
+            {/* Active filters display */}
+            {isFilterActive && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-sm text-gray-600">Активные фильтры:</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  {activeFilters.startDate && (
+                    <div className="inline-flex items-center h-5 px-2 bg-orange-100 text-orange-700 rounded-full text-xs">
+                      <span className="leading-none">От: {formatDateForDisplay(activeFilters.startDate)}</span>
+                    </div>
+                  )}
+                  {activeFilters.endDate && (
+                    <div className="inline-flex items-center h-5 px-2 bg-orange-100 text-orange-700 rounded-full text-xs">
+                      <span className="leading-none">До: {formatDateForDisplay(activeFilters.endDate)}</span>
+                    </div>
+                  )}
+                  <button 
+                    onClick={resetFilters} 
+                    className="text-xs text-orange-600 hover:text-orange-700 hover:underline whitespace-nowrap h-5 flex items-center"
+                  >
+                    Сбросить все
+                  </button>
+                </div>
               </div>
             )}
           </div>
-          {error && <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
-          {events.length === 0 ? (
+          
+          {/* Initial loading state with skeleton loaders */}
+          {showInitialLoading ? (
+            <div className="space-y-8">
+              <EventGroupSkeleton />
+              <EventGroupSkeleton />
+            </div>
+          ) : showNoData ? (
             <div className="text-center py-12">
               <h3 className="text-xl font-semibold mb-2">
                 {isFilterActive ? "Мероприятия не найдены для выбранного диапазона дат" : "Мероприятия не найдены"}
@@ -539,21 +432,36 @@ const EventsPage: React.FC = () => {
             </div>
           ) : (
             <>
+              {/* Render grouped events */}
               {Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
                 <div key={date} className="mb-8">
                   <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {eventsForDate.map((event, index) => {
                       const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
-                      return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? lastCardRef : undefined} />;
+                      return (
+                        <div key={event.id} ref={isLastCard ? loadMoreRef : undefined}>
+                          <EventCard event={event} />
+                        </div>
+                      );
                     })}
                   </div>
                 </div>
               ))}
               
-              {allEventsLoaded && events.length > 0 && (
+              {/* Loading indicator for pagination */}
+              {showPaginationLoading && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {[1, 2, 3].map((i) => (
+                    <EventCardSkeleton key={`loading-${i}`} />
+                  ))}
+                </div>
+              )}
+              
+              {/* Show loading more indicator */}
+              {data.data.length < data.total && !isFetching && (
                 <div className="text-center py-2 mt-2">
-                  <p className="text-gray-400 text-sm">Все мероприятия загружены</p>
+                  <p className="text-gray-400 text-sm">Загрузка дополнительных мероприятий...</p>
                 </div>
               )}
             </>
@@ -565,4 +473,4 @@ const EventsPage: React.FC = () => {
   );
 };
 
-export default EventsPage;
+export default EventsPage; 

@@ -2,14 +2,14 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useMemo } from "react";
+import { useEffect, useRef, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useEventForm } from "@/hooks/useEventForm";
 import { EventFormData } from "@/types/events";
 import EditEventForm from "@/components/EditEventForm";
 
-function EditEventsPage() {
+function EditEventsPageContent() {
   const searchParams = useSearchParams();
   const newEventParam = searchParams.get("new");
   const eventIdParam = searchParams.get("event_id");
@@ -83,8 +83,16 @@ function EditEventsPage() {
       handleSubmit={handleSubmit}
       setFieldValue={setFieldValue}
       isLoading={isLoading}
-      isPageLoading={false} // Убираем зависимость от глобального состояния
+      isPageLoading={false}
     />
+  );
+}
+
+function EditEventsPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <EditEventsPageContent />
+    </Suspense>
   );
 }
 

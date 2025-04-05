@@ -36,17 +36,24 @@ export default function AdminLoginPage() {
         method: "POST",
         body: JSON.stringify(formValues),
       });
-      if (!data.access_token) {
+      
+      if ('aborted' in data) {
+        throw new Error(data.reason || "Запрос был прерван");
+      }
+      
+      const response = data as { access_token: string; id: number; email: string; fio?: string };
+      if (!response.access_token) {
         throw new Error("Токен отсутствует в ответе сервера");
       }
+      
       const adminData = {
-        id: data.id,
-        email: data.email,
-        fio: data.fio || "Администратор",
+        id: response.id,
+        email: response.email,
+        fio: response.fio || "Администратор",
       };
       setIsSuccess(true);
       setIsLoading(false);
-      loginAdmin(data.access_token, adminData);
+      loginAdmin(response.access_token, adminData);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Произошла ошибка");
       setIsSuccess(false);

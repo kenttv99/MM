@@ -1,136 +1,299 @@
 // frontend/src/contexts/LoadingContext.tsx
 "use client";
-import { createContext, useContext, useState, useEffect, useRef, useCallback } from "react";
-import { usePathname } from "next/navigation";
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import { usePathname } from 'next/navigation';
 
+// Типы для контекста
 interface LoadingContextType {
   isStaticLoading: boolean;
   isDynamicLoading: boolean;
   setStaticLoading: (loading: boolean) => void;
   setDynamicLoading: (loading: boolean) => void;
   resetLoading: () => void;
+  isEventsPage: boolean;
 }
 
-const LoadingContext = createContext<LoadingContextType | undefined>(undefined);
+// Создаем контекст с начальным значением
+const LoadingContext = createContext<LoadingContextType>({
+  isStaticLoading: false,
+  isDynamicLoading: false,
+  setStaticLoading: () => {},
+  setDynamicLoading: () => {},
+  resetLoading: () => {},
+  isEventsPage: false,
+});
+
+// Специальные пути, для которых не нужно сбрасывать состояние загрузки
+const specialPaths = ['/events', '/event/'];
 
 export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isStaticLoading, setIsStaticLoading] = useState(false);
-  const [isDynamicLoading, setIsDynamicLoading] = useState(false);
+  // Состояния загрузки
+  const [isStaticLoading, setStaticLoadingState] = useState(false);
+  const [isDynamicLoading, setDynamicLoadingState] = useState(false);
+  
+  // Получаем текущий путь
   const pathname = usePathname();
-  const isMounted = useRef(false);
-  const loadingTimeout = useRef<NodeJS.Timeout | null>(null);
-  const autoResetTimeout = useRef<NodeJS.Timeout | null>(null);
-  const pathChangeCount = useRef<number>(0);
-  const isStateChanging = useRef<boolean>(false);
-
-  // Функции для управления состоянием загрузки
+  
+  // Ссылки для отслеживания состояния
+  const loadingStateLock = useRef(false);
+  const loadingStateTimeout = useRef<NodeJS.Timeout | null>(null);
+  const activeRequestsRef = useRef<number>(0);
+  const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isEventsPageRef = useRef<boolean>(false);
+  const lastLoadingChangeTime = useRef<number>(0);
+  const globalLoadingLock = useRef(false);
+  const loadingResetTimer = useRef<NodeJS.Timeout | null>(null);
+  const autoResetTimer = useRef<NodeJS.Timeout | null>(null);
+  
+  // Константы
+  const COOLDOWN_PERIOD = 300; // 300мс для блокировки частых изменений
+  
+  // Проверяем, является ли текущий путь специальным
+  const isSpecialPath = useCallback(() => {
+    if (!pathname) return false;
+    return specialPaths.some(path => pathname.startsWith(path));
+  }, [pathname]);
+  
+  // Функция для установки статического состояния загрузки
   const setStaticLoading = useCallback((value: boolean) => {
-    if (!isMounted.current || isStateChanging.current) return;
-    console.log("LoadingContext: setStaticLoading", value);
-    setIsStaticLoading(value);
-  }, []);
-
+    // Проверяем, не заблокировано ли состояние
+    if (loadingStateLock.current || globalLoadingLock.current) {
+      return;
+    }
+    
+    // Проверяем, является ли текущий путь страницей событий
+    const isEventsPage = isSpecialPath();
+    isEventsPageRef.current = isEventsPage;
+    
+    // Если это страница событий, разрешаем любые изменения состояния
+    if (isEventsPage) {
+      setStaticLoadingState(value);
+      return;
+    }
+    
+    // Для не-событийных страниц проверяем, не слишком ли часто меняется состояние
+    if (value !== isStaticLoading) {
+      loadingStateLock.current = true;
+      lastLoadingChangeTime.current = Date.now();
+      setStaticLoadingState(value);
+      
+      // Сбрасываем блокировку через COOLDOWN_PERIOD
+      if (loadingStateTimeout.current) {
+        clearTimeout(loadingStateTimeout.current);
+      }
+      
+      loadingStateTimeout.current = setTimeout(() => {
+        loadingStateLock.current = false;
+      }, COOLDOWN_PERIOD);
+    }
+  }, [isStaticLoading, isSpecialPath]);
+  
+  // Функция для установки динамического состояния загрузки
   const setDynamicLoading = useCallback((value: boolean) => {
-    if (!isMounted.current || isStateChanging.current) return;
-    console.log("LoadingContext: setDynamicLoading", value);
-    setIsDynamicLoading(value);
-  }, []);
-
-  const resetLoading = useCallback(() => {
-    if (!isMounted.current || isStateChanging.current) return;
-    console.log("LoadingContext: resetLoading");
-    setIsStaticLoading(false);
-    setIsDynamicLoading(false);
-  }, []);
-
-  // Эффект для инициализации при монтировании
-  useEffect(() => {
-    console.log("LoadingContext: Component mounted");
-    isMounted.current = true;
+    // Проверяем, не заблокировано ли состояние
+    if (loadingStateLock.current) {
+      return;
+    }
     
-    // Сбрасываем все таймауты при размонтировании
-    return () => {
-      console.log("LoadingContext: Component unmounted");
-      isMounted.current = false;
-      
-      // Сохраняем ссылки на таймауты в переменные внутри эффекта
-      const loadingTimeoutValue = loadingTimeout.current;
-      const autoResetTimeoutValue = autoResetTimeout.current;
-      
-      if (loadingTimeoutValue) {
-        clearTimeout(loadingTimeoutValue);
+    // Проверяем, является ли текущий путь страницей событий
+    const isEventsPage = isSpecialPath();
+    isEventsPageRef.current = isEventsPage;
+    
+    // Если это страница событий, разрешаем любые изменения состояния
+    if (isEventsPage) {
+      // Если устанавливаем состояние загрузки в true, увеличиваем счетчик активных запросов
+      if (value) {
+        activeRequestsRef.current++;
+      } else {
+        // Если устанавливаем состояние загрузки в false, уменьшаем счетчик активных запросов
+        activeRequestsRef.current = Math.max(0, activeRequestsRef.current - 1);
       }
-      if (autoResetTimeoutValue) {
-        clearTimeout(autoResetTimeoutValue);
+      
+      setDynamicLoadingState(value);
+      
+      // Если есть активные запросы, не сбрасываем состояние загрузки
+      if (activeRequestsRef.current > 0) {
+        return;
       }
-    };
-  }, []);
-
-  // Эффект для отслеживания изменения пути
-  useEffect(() => {
-    if (!isMounted.current) return;
-    
-    console.log("LoadingContext: Pathname changed to", pathname);
-    pathChangeCount.current += 1;
-    
-    // Устанавливаем флаг изменения состояния
-    isStateChanging.current = true;
-    
-    // Сбрасываем состояние загрузки с задержкой
-    const timeout = setTimeout(() => {
-      if (isMounted.current) {
-        // Для страницы мероприятий не сбрасываем состояние загрузки сразу,
-        // так как EventsPage сам управляет состоянием загрузки
-        if (pathname === "/events") {
-          console.log("LoadingContext: Skipping reset for /events path");
-          isStateChanging.current = false;
-          return;
+      
+      // Устанавливаем таймер для сброса состояния загрузки через 15 секунд для страницы событий
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current);
+      }
+      
+      resetTimeoutRef.current = setTimeout(() => {
+        if (activeRequestsRef.current === 0) {
+          setDynamicLoadingState(false);
         }
-        
-        console.log("LoadingContext: Resetting loading states for pathname change");
-        setStaticLoading(false);
-        setDynamicLoading(false);
-        isStateChanging.current = false;
-      }
-    }, 500); // Увеличиваем задержку до 500мс
+      }, 15000); // 15 секунд для страницы событий
+      
+      return;
+    }
     
+    // Для не-событийных страниц проверяем, не слишком ли часто меняется состояние
+    if (value !== isDynamicLoading) {
+      loadingStateLock.current = true;
+      lastLoadingChangeTime.current = Date.now();
+      setDynamicLoadingState(value);
+      
+      // Сбрасываем блокировку через COOLDOWN_PERIOD
+      if (loadingStateTimeout.current) {
+        clearTimeout(loadingStateTimeout.current);
+      }
+      
+      loadingStateTimeout.current = setTimeout(() => {
+        loadingStateLock.current = false;
+      }, COOLDOWN_PERIOD);
+    }
+  }, [isDynamicLoading, isSpecialPath]);
+  
+  // Функция для сброса состояния загрузки
+  const resetLoading = useCallback(() => {
+    // Проверяем, не заблокировано ли состояние
+    if (loadingStateLock.current) {
+      return;
+    }
+    
+    // Проверяем, является ли текущий путь страницей событий
+    const isEventsPage = isSpecialPath();
+    isEventsPageRef.current = isEventsPage;
+    
+    // Если это страница событий, не сбрасываем состояние загрузки, если есть активные запросы
+    if (isEventsPage && activeRequestsRef.current > 0) {
+      return;
+    }
+    
+    // Сбрасываем состояние загрузки
+    setStaticLoadingState(false);
+    setDynamicLoadingState(false);
+    
+    // Сбрасываем счетчик активных запросов
+    activeRequestsRef.current = 0;
+    
+    // Сбрасываем таймер сброса состояния загрузки
+    if (resetTimeoutRef.current) {
+      clearTimeout(resetTimeoutRef.current);
+      resetTimeoutRef.current = null;
+    }
+  }, [isSpecialPath]);
+  
+  // Эффект для инициализации состояния загрузки
+  useEffect(() => {
+    // Проверяем, является ли текущий путь страницей событий
+    const isEventsPage = isSpecialPath();
+    isEventsPageRef.current = isEventsPage;
+    
+    // Если это страница событий, не сбрасываем состояние загрузки
+    if (isEventsPage) {
+      return;
+    }
+    
+    // Сбрасываем состояние загрузки
+    resetLoading();
+    
+    // Очищаем таймеры при размонтировании
     return () => {
-      clearTimeout(timeout);
+      if (loadingStateTimeout.current) {
+        clearTimeout(loadingStateTimeout.current);
+      }
+      
+      if (resetTimeoutRef.current) {
+        clearTimeout(resetTimeoutRef.current);
+      }
+      
+      if (loadingResetTimer.current) {
+        clearTimeout(loadingResetTimer.current);
+      }
+      
+      if (autoResetTimer.current) {
+        clearTimeout(autoResetTimer.current);
+      }
     };
-  }, [pathname, setStaticLoading, setDynamicLoading]);
-
+  }, [resetLoading, isSpecialPath]);
+  
+  // Эффект для отслеживания изменений пути
+  useEffect(() => {
+    // Проверяем, является ли текущий путь страницей событий
+    const isEventsPage = isSpecialPath();
+    isEventsPageRef.current = isEventsPage;
+    
+    // Если это страница событий, не сбрасываем состояние загрузки
+    if (isEventsPage) {
+      return;
+    }
+    
+    // Сбрасываем состояние загрузки
+    resetLoading();
+  }, [pathname, resetLoading, isSpecialPath]);
+  
   // Эффект для автоматического сброса состояния загрузки
   useEffect(() => {
-    if (!isMounted.current || isStateChanging.current) return;
+    let isActive = true;
     
-    // Если состояние загрузки активно, устанавливаем таймер для автоматического сброса
-    if (isStaticLoading || isDynamicLoading) {
-      const timeout = setTimeout(() => {
-        if (isMounted.current && !isStateChanging.current) {
-          console.log("LoadingContext: Auto-resetting loading states");
-          resetLoading();
-        }
-      }, 5000);
-      
-      autoResetTimeout.current = timeout;
-      
-      return () => {
-        if (autoResetTimeout.current) {
-          clearTimeout(autoResetTimeout.current);
-        }
-      };
+    // Устанавливаем таймер для автоматического сброса состояния загрузки
+    if (loadingResetTimer.current) {
+      clearTimeout(loadingResetTimer.current);
     }
-  }, [isStaticLoading, isDynamicLoading, resetLoading]);
-
-  return (
-    <LoadingContext.Provider value={{ isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading }}>
-      {children}
-    </LoadingContext.Provider>
-  );
+    
+    if (isDynamicLoading) {
+      loadingResetTimer.current = setTimeout(() => {
+        // Сбрасываем состояние загрузки, если прошло слишком много времени
+        if (isActive) {
+          console.log("LoadingContext: Auto-resetting loading state");
+          setDynamicLoadingState(false);
+          activeRequestsRef.current = 0;
+        }
+      }, 30000); // 30 секунд для автоматического сброса
+    }
+    
+    return () => {
+      isActive = false;
+      if (loadingResetTimer.current) {
+        clearTimeout(loadingResetTimer.current);
+      }
+    };
+  }, [isDynamicLoading, setDynamicLoadingState]);
+  
+  // Эффект для автоматического сброса состояния загрузки при монтировании
+  useEffect(() => {
+    // Устанавливаем таймер для автоматического сброса состояния загрузки при монтировании
+    if (autoResetTimer.current) {
+      clearTimeout(autoResetTimer.current);
+    }
+    
+    if (isDynamicLoading) {
+      autoResetTimer.current = setTimeout(() => {
+        console.log("LoadingContext: Auto-resetting loading state on mount");
+        setDynamicLoadingState(false);
+        activeRequestsRef.current = 0;
+      }, 5000); // 5 секунд для автоматического сброса при монтировании
+    }
+    
+    return () => {
+      if (autoResetTimer.current) {
+        clearTimeout(autoResetTimer.current);
+      }
+    };
+  }, [isDynamicLoading, setDynamicLoadingState]);
+  
+  // Предоставляем контекст
+  const value = {
+    isStaticLoading,
+    isDynamicLoading,
+    setStaticLoading,
+    setDynamicLoading,
+    resetLoading,
+    isEventsPage: isEventsPageRef.current
+  };
+  
+  return <LoadingContext.Provider value={value}>{children}</LoadingContext.Provider>;
 };
 
+// Хук для использования контекста
 export const useLoading = () => {
   const context = useContext(LoadingContext);
-  if (!context) throw new Error("useLoading must be used within a LoadingProvider");
+  if (context === undefined) {
+    throw new Error('useLoading must be used within a LoadingProvider');
+  }
   return context;
 };

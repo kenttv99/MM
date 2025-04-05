@@ -17,6 +17,7 @@ interface AdminAuthContextType {
   isLoading: boolean;
   loginAdmin: (token: string, admin: AdminProfile) => void;
   logoutAdmin: () => void;
+  checkAuth: () => Promise<boolean>;
 }
 
 export const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
@@ -89,7 +90,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
     if (!token) {
       logoutAdmin();
-      return;
+      return false;
     }
 
     try {
@@ -97,11 +98,18 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         method: "GET",
         headers: { "Authorization": `Bearer ${token}` },
       });
+      
+      if ('aborted' in data) {
+        throw new Error(data.reason || "Request was aborted");
+      }
+      
       localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
       setIsAdminAuth(true);
       setAdminData(data);
+      return true;
     } catch {
       logoutAdmin();
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -121,7 +129,8 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isLoading,
     loginAdmin,
     logoutAdmin,
-  }), [isAdminAuth, adminData, isLoading, loginAdmin, logoutAdmin]);
+    checkAuth: validateToken,
+  }), [isAdminAuth, adminData, isLoading, loginAdmin, logoutAdmin, validateToken]);
 
   return (
     <AdminAuthContext.Provider value={contextValue}>

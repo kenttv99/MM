@@ -51,6 +51,7 @@ export const useEventsData = ({
   const requestKeyRef = useRef<string>("");
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const loadingStateRef = useRef({ isLoading: true, isFetching: false });
+  const hasInitialData = useRef(false);
 
   // Функция для безопасного обновления состояния загрузки
   const updateLoadingState = useCallback((newLoading: boolean, newFetching: boolean) => {
@@ -58,7 +59,8 @@ export const useEventsData = ({
       newLoading, 
       newFetching, 
       isMounted: isMounted.current,
-      currentState: loadingStateRef.current
+      currentState: loadingStateRef.current,
+      hasInitialData: hasInitialData.current
     });
     
     // Проверяем, не заблокирована ли уже загрузка
@@ -109,10 +111,12 @@ export const useEventsData = ({
         return;
       }
       
-      // Обновляем глобальное состояние загрузки
-      console.log('useEventsData: Updating global loading state:', { newLoading, newFetching });
-      setDynamicLoading(newLoading || newFetching);
-    }, 100);
+      // Обновляем глобальное состояние загрузки только если есть начальные данные
+      if (hasInitialData.current || newLoading || newFetching) {
+        console.log('useEventsData: Updating global loading state:', { newLoading, newFetching });
+        setDynamicLoading(newLoading || newFetching);
+      }
+    }, 500); // Увеличиваем таймаут до 500мс
   }, [setDynamicLoading]);
 
   // Обновляем данные
@@ -122,7 +126,8 @@ export const useEventsData = ({
     console.log('useEventsData: Updating data:', { 
       hasNewData: newData !== null, 
       currentData: data !== null,
-      isMounted: isMounted.current
+      isMounted: isMounted.current,
+      hasInitialData: hasInitialData.current
     });
     
     // Проверяем, изменились ли данные
@@ -131,6 +136,7 @@ export const useEventsData = ({
       
       // Если данные успешно загружены, сбрасываем состояние загрузки
       if (newData !== null) {
+        hasInitialData.current = true;
         updateLoadingState(false, false);
       }
     }
@@ -143,7 +149,8 @@ export const useEventsData = ({
     console.log('useEventsData: Updating error:', { 
       hasNewError: newError !== null, 
       currentError: error !== null,
-      isMounted: isMounted.current
+      isMounted: isMounted.current,
+      hasInitialData: hasInitialData.current
     });
     
     // Проверяем, изменилась ли ошибка
@@ -166,7 +173,8 @@ export const useEventsData = ({
     console.log('useEventsData: Fetching data:', { 
       currentRequestKey, 
       isMounted: isMounted.current,
-      currentLoadingState: loadingStateRef.current
+      currentLoadingState: loadingStateRef.current,
+      hasInitialData: hasInitialData.current
     });
 
     // Проверяем, не слишком ли рано для нового запроса

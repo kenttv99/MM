@@ -1,32 +1,44 @@
 // frontend/src/utils/api.ts
-// Хранилище для кэшированных ответов
+// Storage for cached responses
+import { LoadingStage } from "@/contexts/LoadingContext";
+
 const responseCache: { [key: string]: { data: unknown; timestamp: number } } = {};
 
-// Константы
-const FETCH_TIMEOUT = 15000; // 15 секунд на выполнение запроса
-const CACHE_TTL = 60000; // 60 секунд жизни кэша
-const GLOBAL_LOCK_RESET_DELAY = 50; // 50мс до сброса глобального блокировщика (уменьшено с 100мс)
-const MAX_CONCURRENT_REQUESTS = 15; // Максимальное количество одновременных запросов (увеличено с 12)
-const REQUEST_QUEUE_TIMEOUT = 10000; // 10 секунд на ожидание в очереди
-const REQUEST_DEDUP_INTERVAL = 50; // 50мс для дедупликации запросов (уменьшено с 100мс)
+// Constants
+const FETCH_TIMEOUT = 15000; // 15 seconds request timeout
+const CACHE_TTL = 60000; // 60 seconds cache lifetime
+const GLOBAL_LOCK_RESET_DELAY = 50; // 50ms until global lock reset (reduced from 100ms)
+const MAX_CONCURRENT_REQUESTS = 15; // Maximum number of concurrent requests (increased from 12)
+const REQUEST_QUEUE_TIMEOUT = 10000; // 10 seconds wait time in queue
+const REQUEST_DEDUP_INTERVAL = 50; // 50ms for request deduplication (reduced from 100ms)
 
-// Глобальный флаг для предотвращения одновременных запросов
+// Global flag to prevent simultaneous requests
 let globalRequestLock = false;
-// Счетчик активных запросов
+// Active requests counter
 let activeRequestCount = 0;
-// Таймер для сброса глобального блокировщика
+// Timer for resetting global lock
 let globalLockTimer: NodeJS.Timeout | null = null;
-// Счетчик запросов, которые были заблокированы
+// Counter for blocked requests
 let blockedRequestCount = 0;
-// Очередь запросов, которые были заблокированы
+// Queue for blocked requests
 const requestQueue: Array<() => void> = [];
-// Хранилище для отслеживания последних запросов (для дедупликации)
+// Storage for tracking last requests (for deduplication)
 const lastRequests: Record<string, { timestamp: number; promise: Promise<unknown> }> = {};
+// Current loading stage
+let currentLoadingStage: LoadingStage = LoadingStage.AUTHENTICATION;
+// Request tracking for debugging
+const stageRequestCounts: Record<LoadingStage, number> = {
+  [LoadingStage.AUTHENTICATION]: 0,
+  [LoadingStage.STATIC_CONTENT]: 0,
+  [LoadingStage.DYNAMIC_CONTENT]: 0,
+  [LoadingStage.DATA_LOADING]: 0,
+  [LoadingStage.COMPLETED]: 0
+};
 
 // Constants
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
-// Функция для очистки устаревших записей в кэше
+// Function to clean up stale cache entries
 const cleanupCache = () => {
   const now = Date.now();
   Object.keys(responseCache).forEach(key => {
@@ -36,7 +48,7 @@ const cleanupCache = () => {
   });
 };
 
-// Периодическая очистка кэша
+// Periodic cache cleanup
 setInterval(cleanupCache, CACHE_TTL);
 
 export type ApiResponse<T> = T | { aborted: boolean; reason?: string } | { error: string; status: number };
@@ -54,18 +66,31 @@ class ApiError extends Error {
 }
 
 /**
- * Очистка кэша по шаблону URL
+ * Set the current loading stage - called by LoadingContext
+ */
+export function setCurrentLoadingStage(stage: LoadingStage) {
+  const prevStage = currentLoadingStage;
+  currentLoadingStage = stage;
+  console.log(`API: Loading stage updated to ${stage}`, {
+    prevStage,
+    requestStats: { ...stageRequestCounts },
+    activeRequests: activeRequestCount
+  });
+}
+
+/**
+ * Clear cache by URL pattern
  */
 export function clearCache(urlPattern?: string | RegExp) {
   if (!urlPattern) {
-    // Очищаем весь кэш
+    // Clear entire cache
     Object.keys(responseCache).forEach(key => {
       delete responseCache[key];
     });
     return;
   }
   
-  // Очищаем кэш по шаблону
+  // Clear cache by pattern
   Object.keys(responseCache).forEach(key => {
     if (typeof urlPattern === 'string' && key.includes(urlPattern)) {
       delete responseCache[key];
@@ -76,14 +101,14 @@ export function clearCache(urlPattern?: string | RegExp) {
 }
 
 /**
- * Обработка очереди запросов
+ * Process request queue
  */
 function processRequestQueue() {
   if (requestQueue.length === 0 || activeRequestCount >= MAX_CONCURRENT_REQUESTS) {
     return;
   }
 
-  // Обрабатываем столько запросов, сколько возможно
+  // Process as many requests as possible
   while (requestQueue.length > 0 && activeRequestCount < MAX_CONCURRENT_REQUESTS) {
     const nextRequest = requestQueue.shift();
     if (nextRequest) {
@@ -91,7 +116,7 @@ function processRequestQueue() {
     }
   }
   
-  // Если очередь пуста и нет активных запросов, сбрасываем глобальный блокировщик
+  // If queue is empty and no active requests, reset global lock
   if (requestQueue.length === 0 && activeRequestCount === 0) {
     globalRequestLock = false;
     console.log(`API: Global lock reset due to empty queue and no active requests`);
@@ -99,7 +124,63 @@ function processRequestQueue() {
 }
 
 /**
- * Функция для выполнения API запросов с кэшированием и обработкой ошибок
+ * Check if a request should be processed based on the current loading stage
+ */
+function shouldProcessRequest(endpoint: string): boolean {
+  // Authorization/authentication requests are always allowed
+  const isAuthRequest = endpoint === '/user_edits/me' || 
+                       endpoint === '/admin/me' || 
+                       endpoint.includes('/auth/') ||
+                       endpoint.includes('/login') ||
+                       endpoint.includes('/token');
+  
+  if (isAuthRequest) {
+    return true;
+  }
+  
+  // Public event requests should be allowed in later stages
+  const isPublicEventRequest = endpoint.includes('/public/events') || 
+                               endpoint.includes('/events/public');
+                               
+  // Allow requests based on current loading stage
+  switch (currentLoadingStage) {
+    case LoadingStage.AUTHENTICATION:
+      // Only authentication requests in authentication stage
+      console.log(`API: Request check for ${endpoint} in AUTHENTICATION stage - ${isAuthRequest ? 'allowed' : 'blocked'}`);
+      return isAuthRequest;
+      
+    case LoadingStage.STATIC_CONTENT:
+      // Static content requests are allowed after authentication
+      // Allow basic content and public data during static content loading
+      const isStaticAllowed = isAuthRequest || 
+                            endpoint.includes('/static/') || 
+                            endpoint.includes('/content/') ||
+                            isPublicEventRequest;
+      console.log(`API: Request check for ${endpoint} in STATIC_CONTENT stage - ${isStaticAllowed ? 'allowed' : 'blocked'}`);
+      return isStaticAllowed;
+      
+    case LoadingStage.DYNAMIC_CONTENT:
+      // Dynamic content and static content allowed
+      // In dynamic content loading, allow most requests except user-specific ones
+      const isDynamicAllowed = isAuthRequest || 
+                             !endpoint.includes('/user/') || 
+                             isPublicEventRequest;
+      console.log(`API: Request check for ${endpoint} in DYNAMIC_CONTENT stage - ${isDynamicAllowed ? 'allowed' : 'blocked'}`);
+      return isDynamicAllowed;
+      
+    case LoadingStage.DATA_LOADING:
+    case LoadingStage.COMPLETED:
+      // All requests allowed in these stages
+      return true;
+      
+    default:
+      console.log(`API: Unknown loading stage ${currentLoadingStage} for request ${endpoint} - blocking`);
+      return false;
+  }
+}
+
+/**
+ * Execute API requests with caching and error handling
  */
 export async function apiFetch<T>(
   endpoint: string,
@@ -108,45 +189,65 @@ export async function apiFetch<T>(
   const requestKey = `${endpoint}-${JSON.stringify(options.body || {})}-${options.method || 'GET'}`;
   const now = Date.now();
 
-  // Проверка глобального блокировщика запросов
-  // Пропускаем проверку для критических запросов
+  // Track request by stage
+  stageRequestCounts[currentLoadingStage]++;
+
+  // Check if the request should be processed based on loading stage
+  if (!shouldProcessRequest(endpoint)) {
+    console.log(`API: Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
+    return { aborted: true, reason: `loading_stage_${currentLoadingStage}` };
+  }
+
+  // Skip check for critical requests
   const isCriticalRequest = endpoint === '/user_edits/me' || endpoint === '/admin/me';
 
-  // Проверяем кэш для GET запросов
+  // Check cache for GET requests with higher priority during earlier loading stages
   if (options.method === 'GET' || !options.method) {
     const cached = responseCache[requestKey];
-    if (cached && now - cached.timestamp < CACHE_TTL) {
-      console.log(`API: Serving cached response for ${endpoint}`);
+    // Use cached response with higher priority during auth and static loading stages
+    const shouldUseCachedResponse = cached && (
+      now - cached.timestamp < CACHE_TTL || 
+      currentLoadingStage === LoadingStage.AUTHENTICATION ||
+      currentLoadingStage === LoadingStage.STATIC_CONTENT
+    );
+    
+    if (shouldUseCachedResponse) {
+      console.log(`API: Serving cached response for ${endpoint} during ${currentLoadingStage} stage`);
       return cached.data as T;
     }
   }
 
-  // Проверяем дедупликацию запросов
+  // Check request deduplication
   const lastRequest = lastRequests[requestKey];
   if (lastRequest && now - lastRequest.timestamp < REQUEST_DEDUP_INTERVAL) {
     console.log(`API: Deduplicating request for ${endpoint}`);
     return lastRequest.promise as Promise<ApiResponse<T>>;
   }
 
-  // Проверяем блокировку только для некритических запросов
+  // Check lock only for non-critical requests
   if (globalRequestLock && !isCriticalRequest) {
     blockedRequestCount++;
     console.log(`API: Request to ${endpoint} blocked (global lock), active requests: ${activeRequestCount}, blocked requests: ${blockedRequestCount}`);
     
-    // Если запрос заблокирован, но у нас есть кэшированные данные, используем их
+    // If request is blocked but we have cached data, use it with extended TTL
     if (options.method === 'GET' || !options.method) {
       const cached = responseCache[requestKey];
-      if (cached && now - cached.timestamp < CACHE_TTL) {
-        console.log(`API: Using cached response for ${endpoint} after global lock`);
+      // During earlier stages, we're more lenient with cache TTL
+      const extendedTTL = currentLoadingStage === LoadingStage.AUTHENTICATION || 
+                        currentLoadingStage === LoadingStage.STATIC_CONTENT ? 
+                        CACHE_TTL * 2 : CACHE_TTL;
+                        
+      if (cached && now - cached.timestamp < extendedTTL) {
+        console.log(`API: Using cached response for ${endpoint} after global lock (extended TTL during ${currentLoadingStage})`);
         return cached.data as T;
       }
     }
     
-    // Если запрос заблокирован, добавляем его в очередь
+    // If request is blocked, add it to queue
     if (options.signal && !options.signal.aborted) {
       return new Promise<ApiResponse<T>>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
-          // Удаляем запрос из очереди по таймауту
+          // Remove request from queue on timeout
           const index = requestQueue.findIndex(req => req === queueRequest);
           if (index !== -1) {
             requestQueue.splice(index, 1);
@@ -161,12 +262,12 @@ export async function apiFetch<T>(
             .catch(reject);
         };
         
-        // Добавляем запрос в очередь
+        // Add request to queue
         requestQueue.push(queueRequest);
         
-        // Пытаемся обработать очередь сразу, если есть место для новых запросов
+        // Try to process queue immediately if there's room for new requests
         if (activeRequestCount < MAX_CONCURRENT_REQUESTS) {
-          // Если активных запросов меньше максимального, сбрасываем блокировку
+          // If active requests are less than maximum, reset lock
           if (activeRequestCount === 0) {
             globalRequestLock = false;
             console.log(`API: Global lock reset due to no active requests`);
@@ -179,115 +280,116 @@ export async function apiFetch<T>(
     return { aborted: true, reason: 'global_lock' };
   }
 
-  // Увеличиваем счетчик активных запросов
+  // Increase active requests counter
   activeRequestCount++;
   
-  // Создаем контроллер для отмены запроса
+  // Create controller for request abortion
   const controller = new AbortController();
   
-  // Устанавливаем таймаут для запроса
+  // Set timeout for request
   const timeoutId = setTimeout(() => {
     controller.abort();
   }, FETCH_TIMEOUT);
   
-  // Создаем промис для выполнения запроса
+  // Create promise for request execution
   const requestPromise = (async () => {
     try {
-      // Создаем промис для выполнения запроса
+      // Create promise for request execution
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         ...options,
         signal: controller.signal,
         headers: {
-          ...options.headers,
           'Content-Type': 'application/json',
+          ...options.headers,
         },
       });
-
-      // Очищаем таймер таймаута
+      
+      // Clear timeout
       clearTimeout(timeoutId);
       
-      // Проверяем статус ответа
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new ApiError(errorText || `HTTP error! status: ${response.status}`, response.status);
-      }
-      
-      // Парсим JSON
-      const data = await response.json();
-      
-      // Кэшируем ответ для GET запросов
-      if (options.method === 'GET' || !options.method) {
-        responseCache[requestKey] = {
-          data,
-          timestamp: now
-        };
-      }
-      
-      // Устанавливаем глобальный блокировщик запросов только для некритических запросов
-      // после успешного выполнения запроса
-      if (!isCriticalRequest) {
-        // Проверяем, не идет ли статическая загрузка
-        const isStaticLoading = document.querySelector('.global-spinner') !== null;
-        if (!isStaticLoading) {
-          globalRequestLock = true;
-          console.log(`API: Global lock set, active requests: ${activeRequestCount}`);
-          
-          // Сбрасываем глобальный блокировщик через 50мс после завершения всех запросов
-          if (globalLockTimer) {
-            clearTimeout(globalLockTimer);
+      // Process response
+      if (response.ok) {
+        // Only try to parse JSON if content-type is json
+        const contentType = response.headers.get('content-type');
+        let data: any;
+        
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            data = await response.json();
+          } catch (error) {
+            console.error(`API: Failed to parse JSON response for ${endpoint}`, error);
+            data = { error: 'JSON parse error', status: response.status };
+          }
+        } else {
+          // Handle non-JSON responses
+          try {
+            data = await response.text();
+            // If looks like JSON, try to parse it anyway
+            if (data.startsWith('{') || data.startsWith('[')) {
+              try {
+                data = JSON.parse(data);
+              } catch {
+                // Keep as text if JSON parsing fails
+              }
+            }
+          } catch {
+            data = { error: 'Failed to read response', status: response.status };
           }
         }
-      }
-      
-      return data as T;
-    } catch (error) {
-      // Обрабатываем ошибку отмены запроса
-      if (error instanceof Error && error.name === 'AbortError') {
-        console.log(`API: Request to ${endpoint} was aborted`);
-        throw error;
-      }
-      
-      // Обрабатываем другие ошибки
-      console.error(`API: Error fetching ${endpoint}:`, error);
-      throw error;
-    } finally {
-      // Очищаем таймер
-      clearTimeout(timeoutId);
-      
-      // Уменьшаем счетчик активных запросов
-      activeRequestCount--;
-      
-      // Если это был последний запрос, устанавливаем таймер для сброса блокировки
-      if (activeRequestCount === 0 && !isCriticalRequest) {
-        if (globalLockTimer) {
-          clearTimeout(globalLockTimer);
+        
+        // Cache successful GET responses
+        if ((options.method === 'GET' || !options.method) && data) {
+          responseCache[requestKey] = {
+            data,
+            timestamp: Date.now(),
+          };
         }
         
-        globalLockTimer = setTimeout(() => {
-          globalRequestLock = false;
-          console.log(`API: Global lock reset after request completion, blocked requests: ${blockedRequestCount}`);
-          blockedRequestCount = 0; // Сбрасываем счетчик заблокированных запросов
-          
-          // Обрабатываем очередь запросов
-          processRequestQueue();
-        }, GLOBAL_LOCK_RESET_DELAY);
+        return data;
       } else {
-        // Обрабатываем очередь запросов, если есть место для новых запросов
-        processRequestQueue();
+        // Handle errors
+        let errorData: any = { error: response.statusText, status: response.status };
+        try {
+          // Try to parse error response
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const jsonError = await response.json();
+            errorData = { ...errorData, ...jsonError };
+          }
+        } catch {
+          // Ignore parse errors for error responses
+        }
+        
+        console.error(`API: Error response for ${endpoint}: ${response.status} ${response.statusText}`);
+        return errorData;
       }
+    } catch (error: any) {
+      // Clear timeout
+      clearTimeout(timeoutId);
+      
+      // Handle network errors
+      console.error(`API: Network error for ${endpoint}:`, error);
+      
+      // Check for abort errors
+      if (error.name === 'AbortError') {
+        return { aborted: true, reason: 'timeout' };
+      }
+      
+      return { error: error.message, status: 0 };
+    } finally {
+      // Decrease active requests counter
+      activeRequestCount = Math.max(0, activeRequestCount - 1);
+      
+      // Process request queue
+      processRequestQueue();
     }
   })();
-
-  // Сохраняем запрос для дедупликации
+  
+  // Store request promise for deduplication
   lastRequests[requestKey] = {
     timestamp: now,
-    promise: requestPromise
+    promise: requestPromise,
   };
-
-  // Очищаем запись о последнем запросе через некоторое время
-  setTimeout(() => {
-    delete lastRequests[requestKey];
-  }, REQUEST_DEDUP_INTERVAL);
-
+  
   return requestPromise;
 }

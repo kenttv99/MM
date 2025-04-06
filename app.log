@@ -1768,3 +1768,7 @@ ConnectionResetError: [WinError 10054] Удаленный хост принудительно разорвал сущ
 2025-04-06 13:18:00,603 - root - ERROR - Error parsing end_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'
 2025-04-06 13:18:27,630 - root - ERROR - Error parsing start_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'
 2025-04-06 13:18:27,646 - root - ERROR - Error parsing end_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'
+2025-04-06 13:49:15,715 - root - ERROR - Error parsing start_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'
+2025-04-06 13:49:15,722 - root - ERROR - Error parsing end_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'
+2025-04-06 13:49:50,545 - root - ERROR - Error parsing start_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'
+2025-04-06 13:49:50,549 - root - ERROR - Error parsing end_date 'undefined': time data 'undefined' does not match format '%Y-%m-%d'

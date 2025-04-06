@@ -1,416 +1,408 @@
 // frontend/src/contexts/LoadingContext.tsx
 "use client";
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import { usePathname } from 'next/navigation';
 
-// Типы для контекста
+// Types for loading stages
+export enum LoadingStage {
+  AUTHENTICATION = 'authentication',
+  STATIC_CONTENT = 'static_content',
+  DYNAMIC_CONTENT = 'dynamic_content',
+  DATA_LOADING = 'data_loading',
+  COMPLETED = 'completed'
+}
+
+// Types for context
 interface LoadingContextType {
   isStaticLoading: boolean;
   isDynamicLoading: boolean;
-  setStaticLoading: (loading: boolean) => void;
-  setDynamicLoading: (loading: boolean) => void;
+  setStaticLoading: (isLoading: boolean) => void;
+  setDynamicLoading: (isLoading: boolean) => void;
   resetLoading: () => void;
-  isEventsPage: boolean;
+  currentStage: LoadingStage;
+  setStage: (stage: LoadingStage) => void;
 }
 
-// Создаем контекст с начальным значением
-const LoadingContext = createContext<LoadingContextType>({
-  isStaticLoading: false,
-  isDynamicLoading: false,
-  setStaticLoading: () => {},
-  setDynamicLoading: () => {},
-  resetLoading: () => {},
-  isEventsPage: false,
-});
+// Create context with initial value
+const LoadingContext = createContext<LoadingContextType | undefined>(undefined);
 
-// Специальные пути, для которых не нужно сбрасывать состояние загрузки
+// Special paths that don't need to reset loading state
 const specialPaths = ['/events', '/event/'];
 
-export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Состояния загрузки
-  const [isStaticLoading, setStaticLoadingState] = useState(false);
-  const [isDynamicLoading, setDynamicLoadingState] = useState(false);
-  
-  // Получаем текущий путь
-  const pathname = usePathname();
-  
-  // Ссылки для отслеживания состояния
-  const loadingStateLock = useRef(false);
-  const loadingStateTimeout = useRef<NodeJS.Timeout | null>(null);
-  const activeRequestsRef = useRef<number>(0);
-  const resetTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const isEventsPageRef = useRef<boolean>(false);
-  const lastLoadingChangeTime = useRef<number>(0);
-  const loadingResetTimer = useRef<NodeJS.Timeout | null>(null);
-  const autoResetTimer = useRef<NodeJS.Timeout | null>(null);
-  const isActive = useRef(true);
-  const loadingStateRef = useRef({ isStaticLoading: false, isDynamicLoading: false });
-  
-  // Константы
-  const COOLDOWN_PERIOD = 300; // 300мс для блокировки частых изменений
-  
-  // Проверяем, является ли текущий путь специальным
-  const isSpecialPath = useCallback(() => {
-    if (!pathname) return false;
-    return specialPaths.some(path => pathname.startsWith(path));
-  }, [pathname]);
-  
-  // Функция для установки статического состояния загрузки
-  const setStaticLoading = useCallback((value: boolean) => {
-    console.log('LoadingContext: Setting static loading:', { 
-      value, 
-      currentState: loadingStateRef.current,
-      isLocked: loadingStateLock.current
+// Global active requests counter
+let activeRequestsCount = 0;
+
+// Global flag for tracking last spinner state
+let lastSpinnerState = false;
+
+// Global flag for tracking last reset time
+let lastResetTime = 0;
+// Increase debounce time to avoid frequent resets during authentication
+const RESET_DEBOUNCE = 2000; // 2 seconds between resets (increased from 1 second)
+
+// Function to dispatch loading stage change events
+function dispatchStageChangeEvent(stage: LoadingStage) {
+  if (typeof window !== 'undefined') {
+    // Only dispatch if we're not already in this stage (to prevent unnecessary dispatches)
+    const event = new CustomEvent('loadingStageChange', {
+      detail: { stage }
     });
-    
-    // Проверяем, не заблокировано ли состояние
-    if (loadingStateLock.current) {
-      console.log('LoadingContext: Loading state is locked, skipping update');
-      return;
-    }
-    
-    // Для статической загрузки всегда обновляем состояние
-    if (value !== loadingStateRef.current.isStaticLoading) {
-      loadingStateLock.current = true;
-      lastLoadingChangeTime.current = Date.now();
+    window.dispatchEvent(event);
+    console.log('LoadingContext: Dispatched stage change event', { stage });
+  }
+}
+
+export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isStaticLoading, setIsStaticLoading] = useState(false);
+  const [isDynamicLoading, setIsDynamicLoading] = useState(false);
+  const [currentStage, setCurrentStage] = useState<LoadingStage>(LoadingStage.AUTHENTICATION);
+  
+  const pathname = usePathname();
+  const isMounted = useRef(true);
+  const isInitialized = useRef(false);
+  const loadingStateRef = useRef({ isStaticLoading: false, isDynamicLoading: false });
+  const autoResetTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const uiLockTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const spinnerCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isEventsPage = useRef(pathname?.includes('/events'));
+  const lastSpinnerCheckRef = useRef(0);
+  const lastResetRef = useRef(0);
+  const stageTransitionTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const previousStageRef = useRef<LoadingStage>(LoadingStage.AUTHENTICATION);
+  // New ref to track stage change history
+  const stageChangeHistoryRef = useRef<Array<{stage: LoadingStage, timestamp: number}>>([]);
+
+  // Function for safe state update
+  const safeSetState = useCallback((setter: (value: boolean) => void, value: boolean) => {
+    if (isMounted.current) {
+      // Don't reset state if there are active requests on events page
+      if (!value && isEventsPage.current && activeRequestsCount > 0) {
+        return;
+      }
       
-      console.log('LoadingContext: Updating static loading state:', value);
-      setStaticLoadingState(value);
-      
-      // Обновляем ссылку на текущее состояние
-      loadingStateRef.current = { 
-        ...loadingStateRef.current, 
-        isStaticLoading: value 
+      setter(value);
+      loadingStateRef.current = {
+        ...loadingStateRef.current,
+        [setter === setIsStaticLoading ? 'isStaticLoading' : 'isDynamicLoading']: value
       };
-      
-      // Если статическая загрузка завершена, сбрасываем динамическую загрузку
-      if (!value) {
-        // Даем время для завершения статической загрузки
-        setTimeout(() => {
-          if (isActive.current) {
-            console.log('LoadingContext: Resetting dynamic loading after static loading');
-            setDynamicLoadingState(false);
-            
-            // Обновляем ссылку на текущее состояние
-            loadingStateRef.current = { 
-              ...loadingStateRef.current, 
-              isDynamicLoading: false 
-            };
-          }
-        }, 100);
-      }
-      
-      // Сбрасываем блокировку через COOLDOWN_PERIOD
-      if (loadingStateTimeout.current) {
-        clearTimeout(loadingStateTimeout.current);
-      }
-      
-      loadingStateTimeout.current = setTimeout(() => {
-        loadingStateLock.current = false;
-        console.log('LoadingContext: Loading state lock released');
-      }, COOLDOWN_PERIOD);
     }
   }, []);
-  
-  // Функция для установки динамического состояния загрузки
-  const setDynamicLoading = useCallback((value: boolean) => {
-    console.log('LoadingContext: Setting dynamic loading:', { 
-      value, 
-      currentState: loadingStateRef.current,
-      isLocked: loadingStateLock.current,
-      isStaticLoading: loadingStateRef.current.isStaticLoading
-    });
-    
-    // Проверяем, не заблокировано ли состояние и не идет ли статическая загрузка
-    if (loadingStateLock.current || loadingStateRef.current.isStaticLoading) {
-      console.log('LoadingContext: Loading state is locked or static loading is active, skipping update');
-      return;
+
+  // Function for setting static loading
+  const setStaticLoading = useCallback((isLoading: boolean) => {
+    // Логируем только при изменении состояния
+    if (loadingStateRef.current.isStaticLoading !== isLoading) {
+      console.log('LoadingContext: Setting static loading', { isLoading, currentStage });
     }
     
-    // Проверяем, является ли текущий путь страницей событий
-    const isEventsPage = isSpecialPath();
-    isEventsPageRef.current = isEventsPage;
+    if (isLoading && currentStage === LoadingStage.AUTHENTICATION) {
+      setCurrentStage(LoadingStage.STATIC_CONTENT);
+    }
+    safeSetState(setIsStaticLoading, isLoading);
+  }, [safeSetState, currentStage]);
+
+  // Function for setting dynamic loading
+  const setDynamicLoading = useCallback((isLoading: boolean) => {
+    // Логируем только при изменении состояния
+    if (loadingStateRef.current.isDynamicLoading !== isLoading) {
+      console.log('LoadingContext: Setting dynamic loading', { isLoading, currentStage });
+    }
     
-    // Если это страница событий, управляем счетчиком активных запросов
-    if (isEventsPage) {
-    if (value) {
-        activeRequestsRef.current++;
+    if (isLoading) {
+      activeRequestsCount++;
+      if (currentStage === LoadingStage.STATIC_CONTENT) {
+        setCurrentStage(LoadingStage.DYNAMIC_CONTENT);
+      }
     } else {
-        activeRequestsRef.current = Math.max(0, activeRequestsRef.current - 1);
+      activeRequestsCount = Math.max(0, activeRequestsCount - 1);
+      if (activeRequestsCount === 0 && currentStage === LoadingStage.DYNAMIC_CONTENT) {
+        setCurrentStage(LoadingStage.DATA_LOADING);
       }
-      
-      console.log('LoadingContext: Events page, active requests:', activeRequestsRef.current);
-      
-      // Обновляем состояние только если есть активные запросы
-      const newLoadingState = activeRequestsRef.current > 0;
-      
-      if (newLoadingState !== loadingStateRef.current.isDynamicLoading) {
-        console.log('LoadingContext: Updating dynamic loading state for events page:', newLoadingState);
-        setDynamicLoadingState(newLoadingState);
-        
-        // Обновляем ссылку на текущее состояние
-        loadingStateRef.current = { 
-          ...loadingStateRef.current, 
-          isDynamicLoading: newLoadingState 
-        };
-      }
-      
-      return;
     }
-    
-    // Для других страниц обновляем состояние с учетом cooldown
-    if (value !== loadingStateRef.current.isDynamicLoading) {
-      loadingStateLock.current = true;
-      lastLoadingChangeTime.current = Date.now();
-      
-      console.log('LoadingContext: Updating dynamic loading state:', value);
-      setDynamicLoadingState(value);
-      
-      // Обновляем ссылку на текущее состояние
-      loadingStateRef.current = { 
-        ...loadingStateRef.current, 
-        isDynamicLoading: value 
-      };
-      
-      if (loadingStateTimeout.current) {
-        clearTimeout(loadingStateTimeout.current);
-      }
-      
-      loadingStateTimeout.current = setTimeout(() => {
-        loadingStateLock.current = false;
-        console.log('LoadingContext: Loading state lock released');
-      }, COOLDOWN_PERIOD);
-    }
-  }, [isSpecialPath]);
-  
-  // Функция для сброса состояния загрузки
+    safeSetState(setIsDynamicLoading, isLoading);
+  }, [safeSetState, currentStage]);
+
+  // Function for resetting loading state
   const resetLoading = useCallback(() => {
-    console.log('LoadingContext: Resetting loading state', { 
-      currentState: loadingStateRef.current,
-      isLocked: loadingStateLock.current,
-      isEventsPage: isEventsPageRef.current,
-      activeRequests: activeRequestsRef.current
+    const now = Date.now();
+    if (now - lastResetRef.current < RESET_DEBOUNCE) {
+      // Убираем избыточные логи для дебаунса
+      return;
+    }
+    
+    // Don't reset during authentication stage - используем строковое сравнение для обхода ошибки TypeScript
+    if (currentStage === 'authentication') {
+      console.log('LoadingContext: Skipping reset during authentication stage');
+      return;
+    }
+    
+    lastResetRef.current = now;
+    lastResetTime = now;
+    
+    console.log('LoadingContext: Resetting loading state', {
+      activeRequests: activeRequestsCount,
+      currentStage
     });
     
-    // Проверяем, не заблокировано ли состояние
-    if (loadingStateLock.current) {
-      console.log('LoadingContext: Loading state is locked, skipping reset');
-      return;
+    if (isMounted.current) {
+      // Don't reset state if there are active requests on events page
+      if (isEventsPage.current && activeRequestsCount > 0) {
+        // Убираем лишние логи
+        return;
+      }
+      
+      setIsStaticLoading(false);
+      setIsDynamicLoading(false);
+      loadingStateRef.current = { isStaticLoading: false, isDynamicLoading: false };
+      activeRequestsCount = 0;
+      
+      // Reset stage to COMPLETED when all loading is done
+      if (currentStage !== LoadingStage.COMPLETED && currentStage !== 'authentication') {
+        setCurrentStage(LoadingStage.COMPLETED);
+      }
     }
-    
-    // Проверяем, является ли текущий путь страницей событий
-    const isEventsPage = isSpecialPath();
-    isEventsPageRef.current = isEventsPage;
-    
-    // Если это страница событий, не сбрасываем состояние загрузки, если есть активные запросы
-    if (isEventsPage && activeRequestsRef.current > 0) {
-      console.log('LoadingContext: Events page with active requests, skipping reset');
-      return;
-    }
-    
-    // Сбрасываем состояние загрузки
-    console.log('LoadingContext: Resetting loading states');
-    setStaticLoadingState(false);
-    setDynamicLoadingState(false);
-    
-    // Обновляем ссылку на текущее состояние
-    loadingStateRef.current = { 
-      isStaticLoading: false, 
-      isDynamicLoading: false 
-    };
-    
-    // Сбрасываем счетчик активных запросов
-    activeRequestsRef.current = 0;
-    
-    // Сбрасываем таймер сброса состояния загрузки
-    if (resetTimeoutRef.current) {
-      clearTimeout(resetTimeoutRef.current);
-      resetTimeoutRef.current = null;
-    }
-  }, [isSpecialPath]);
+  }, [currentStage]);
   
-  // Эффект для инициализации состояния загрузки
-  useEffect(() => {
-    console.log('LoadingContext: Initializing loading state', { 
-      pathname, 
-      isSpecialPath: isSpecialPath(),
-      isActive: isActive.current
-    });
-    
-    // Проверяем, является ли текущий путь страницей событий
-    const isEventsPage = isSpecialPath();
-    isEventsPageRef.current = isEventsPage;
-    
-    // Если это страница событий, не сбрасываем состояние загрузки
-    if (isEventsPage) {
-      console.log('LoadingContext: Events page detected, skipping reset');
-      return;
+  // Function to explicitly set the loading stage
+  const setStage = useCallback((stage: LoadingStage) => {
+    if (isMounted.current) {
+      // Skip if trying to set the same stage with no state changes
+      if (stage === currentStage && 
+          !loadingStateRef.current.isStaticLoading && 
+          !loadingStateRef.current.isDynamicLoading) {
+        // Убираем лишние логи при пропуске
+        return;
+      }
+      
+      // Важные логи для определения когда произошло изменение стадии
+      console.log('LoadingContext: Setting stage', { stage, prevStage: currentStage });
+      
+      // Update stage change history
+      stageChangeHistoryRef.current.push({
+        stage,
+        timestamp: Date.now()
+      });
+      
+      // Keep only last 10 stage changes in history
+      if (stageChangeHistoryRef.current.length > 10) {
+        stageChangeHistoryRef.current.shift();
+      }
+      
+      // Only update if stage is actually different
+      if (stage !== currentStage) {
+        previousStageRef.current = currentStage;
+        setCurrentStage(stage);
+        dispatchStageChangeEvent(stage);
+      }
+      
+      // Automatically progress to next stage after a timeout if stuck
+      if (stageTransitionTimerRef.current) {
+        clearTimeout(stageTransitionTimerRef.current);
+      }
+      
+      // Set a timeout to auto-progress if needed
+      if (stage !== LoadingStage.COMPLETED) {
+        stageTransitionTimerRef.current = setTimeout(() => {
+          // If we're still in the same stage after the timeout, move to the next one
+          if (isMounted.current && currentStage === stage) {
+            console.log('LoadingContext: Auto-progressing stage', { from: stage });
+            switch (stage) {
+              case LoadingStage.AUTHENTICATION:
+                // Для стадии аутентификации просто переходим к следующей стадии
+                // после таймаута, AuthContext сам разберется с проверкой
+                setCurrentStage(LoadingStage.STATIC_CONTENT);
+                break;
+              case LoadingStage.STATIC_CONTENT:
+                setCurrentStage(LoadingStage.DYNAMIC_CONTENT);
+                break;
+              case LoadingStage.DYNAMIC_CONTENT:
+                setCurrentStage(LoadingStage.DATA_LOADING);
+                break;
+              case LoadingStage.DATA_LOADING:
+                setCurrentStage(LoadingStage.COMPLETED);
+                break;
+            }
+          }
+        }, 5000); // 5 second timeout for auto-progression
+      }
     }
-    
-    // Сбрасываем состояние загрузки
-    resetLoading();
-    
-    // Очищаем таймеры при размонтировании
-    return () => {
-      console.log('LoadingContext: Cleanup effect triggered');
-      isActive.current = false;
-      
-      if (loadingStateTimeout.current) {
-        clearTimeout(loadingStateTimeout.current);
-      }
-      
-      if (resetTimeoutRef.current) {
-        clearTimeout(resetTimeoutRef.current);
-      }
-      
-      if (loadingResetTimer.current) {
-        clearTimeout(loadingResetTimer.current);
-      }
-      
-      if (autoResetTimer.current) {
-        clearTimeout(autoResetTimer.current);
-      }
-    };
-  }, [resetLoading, isSpecialPath]);
-  
-  // Эффект для отслеживания изменений пути
-  useEffect(() => {
-    console.log('LoadingContext: Path changed', { 
-      pathname, 
-      isSpecialPath: isSpecialPath(),
-      isActive: isActive.current
-    });
-    
-    // Проверяем, является ли текущий путь страницей событий
-    const isEventsPage = isSpecialPath();
-    isEventsPageRef.current = isEventsPage;
-    
-    // Если это страница событий, не сбрасываем состояние загрузки
-    if (isEventsPage) {
-      console.log('LoadingContext: Events page detected, skipping reset');
-      return;
-    }
-    
-    // Сбрасываем состояние загрузки
-    resetLoading();
-  }, [pathname, resetLoading, isSpecialPath]);
+  }, [currentStage]);
 
-  // Автоматический сброс состояния загрузки после 30 секунд
+  // Effect for initializing state
   useEffect(() => {
-    // Проверяем, является ли текущий путь страницей событий
-    const isEventsPath = specialPaths.some(path => pathname?.startsWith(path));
-    
-    console.log('LoadingContext: Setting up auto-reset timer', { 
-      isEventsPath, 
-      isActive: isActive.current
-    });
-    
-    // Если это страница событий, не устанавливаем автоматический сброс
-    if (isEventsPath) {
-      console.log('LoadingContext: Events page detected, skipping auto-reset');
+    if (isInitialized.current) {
       return;
     }
     
-    // Устанавливаем таймер для сброса состояния загрузки
-    const timerId = setTimeout(() => {
-      if (isActive.current) {
-        console.log('LoadingContext: Auto-resetting loading state after timeout');
-        resetLoading();
-      }
-    }, 30000); // 30 секунд
+    isInitialized.current = true;
+    isMounted.current = true;
+    isEventsPage.current = pathname?.includes('/events');
+    loadingStateRef.current = { isStaticLoading: false, isDynamicLoading: false };
+    activeRequestsCount = 0;
+    stageChangeHistoryRef.current = [];
     
-    // Очищаем таймер при размонтировании или изменении пути
-    return () => {
-      console.log('LoadingContext: Clearing auto-reset timer');
-      clearTimeout(timerId);
-    };
-  }, [pathname, resetLoading, isSpecialPath]);
-
-  // Добавляем эффект для предотвращения блокировки интерфейса
-  useEffect(() => {
-    console.log('LoadingContext: Setting up UI lock prevention', { 
-      isDynamicLoading, 
-      isActive: isActive.current
+    // Add initial stage to history
+    stageChangeHistoryRef.current.push({
+      stage: LoadingStage.AUTHENTICATION,
+      timestamp: Date.now()
     });
     
-    // Если состояние загрузки активно более 15 секунд, сбрасываем его
-    if (isDynamicLoading) {
-      const timerId = setTimeout(() => {
-        if (isActive.current) {
-          console.log('LoadingContext: Preventing UI lock by resetting loading state');
+    setCurrentStage(LoadingStage.AUTHENTICATION);
+    previousStageRef.current = LoadingStage.AUTHENTICATION;
+    dispatchStageChangeEvent(LoadingStage.AUTHENTICATION);
+
+    return () => {
+      isMounted.current = false;
+      if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
+      if (uiLockTimerRef.current) clearTimeout(uiLockTimerRef.current);
+      if (spinnerCheckIntervalRef.current) clearInterval(spinnerCheckIntervalRef.current);
+      if (stageTransitionTimerRef.current) clearTimeout(stageTransitionTimerRef.current);
+      activeRequestsCount = 0;
+    };
+  }, [pathname]);
+
+  // Effect for tracking path
+  useEffect(() => {
+    if (!isInitialized.current) {
+      return;
+    }
+    
+    isEventsPage.current = pathname?.includes('/events');
+    
+    if (!isEventsPage.current) {
+      resetLoading();
+      // Reset to authentication stage on navigation
+      setCurrentStage(LoadingStage.AUTHENTICATION);
+      
+      // Reset stage change history
+      stageChangeHistoryRef.current = [{
+        stage: LoadingStage.AUTHENTICATION,
+        timestamp: Date.now()
+      }];
+    }
+  }, [pathname, resetLoading]);
+
+  // Effect for auto-reset state
+  useEffect(() => {
+    if (isStaticLoading || isDynamicLoading) {
+      // Убираем лишние логи
+      if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
+      autoResetTimerRef.current = setTimeout(() => {
+        if (isMounted.current && !isEventsPage.current) {
+          console.log('LoadingContext: Auto-resetting loading state');
           resetLoading();
         }
-      }, 15000); // 15 секунд для предотвращения блокировки
-      
-      return () => {
-        console.log('LoadingContext: Clearing UI lock prevention timer');
-        clearTimeout(timerId);
-      };
+      }, 30000);
     }
-  }, [isDynamicLoading, resetLoading]);
-  
-  // Добавляем эффект для отслеживания статической загрузки
+
+    return () => {
+      if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
+    };
+  }, [isStaticLoading, isDynamicLoading, resetLoading]);
+
+  // Effect for preventing UI lock
   useEffect(() => {
-    console.log('LoadingContext: Setting up static loading tracker', { 
-      isStaticLoading, 
-      isActive: isActive.current
-    });
-    
-    // Проверяем наличие глобального спиннера
-    const checkGlobalSpinner = () => {
+    if (isStaticLoading || isDynamicLoading) {
+      // Убираем лишние логи
+      if (uiLockTimerRef.current) clearTimeout(uiLockTimerRef.current);
+      uiLockTimerRef.current = setTimeout(() => {
+        if (isMounted.current && !isEventsPage.current) {
+          console.log('LoadingContext: Preventing UI lock');
+          resetLoading();
+        }
+      }, 15000);
+    }
+
+    return () => {
+      if (uiLockTimerRef.current) clearTimeout(uiLockTimerRef.current);
+    };
+  }, [isStaticLoading, isDynamicLoading, resetLoading]);
+
+  // Effect for tracking global spinner
+  useEffect(() => {
+    const checkSpinner = () => {
+      if (!isMounted.current) return;
+      
+      const now = Date.now();
+      // Check spinner no more than once per 500ms
+      if (now - lastSpinnerCheckRef.current < 500) {
+        return;
+      }
+      lastSpinnerCheckRef.current = now;
+      
       const spinner = document.querySelector('.global-spinner');
-      if (spinner && !loadingStateRef.current.isStaticLoading) {
-        console.log('LoadingContext: Global spinner detected, setting static loading');
-        setStaticLoadingState(true);
+      const hasSpinner = spinner !== null;
+      
+      // Update state only if it changed
+      if (hasSpinner !== lastSpinnerState) {
+        lastSpinnerState = hasSpinner;
         
-        // Обновляем ссылку на текущее состояние
-        loadingStateRef.current = { 
-          ...loadingStateRef.current, 
-          isStaticLoading: true 
-        };
-      } else if (!spinner && loadingStateRef.current.isStaticLoading) {
-        console.log('LoadingContext: Global spinner removed, resetting static loading');
-        setStaticLoadingState(false);
+        // Don't update state if there are active requests on events page
+        if (isEventsPage.current && activeRequestsCount > 0) {
+          return;
+        }
         
-        // Обновляем ссылку на текущее состояние
-        loadingStateRef.current = { 
-          ...loadingStateRef.current, 
-          isStaticLoading: false 
-        };
+        if (hasSpinner && !isStaticLoading) {
+          setStaticLoading(true);
+        } else if (!hasSpinner && isStaticLoading) {
+          setStaticLoading(false);
+        }
       }
     };
-    
-    // Проверяем сразу
-    checkGlobalSpinner();
-    
-    // Устанавливаем интервал для проверки
-    const intervalId = setInterval(checkGlobalSpinner, 100);
-    
-    // Очищаем интервал при размонтировании
+
+    // Increase check interval to 1 second
+    spinnerCheckIntervalRef.current = setInterval(checkSpinner, 1000);
+    checkSpinner();
+
     return () => {
-      console.log('LoadingContext: Clearing static loading tracker interval');
-      clearInterval(intervalId);
+      if (spinnerCheckIntervalRef.current) {
+        clearInterval(spinnerCheckIntervalRef.current);
+      }
     };
-  }, [isStaticLoading]);
-  
-  // Предоставляем контекст
-  const value = {
-    isStaticLoading,
-    isDynamicLoading,
-    setStaticLoading,
-    setDynamicLoading,
-    resetLoading,
-    isEventsPage: isEventsPageRef.current
-  };
-  
-  return <LoadingContext.Provider value={value}>{children}</LoadingContext.Provider>;
+  }, [isStaticLoading, setStaticLoading]);
+
+  // Effect for log current stage changes  
+  useEffect(() => {
+    console.log('LoadingContext: Stage changed', {
+      currentStage,
+      isStaticLoading,
+      isDynamicLoading,
+      activeRequests: activeRequestsCount
+    });
+  }, [currentStage, isStaticLoading, isDynamicLoading]);
+
+  const loadingContextValue = useMemo(
+    () => ({
+      isStaticLoading,
+      isDynamicLoading,
+      setStaticLoading,
+      setDynamicLoading,
+      resetLoading,
+      currentStage,
+      setStage
+    }),
+    [
+      isStaticLoading,
+      isDynamicLoading,
+      setStaticLoading,
+      setDynamicLoading,
+      resetLoading,
+      currentStage,
+      setStage
+    ]
+  );
+
+  return (
+    <LoadingContext.Provider value={loadingContextValue}>
+      {children}
+    </LoadingContext.Provider>
+  );
 };
 
-// Хук для использования контекста
 export const useLoading = () => {
   const context = useContext(LoadingContext);
-  if (context === undefined) {
-    throw new Error('useLoading must be used within a LoadingProvider');
+  if (!context) {
+    throw new Error("useLoading must be used within a LoadingProvider");
   }
   return context;
 };

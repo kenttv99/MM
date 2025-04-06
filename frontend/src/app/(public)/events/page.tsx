@@ -9,10 +9,15 @@ import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useInView } from "react-intersection-observer";
-import { useEventsData } from "@/hooks/useEventsData";
+import { apiFetch } from "@/utils/api";
 import Header from "@/components/Header";
 
 const ITEMS_PER_PAGE = 6;
+
+interface EventsResponse {
+  data: EventData[];
+  total: number;
+}
 
 interface FilterState {
   startDate: string;
@@ -186,6 +191,10 @@ const EventsPage = () => {
   const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isFetching, setIsFetching] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [data, setData] = useState<EventsResponse | null>(null);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
   const lastFetchTime = useRef<number>(0);
@@ -195,107 +204,95 @@ const EventsPage = () => {
   const hasInitialData = useRef(false);
   const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const loadingStateRef = useRef({ isLoading: false, isFetching: false });
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const { data, isLoading, isFetching, error } = useEventsData({
-    page,
-    limit: ITEMS_PER_PAGE,
-    search: "",
-    startDate: activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : undefined,
-    endDate: activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : undefined,
-    setDynamicLoading,
-  });
+  const fetchEvents = useCallback(async () => {
+    if (!isMounted.current) return;
 
-  // Эффект для отслеживания состояния загрузки и данных
-  useEffect(() => {
-    console.log('EventsPage: Effect triggered', { 
-      isMounted: isMounted.current, 
-      data: data !== null, 
-      isLoading, 
-      isFetching, 
-      error: error !== null,
-      currentLoadingState: loadingStateRef.current
-    });
-    
-    if (!isMounted.current) {
-      console.log('EventsPage: Component unmounted, skipping effect');
+    const currentTime = Date.now();
+    if (currentTime - lastFetchTime.current < minFetchInterval) {
+      console.log('Events: Skipping request due to rate limiting');
       return;
     }
-    
-    // Очищаем предыдущий таймаут, если он есть
-    if (loadingTimeoutRef.current) {
-      clearTimeout(loadingTimeoutRef.current);
-      loadingTimeoutRef.current = null;
-    }
-    
-    // Проверяем, изменилось ли состояние загрузки
-    if (isLoading !== loadingStateRef.current.isLoading || 
-        isFetching !== loadingStateRef.current.isFetching) {
-      
-      console.log('EventsPage: Loading state changed', { 
-        isLoading, 
-        isFetching, 
-        previousState: loadingStateRef.current 
-      });
-      
-      // Обновляем ссылку на текущее состояние
-      loadingStateRef.current = { isLoading, isFetching };
-      
-      // Если данные загружены и нет активной загрузки, сбрасываем состояние загрузки
-      if (data && !isLoading && !isFetching) {
-        console.log('EventsPage: Data loaded, resetting loading state');
-        
-        // Устанавливаем таймаут для сброса состояния загрузки
-        loadingTimeoutRef.current = setTimeout(() => {
-          if (isMounted.current) {
-            console.log('EventsPage: Resetting loading state after timeout');
-            setDynamicLoading(false);
-          }
-        }, 100);
-      }
-    }
-    
-    // Обновляем hasMore только если данные изменились
-    if (data) {
-      const newHasMore = data.total > page * ITEMS_PER_PAGE;
-      console.log('EventsPage: Updating hasMore', { 
-        total: data.total, 
-        currentPage: page, 
-        itemsPerPage: ITEMS_PER_PAGE, 
-        newHasMore 
-      });
-      
-      setHasMore(newHasMore);
-      hasInitialData.current = true;
-    }
-    
-    // Очищаем таймаут при размонтировании
-    return () => {
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
-        loadingTimeoutRef.current = null;
-      }
-    };
-  }, [data, isLoading, isFetching, error, page, ITEMS_PER_PAGE, setDynamicLoading]);
 
-  // Эффект для очистки при размонтировании
-  useEffect(() => {
-    console.log('EventsPage: Mounting component');
-    isMounted.current = true;
+    lastFetchTime.current = currentTime;
     
-    return () => {
-      console.log('EventsPage: Unmounting component');
-      isMounted.current = false;
-      
-      // Очищаем таймаут загрузки
-      if (loadingTimeoutRef.current) {
-        clearTimeout(loadingTimeoutRef.current);
-        loadingTimeoutRef.current = null;
+    // Cancel any in-flight requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Create a new abort controller
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      setIsFetching(true);
+      if (!hasInitialData.current) {
+        setIsLoading(true);
       }
       
-      // Сбрасываем глобальное состояние загрузки
-      setDynamicLoading(false);
+      setDynamicLoading(true);
+      
+      const endpoint = `/v1/public/events?page=${page}&limit=${ITEMS_PER_PAGE}&search=&start_date=${activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : ''}&end_date=${activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : ''}`;
+      
+      const response = await apiFetch<EventsResponse | EventData[]>(endpoint, {
+        signal: abortControllerRef.current.signal
+      });
+      
+      if (!isMounted.current) return;
+      
+      if ('error' in response) {
+        throw new Error(response.error);
+      }
+      
+      if ('aborted' in response) {
+        throw new Error('Request was aborted: ' + response.reason);
+      }
+      
+      // Format the response
+      const formattedResponse = Array.isArray(response) 
+        ? { data: response, total: response.length } 
+        : response;
+      
+      // Check if we have more pages to load
+      setHasMore(formattedResponse.data.length === ITEMS_PER_PAGE);
+      
+      setData(formattedResponse);
+      setError(null);
+      hasInitialData.current = true;
+      
+    } catch (err: any) {
+      if (!isMounted.current) return;
+      
+      // Only set error if it's not an abort error
+      if (err.name !== 'AbortError') {
+        console.error("Error fetching events:", err);
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
+    } finally {
+      if (isMounted.current) {
+        setIsLoading(false);
+        setIsFetching(false);
+        setDynamicLoading(false);
+      }
+    }
+  }, [page, activeFilters, setDynamicLoading]);
+
+  // Initial fetch
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
-  }, [setDynamicLoading]);
+  }, []);
 
   // Мемоизируем isFilterActive
   const isFilterActive = useMemo(() => {

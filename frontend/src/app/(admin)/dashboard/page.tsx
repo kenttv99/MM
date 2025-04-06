@@ -393,19 +393,19 @@ export default function DashboardPage() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
                       {users.map((user) => (
                         <tr key={user.id} className="hover:bg-gray-50 transition-colors duration-150">
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{user.id}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{user.fio}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{user.email}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-base">
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.fio}</td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
+                          <td className="px-4 py-2 whitespace-nowrap text-sm">
                             <button
                               onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
                               className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200"
@@ -591,12 +591,12 @@ export default function DashboardPage() {
                   <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опубликовано</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опубликовано</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -612,9 +612,9 @@ export default function DashboardPage() {
                             ref={index === events.length - 1 ? lastEventElementRef : null}
                             className="hover:bg-gray-50 transition-colors duration-150"
                           >
-                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.id ?? "N/A"}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-base text-gray-900">{event.title}</td>
-                            <td className="px-6 py-4 whitespace-nowrap text-base">
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
+                            <td className="px-4 py-2 whitespace-nowrap text-sm">
                               {event.status === "registration_open" ? (
                                 <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
                               ) : event.status === "registration_closed" ? (
@@ -625,16 +625,16 @@ export default function DashboardPage() {
                                 <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
                               )}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-base text-center">
+                            <td className="px-4 py-2 whitespace-nowrap text-sm text-center">
                               {event.published ? <FaCheck className="text-green-500 mx-auto" /> : <FaTimes className="text-red-500 mx-auto" />}
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-base">
+                            <td className="px-4 py-2 whitespace-nowrap text-sm">
                               <div className="w-32 bg-gray-200 rounded-full h-2.5">
                                 <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${fillPercentage}%` }}></div>
                               </div>
                               <p className="text-sm text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
                             </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-base">
+                            <td className="px-4 py-2 whitespace-nowrap text-sm">
                               <div className="flex items-center space-x-4">
                                 <button
                                   onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}

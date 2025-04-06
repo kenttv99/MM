@@ -89,7 +89,7 @@ const Footer = () => {
             <div className="w-full max-w-[180px] sm:max-w-[220px] md:max-w-[280px]">
               <Link
                 href="/registration"
-                className="block w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300 text-xs sm:text-sm min-w-[100px] min-h-[44px] flex items-center justify-center"
+                className="w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300 text-xs sm:text-sm min-w-[100px] min-h-[44px] flex items-center justify-center"
               >
                 Регистрация на мероприятие
               </Link>

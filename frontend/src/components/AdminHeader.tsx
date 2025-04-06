@@ -34,7 +34,7 @@ const AdminHeader: React.FC = () => {
         <div className="container mx-auto px-4 sm:px-6 flex items-center justify-between flex-nowrap gap-4">
           <Link href="/admin-login" className="flex items-center flex-shrink-0">
             <Logo />
-            <span className="ml-2 text-[var(--primary)] font-semibold text-sm hidden sm:inline" style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}>
+            <span className="ml-2 text-[var(--primary)] font-semibold text-sm hidden sm:inline">
               Админ-панель
             </span>
           </Link>
@@ -58,7 +58,7 @@ const AdminHeader: React.FC = () => {
       <div className="container mx-auto px-4 sm:px-6 flex items-center justify-between flex-nowrap gap-4">
         <Link href="/admin-profile" className="flex items-center flex-shrink-0">
           <Logo />
-          <span className="ml-2 text-[var(--primary)] font-semibold text-sm hidden sm:inline" style={{ fontSize: "clamp(0.75rem, 1.5vw, 0.875rem)" }}>
+          <span className="ml-2 text-[var(--primary)] font-semibold text-sm hidden sm:inline">
             Админ-панель
           </span>
         </Link>

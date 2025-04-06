@@ -3,6 +3,7 @@ import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AuthModalProps, ModalButtonProps } from "@/types/index";
 import { FaTimes } from "react-icons/fa";
+import ClientErrorBoundary from "../Errors/ClientErrorBoundary";
 
 const ModalButton: React.FC<ModalButtonProps> = ({
   type = "button",
@@ -61,13 +62,21 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, title, error, su
               <FaTimes size={20} />
             </button>
             <h2 className="text-xl font-semibold mb-4">{title}</h2>
-            {error && (
-              <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-md">{error}</div>
-            )}
-            {success && (
-              <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-md">{success}</div>
-            )}
-            {children}
+            <ClientErrorBoundary>
+              {error && (
+                <div className="mb-4 p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
+                  <p className="font-medium">Ошибка</p>
+                  <p>{error}</p>
+                </div>
+              )}
+              {success && (
+                <div className="mb-4 p-2 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md text-xs">
+                  <p className="font-medium">Успешно</p>
+                  <p>{success}</p>
+                </div>
+              )}
+              {children}
+            </ClientErrorBoundary>
           </motion.div>
         </motion.div>
       )}

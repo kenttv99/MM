@@ -136,16 +136,32 @@ async def get_event(
         if not db_event or not db_event.published:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found or not published")
         
-        event_dict = db_event.__dict__
+        # Создаем словарь с данными мероприятия
+        event_dict = {
+            "id": db_event.id,
+            "title": db_event.title,
+            "description": db_event.description,
+            "start_date": db_event.start_date,
+            "end_date": db_event.end_date,
+            "location": db_event.location,
+            "image_url": db_event.image_url,
+            "price": float(db_event.price) if db_event.price is not None else 0.0,
+            "published": db_event.published,
+            "created_at": db_event.created_at,
+            "updated_at": db_event.updated_at,
+            "status": db_event.status
+        }
+
         if db_event.tickets and len(db_event.tickets) > 0:
             ticket = db_event.tickets[0]
             remaining_quantity = ticket.available_quantity - ticket.sold_quantity
             event_dict["ticket_type"] = TicketTypeCreate(
                 name=ticket.name,
-                price=ticket.price,
+                price=float(ticket.price),
                 available_quantity=ticket.available_quantity,
                 free_registration=ticket.free_registration,
-                remaining_quantity=remaining_quantity  # Добавляем новое поле
+                remaining_quantity=remaining_quantity,
+                sold_quantity=ticket.sold_quantity
             ).model_dump()
             
         logger.info(f"Public request for event {actual_event_id}")

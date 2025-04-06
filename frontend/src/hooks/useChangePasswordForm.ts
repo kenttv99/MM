@@ -42,7 +42,24 @@ export const useChangePasswordForm = ({ initialValues, onSuccess }: ChangePasswo
 
         if (!response.ok) {
           const errorData = await response.json();
-          throw new Error(errorData.detail || "Ошибка при смене пароля");
+          let errorMessage = errorData.detail || "Ошибка при смене пароля";
+          
+          // Обработка различных типов ошибок
+          if (response.status === 401) {
+            errorMessage = "Неверный текущий пароль";
+          } else if (response.status === 400) {
+            if (errorMessage.includes("Password is too short")) {
+              errorMessage = "Новый пароль слишком короткий";
+            } else if (errorMessage.includes("Password must contain")) {
+              errorMessage = "Пароль должен содержать буквы и цифры";
+            } else if (errorMessage.includes("Current password is incorrect")) {
+              errorMessage = "Неверный текущий пароль";
+            }
+          } else if (response.status === 500) {
+            errorMessage = "Ошибка сервера. Попробуйте позже.";
+          }
+          
+          throw new Error(errorMessage);
         }
 
         setIsSuccess(true);
@@ -50,7 +67,13 @@ export const useChangePasswordForm = ({ initialValues, onSuccess }: ChangePasswo
           if (onSuccess) onSuccess(); // Закрываем модальное окно
         }, 1500);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Произошла ошибка");
+        let errorMessage = "Произошла ошибка";
+        
+        if (err instanceof Error) {
+          errorMessage = err.message;
+        }
+        
+        setError(errorMessage);
         setIsSuccess(false);
       } finally {
         setIsLoading(false);

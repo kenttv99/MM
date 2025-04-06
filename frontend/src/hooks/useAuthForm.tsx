@@ -20,7 +20,8 @@ type AuthResponse = {
 };
 
 interface ApiError extends Error {
-  status?: number;
+  status: number;
+  isClientError: boolean;
 }
 
 export const useAuthForm = ({
@@ -63,6 +64,11 @@ export const useAuthForm = ({
           throw new Error(data.reason ? String(data.reason) : "Request was aborted");
         }
 
+        if ('error' in data) {
+          setError(data.error);
+          return;
+        }
+
         if (isLogin && data.access_token) {
           const userData = {
             id: data.id || 0,
@@ -86,32 +92,8 @@ export const useAuthForm = ({
         }
       } catch (err) {
         const apiError = err as ApiError;
-        let errorMessage = "Произошла ошибка";
-
-        // Парсим тело ошибки, чтобы извлечь только "detail"
-        if (apiError.message) {
-          try {
-            const errorBody = JSON.parse(apiError.message.split("Message: ")[1] || "{}");
-            if (errorBody.detail) {
-              errorMessage = errorBody.detail; // Используем только значение "detail"
-            } else {
-              errorMessage = apiError.message; // Если "detail" нет, используем полное сообщение
-            }
-          } catch {
-            // Если парсинг не удался, используем полное сообщение как запасной вариант
-            errorMessage = apiError.message;
-          }
-        }
-
-        // Дополнительные проверки статуса для других случаев
-        if (apiError.status === 429) {
-          errorMessage = "Частые запросы. Попробуйте немного позже.";
-        } else if (apiError.status === 400 && errorMessage.includes("Email already exists")) {
-          errorMessage = "Email уже существует";
-        }
-
-        setError(errorMessage);
-        console.log(`Authentication error: ${errorMessage}`);
+        setError(apiError.message);
+        console.log(`Authentication error: ${apiError.message}`);
       } finally {
         setIsLoading(false);
         isSubmitting.current = false;

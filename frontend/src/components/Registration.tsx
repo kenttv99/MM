@@ -7,6 +7,7 @@ import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
 import { motion, AnimatePresence } from "framer-motion";
 import { FieldConfig, FormErrors, TouchedFields } from "@/types/index";
+import ClientErrorBoundary from "./Errors/ClientErrorBoundary";
 
 interface RegistrationProps {
   isOpen: boolean;
@@ -104,81 +105,74 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
 
   return (
     <div className="space-y-6">
-      <form onSubmit={onSubmit} className="space-y-4">
-        {fields.map((field) => (
-          <div key={field.name} className="relative">
-            <InputField
-              type={field.type}
-              value={formValues[field.name]}
-              onChange={handleChange}
-              onBlur={handleBlur}
-              placeholder={field.placeholder}
-              icon={field.icon}
-              name={field.name}
-              disabled={isLoading || isSuccess}
-              required={field.required}
-              className="w-full"
-            />
-            <AnimatePresence>
-              {shouldShowError(field, formErrors[field.name]) && (
-                <motion.p
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.2 }}
-                  className="absolute left-0 -bottom-5 text-red-500 text-xs mt-1 overflow-wrap-break-word max-w-full"
-                  style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
-                >
-                  {formErrors[field.name]}
-                </motion.p>
-              )}
-            </AnimatePresence>
-          </div>
-        ))}
-        <AnimatePresence>
+      <ClientErrorBoundary>
+        <form onSubmit={onSubmit} className="space-y-4">
+          {fields.map((field) => (
+            <div key={field.name} className="relative">
+              <InputField
+                type={field.type}
+                value={formValues[field.name]}
+                onChange={handleChange}
+                onBlur={handleBlur}
+                placeholder={field.placeholder}
+                icon={field.icon}
+                name={field.name}
+                disabled={isLoading || isSuccess}
+                required={field.required}
+                className="w-full"
+              />
+              <AnimatePresence>
+                {shouldShowError(field, formErrors[field.name]) && (
+                  <motion.p
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.2 }}
+                    className="absolute left-0 -bottom-5 text-red-500 text-xs mt-1 overflow-wrap-break-word max-w-full"
+                    style={{ fontSize: "clamp(0.7rem, 1.8vw, 0.8rem)" }}
+                  >
+                    {formErrors[field.name]}
+                  </motion.p>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
           {error && (
-            <motion.p
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.2 }}
-              className="text-red-500 text-sm overflow-wrap-break-word max-w-full"
-              style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}
-            >
-              {error}
-            </motion.p>
+            <div className="p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
+              <p>{error}</p>
+            </div>
           )}
-        </AnimatePresence>
-        <div className="text-sm text-gray-600" style={{ fontSize: "clamp(0.75rem, 2vw, 0.875rem)" }}>
-          Уже есть аккаунт?{" "}
-          <button
-            type="button"
-            onClick={() => toggleMode && toggleMode()}
-            className="text-orange-500 hover:text-orange-600 hover:underline transition-colors duration-300"
-            disabled={isLoading || isSuccess}
-          >
-            Войти
-          </button>
-        </div>
-        <div className="flex flex-col sm:flex-row justify-end gap-4 pt-2">
-          <ModalButton
-            variant="secondary"
-            onClick={onClose}
-            disabled={isLoading || isSuccess}
-            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
-          >
-            Закрыть
-          </ModalButton>
-          <ModalButton
-            type="submit"
-            variant="primary"
-            disabled={isLoading || isSuccess || !isValid}
-            className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
-          >
-            {isLoading ? "Регистрация..." : isSuccess ? "Успешно!" : "Зарегистрироваться"}
-          </ModalButton>
-        </div>
-      </form>
+          <div className="text-xs text-gray-600">
+            Уже есть аккаунт?{" "}
+            <button
+              type="button"
+              onClick={() => toggleMode && toggleMode()}
+              className="text-orange-500 hover:text-orange-600 text-xs"
+              disabled={isLoading || isSuccess}
+            >
+              Войти
+            </button>
+          </div>
+          <div className="flex flex-col sm:flex-row justify-end gap-4 pt-2">
+            <ModalButton
+              variant="secondary"
+              onClick={onClose}
+              disabled={isLoading || isSuccess}
+              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+            >
+              Закрыть
+            </ModalButton>
+            <ModalButton
+              type="submit"
+              variant="primary"
+              disabled={isLoading || isSuccess || !isValid}
+              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+            >
+              {isLoading ? "Регистрация..." : isSuccess ? "Успешно!" : "Зарегистрироваться"}
+            </ModalButton>
+          </div>
+        </form>
+      </ClientErrorBoundary>
     </div>
   );
 };

@@ -1,27 +1,20 @@
 "use client";
-import React, { useState, useRef, useCallback } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import Footer from "@/components/Footer";
 import Image from "next/image";
 import Link from "next/link";
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
-import { AnimatePresence, motion } from "framer-motion";
 import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
 import { useLoading } from "@/contexts/LoadingContext";
 import { useInView } from "react-intersection-observer";
-import { useQuery } from "@tanstack/react-query";
-import { apiFetch } from "@/utils/api";
+import { useEventsData } from "@/hooks/useEventsData";
 import Header from "@/components/Header";
 
 const ITEMS_PER_PAGE = 6;
 
-interface EventsResponse {
-  data: EventData[];
-  total: number;
-}
-
-interface EventsFilters {
+interface FilterState {
   startDate: string;
   endDate: string;
 }
@@ -56,16 +49,6 @@ const formatDateForAPI = (dateString: string): string => {
   }
 };
 
-const groupEventsByDate = (events: EventData[]) => {
-  const grouped: { [key: string]: EventData[] } = {};
-  events.forEach(event => {
-    const dateKey = formatDateForDisplay(event.start_date);
-    grouped[dateKey] = grouped[dateKey] || [];
-    grouped[dateKey].push(event);
-  });
-  return grouped;
-};
-
 const getStatusStyles = (status: EventData["status"]) => {
   switch (status) {
     case "registration_open": return "bg-green-500/80 text-white";
@@ -83,18 +66,15 @@ const DateFilter: React.FC<{
   onApply: () => void;
   onClose: () => void;
   onReset: () => void;
-  startDateRef: React.RefObject<HTMLInputElement | null>;
-  endDateRef: React.RefObject<HTMLInputElement | null>;
+  startDateRef: React.RefObject<HTMLInputElement>;
+  endDateRef: React.RefObject<HTMLInputElement>;
 }> = ({ startDate, endDate, onStartDateChange, onEndDateChange, onApply, onClose, onReset, startDateRef, endDateRef }) => {
-  const handleCalendarClick = (ref: React.RefObject<HTMLInputElement | null>) => {
+  const handleCalendarClick = (ref: React.RefObject<HTMLInputElement>) => {
     if (ref.current && typeof ref.current.showPicker === "function") ref.current.showPicker();
   };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
+    <div
       className="absolute top-[60px] right-0 z-10 p-4 bg-white rounded-lg shadow-lg border border-gray-200 w-full max-w-[300px]"
     >
       <div className="flex justify-between items-center mb-4">
@@ -112,10 +92,12 @@ const DateFilter: React.FC<{
               className="w-full p-2 pl-3 pr-9 border rounded-md"
               ref={startDateRef}
             />
-            <FaCalendarAlt
+            <div 
               className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 cursor-pointer"
               onClick={() => handleCalendarClick(startDateRef)}
-            />
+            >
+              <FaCalendarAlt size={16} />
+            </div>
           </div>
         </div>
         <div className="space-y-2">
@@ -128,10 +110,12 @@ const DateFilter: React.FC<{
               className="w-full p-2 pl-3 pr-9 border rounded-md"
               ref={endDateRef}
             />
-            <FaCalendarAlt
+            <div 
               className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 cursor-pointer"
               onClick={() => handleCalendarClick(endDateRef)}
-            />
+            >
+              <FaCalendarAlt size={16} />
+            </div>
           </div>
         </div>
       </div>
@@ -141,11 +125,11 @@ const DateFilter: React.FC<{
         </button>
         <button onClick={onApply} className="px-4 py-2 bg-orange-500 text-white rounded-lg">Применить</button>
       </div>
-    </motion.div>
+    </div>
   );
 };
 
-const EventCard: React.FC<{ event: EventData; lastCardRef?: React.RefObject<HTMLDivElement | null> }> = React.memo(
+const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | null) => void }> = React.memo(
   ({ event, lastCardRef }) => {
     const isCompleted = event.status === "completed";
     return (
@@ -196,162 +180,216 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: React.RefObject<HTML
 );
 EventCard.displayName = "EventCard";
 
-// Skeleton loader component for event cards
-const EventCardSkeleton: React.FC = () => {
-  return (
-    <div className="bg-white rounded-xl shadow-md min-h-[300px] flex flex-col">
-      <div className="relative h-48 bg-gray-200 animate-pulse rounded-t-xl"></div>
-      <div className="p-4 flex-grow flex flex-col">
-        <div className="h-6 bg-gray-200 rounded w-3/4 mb-2 animate-pulse"></div>
-        <div className="space-y-2 mb-4 flex-grow">
-          <div className="h-4 bg-gray-200 rounded w-full animate-pulse"></div>
-          <div className="h-4 bg-gray-200 rounded w-5/6 animate-pulse"></div>
-          <div className="h-4 bg-gray-200 rounded w-4/6 animate-pulse"></div>
-        </div>
-        <div className="flex justify-between mt-auto">
-          <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse"></div>
-          <div className="h-4 bg-gray-200 rounded w-1/4 animate-pulse"></div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// Skeleton loader for a group of events
-const EventGroupSkeleton: React.FC = () => {
-  return (
-    <div className="mb-8">
-      <div className="h-6 bg-gray-200 rounded w-1/4 mb-3 animate-pulse"></div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {[1, 2, 3].map((i) => (
-          <EventCardSkeleton key={i} />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const EventsPage: React.FC = () => {
-  const { setDynamicLoading } = useLoading();
-  const [currentPage, setCurrentPage] = useState(1);
-  const [activeFilters, setActiveFilters] = useState<EventsFilters>({ startDate: "", endDate: "" });
-  const [tempFilters, setTempFilters] = useState<EventsFilters>({ startDate: "", endDate: "" });
+const EventsPage = () => {
+  const { setDynamicLoading, isDynamicLoading } = useLoading();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
   const endDateInputRef = useRef<HTMLInputElement | null>(null);
-  const [isInitialLoad, setIsInitialLoad] = useState(true);
-  
-  // Используем React Query для управления данными
-  const { data, isLoading, error, isFetching } = useQuery<EventsResponse>({
-    queryKey: ['events', currentPage, activeFilters.startDate, activeFilters.endDate],
-    queryFn: async () => {
-      console.log("Fetching events with params:", {
-        page: currentPage,
-        limit: ITEMS_PER_PAGE,
-        startDate: formatDateForAPI(activeFilters.startDate),
-        endDate: formatDateForAPI(activeFilters.endDate)
+  const lastFetchTime = useRef<number>(0);
+  const minFetchInterval = 2000; // 2 секунды между запросами
+  const prevEventsRef = useRef<{ [key: string]: EventData[] }>({});
+  const isMounted = useRef(true);
+  const hasInitialData = useRef(false);
+  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingStateRef = useRef({ isLoading: false, isFetching: false });
+
+  const { data, isLoading, isFetching, error } = useEventsData({
+    page,
+    limit: ITEMS_PER_PAGE,
+    search: "",
+    startDate: activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : undefined,
+    endDate: activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : undefined,
+    setDynamicLoading,
+  });
+
+  // Эффект для отслеживания состояния загрузки и данных
+  useEffect(() => {
+    console.log('EventsPage: Effect triggered', { 
+      isMounted: isMounted.current, 
+      data: data !== null, 
+      isLoading, 
+      isFetching, 
+      error: error !== null,
+      currentLoadingState: loadingStateRef.current
+    });
+    
+    if (!isMounted.current) {
+      console.log('EventsPage: Component unmounted, skipping effect');
+      return;
+    }
+    
+    // Очищаем предыдущий таймаут, если он есть
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+    
+    // Проверяем, изменилось ли состояние загрузки
+    if (isLoading !== loadingStateRef.current.isLoading || 
+        isFetching !== loadingStateRef.current.isFetching) {
+      
+      console.log('EventsPage: Loading state changed', { 
+        isLoading, 
+        isFetching, 
+        previousState: loadingStateRef.current 
       });
       
-      const response = await apiFetch<EventData[] | EventsResponse>(
-        `/v1/public/events?page=${currentPage}&limit=${ITEMS_PER_PAGE}&start_date=${formatDateForAPI(activeFilters.startDate)}&end_date=${formatDateForAPI(activeFilters.endDate)}`,
-        {
-          cache: currentPage === 1 ? "no-store" : "default"
-        }
-      );
-
-      console.log("API response:", response);
-
-      if ('aborted' in response) {
-        throw new Error(response.reason || "Request was aborted");
+      // Обновляем ссылку на текущее состояние
+      loadingStateRef.current = { isLoading, isFetching };
+      
+      // Если данные загружены и нет активной загрузки, сбрасываем состояние загрузки
+      if (data && !isLoading && !isFetching) {
+        console.log('EventsPage: Data loaded, resetting loading state');
+        
+        // Устанавливаем таймаут для сброса состояния загрузки
+        loadingTimeoutRef.current = setTimeout(() => {
+          if (isMounted.current) {
+            console.log('EventsPage: Resetting loading state after timeout');
+            setDynamicLoading(false);
+          }
+        }, 100);
       }
-
-      // Handle both response formats - array or object with data property
-      if (Array.isArray(response)) {
-        console.log("Converting array response to EventsResponse format");
-        return {
-          data: response,
-          total: response.length
-        };
-      }
-
-      return response as EventsResponse;
-    },
-    staleTime: 1000 * 60 * 5, // 5 minutes
-  });
-  
-  // Используем react-intersection-observer для бесконечной прокрутки
-  const { ref: loadMoreRef, inView } = useInView({
-    threshold: 0.1,
-  });
-
-  // Обработка загрузки следующей страницы
-  React.useEffect(() => {
-    if (inView && data?.data?.length === ITEMS_PER_PAGE && !isFetching) {
-      setCurrentPage(prev => prev + 1);
-    }
-  }, [inView, data?.data?.length, isFetching]);
-
-  // Обновляем состояние загрузки
-  React.useEffect(() => {
-    // Set global loading state only for initial load
-    if (isInitialLoad) {
-      setDynamicLoading(isLoading);
     }
     
-    // Update initial load state after first data fetch
-    if (isInitialLoad && !isLoading && data) {
-      setIsInitialLoad(false);
+    // Обновляем hasMore только если данные изменились
+    if (data) {
+      const newHasMore = data.total > page * ITEMS_PER_PAGE;
+      console.log('EventsPage: Updating hasMore', { 
+        total: data.total, 
+        currentPage: page, 
+        itemsPerPage: ITEMS_PER_PAGE, 
+        newHasMore 
+      });
+      
+      setHasMore(newHasMore);
+      hasInitialData.current = true;
     }
-  }, [isLoading, isFetching, setDynamicLoading, data, isInitialLoad]);
+    
+    // Очищаем таймаут при размонтировании
+    return () => {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+    };
+  }, [data, isLoading, isFetching, error, page, ITEMS_PER_PAGE, setDynamicLoading]);
 
-  // Memoize filter functions to prevent unnecessary re-renders
-  const applyFilters = useCallback(() => {
-    if (tempFilters.startDate === "" && tempFilters.endDate === "") {
-      setIsFilterOpen(false);
-      return;
-    }
-    setActiveFilters(tempFilters);
-    setIsFilterOpen(false);
-    setCurrentPage(1); // Сбрасываем страницу при применении фильтров
-  }, [tempFilters]);
+  // Эффект для очистки при размонтировании
+  useEffect(() => {
+    console.log('EventsPage: Mounting component');
+    isMounted.current = true;
+    
+    return () => {
+      console.log('EventsPage: Unmounting component');
+      isMounted.current = false;
+      
+      // Очищаем таймаут загрузки
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+      
+      // Сбрасываем глобальное состояние загрузки
+      setDynamicLoading(false);
+    };
+  }, [setDynamicLoading]);
 
-  const resetFilters = useCallback(() => {
-    if (!activeFilters.startDate && !activeFilters.endDate) {
-      setIsFilterOpen(false);
-      return;
-    }
-    setActiveFilters({ startDate: "", endDate: "" });
-    setTempFilters({ startDate: "", endDate: "" });
-    setIsFilterOpen(false);
-    setCurrentPage(1); // Сбрасываем страницу при сбросе фильтров
+  // Мемоизируем isFilterActive
+  const isFilterActive = useMemo(() => {
+    return activeFilters.startDate !== "" || activeFilters.endDate !== "";
   }, [activeFilters]);
 
-  // Reset temp filters when filter modal is opened
-  React.useEffect(() => {
-    if (isFilterOpen) {
-      setTempFilters(activeFilters);
-    }
-  }, [isFilterOpen, activeFilters]);
+  // Настройка бесконечной прокрутки
+  const { ref, inView } = useInView({
+    threshold: 0.5,
+    triggerOnce: false,
+  });
 
-  const groupedEvents = React.useMemo(() => {
-    // Skip grouping if data is not available yet
-    if (!data?.data) {
-      return {};
+  // Эффект для загрузки следующей страницы при прокрутке
+  useEffect(() => {
+    if (!isMounted.current) return;
+    
+    if (inView && hasMore && !isLoading && !isFetching && hasInitialData.current) {
+      const now = Date.now();
+      if (now - lastFetchTime.current >= minFetchInterval) {
+        console.log('EventsPage: Loading next page', { 
+          currentPage: page, 
+          hasMore, 
+          isLoading, 
+          isFetching 
+        });
+        
+        lastFetchTime.current = now;
+        setPage(prev => prev + 1);
+      }
+    }
+  }, [inView, hasMore, isLoading, isFetching, page, minFetchInterval]);
+
+  // Мемоизируем функцию сброса фильтров
+  const handleResetFilters = useCallback(() => {
+    setActiveFilters({ startDate: "", endDate: "" });
+    setIsFilterOpen(false);
+    setPage(1);
+  }, []);
+
+  // Мемоизируем функцию применения фильтров
+  const handleApplyFilters = useCallback(() => {
+    setPage(1);
+    setIsFilterOpen(false);
+  }, []);
+
+  // Мемоизируем функцию группировки событий
+  const groupedEvents = useMemo(() => {
+    if (!data?.data) return {};
+    return groupEventsByDate(data.data);
+  }, [data?.data]);
+
+  // Обновляем состояние загрузки только при изменении isLoading
+  useEffect(() => {
+    if (!isMounted.current) return;
+    
+    console.log('EventsPage: Loading state effect', { 
+      isLoading, 
+      isFetching, 
+      currentState: loadingStateRef.current 
+    });
+    
+    // Обновляем ссылку на текущее состояние
+    loadingStateRef.current = { isLoading, isFetching };
+    
+    // Если состояние загрузки изменилось, обновляем глобальное состояние
+    if (isLoading !== undefined) {
+      console.log('EventsPage: Updating global loading state', { isLoading });
+      setDynamicLoading(isLoading);
+    }
+  }, [isLoading, isFetching, setDynamicLoading]);
+
+  const groupEventsByDate = (events: EventData[]) => {
+    // Проверяем, изменились ли события
+    if (JSON.stringify(prevEventsRef.current) === JSON.stringify(events)) {
+      return prevEventsRef.current;
     }
     
-    // Only log when we actually have data to group
-    console.log("Grouping events by date, count:", data.data.length);
-    return groupEventsByDate(data.data);
-  }, [data?.data]); // Only depend on data.data to prevent unnecessary re-renders
-
-  const isFilterActive = !!(activeFilters.startDate || activeFilters.endDate);
+    console.log('Grouping events:', events);
+    const grouped: { [key: string]: EventData[] } = {};
+    events.forEach(event => {
+      const dateKey = formatDateForDisplay(event.start_date);
+      console.log('Event date key:', dateKey, 'for event:', event);
+      grouped[dateKey] = grouped[dateKey] || [];
+      grouped[dateKey].push(event);
+    });
+    console.log('Grouped events:', grouped);
+    
+    // Сохраняем сгруппированные события
+    prevEventsRef.current = grouped;
+    
+    return grouped;
+  };
 
   if (error) return <ErrorPlaceholder />;
-
-  // Determine if we should show loading state
-  const showInitialLoading = isInitialLoad && isLoading;
-  const showPaginationLoading = isFetching && !isInitialLoad && data?.data && data.data.length > 0;
-  const showNoData = !data?.data || data.data.length === 0;
 
   return (
     <>
@@ -367,45 +405,45 @@ const EventsPage: React.FC = () => {
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg ${isFilterActive ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-700"}`}
               >
-                <FaFilter className={isFilterActive ? "text-orange-500" : "text-gray-500"} />
+                <div className={isFilterActive ? "text-orange-500" : "text-gray-500"}>
+                  <FaFilter size={16} />
+                </div>
                 <span>Фильтры {isFilterActive ? "(активны)" : ""}</span>
               </button>
             </div>
-            
+
             {/* Filter dropdown */}
-            <AnimatePresence>
               {isFilterOpen && (
                 <DateFilter
-                  startDate={tempFilters.startDate}
-                  endDate={tempFilters.endDate}
-                  onStartDateChange={(value) => setTempFilters(prev => ({ ...prev, startDate: value }))}
-                  onEndDateChange={(value) => setTempFilters(prev => ({ ...prev, endDate: value }))}
-                  onApply={applyFilters}
+                  startDate={activeFilters.startDate}
+                  endDate={activeFilters.endDate}
+                  onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
+                  onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
+                onApply={handleApplyFilters}
                   onClose={() => setIsFilterOpen(false)}
-                  onReset={resetFilters}
+                onReset={handleResetFilters}
                   startDateRef={startDateInputRef}
                   endDateRef={endDateInputRef}
                 />
               )}
-            </AnimatePresence>
             
             {/* Active filters display */}
             {isFilterActive && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <span className="text-sm text-gray-600">Активные фильтры:</span>
                 <div className="flex flex-wrap items-center gap-2">
-                  {activeFilters.startDate && (
+                {activeFilters.startDate && (
                     <div className="inline-flex items-center h-5 px-2 bg-orange-100 text-orange-700 rounded-full text-xs">
                       <span className="leading-none">От: {formatDateForDisplay(activeFilters.startDate)}</span>
-                    </div>
-                  )}
-                  {activeFilters.endDate && (
+                  </div>
+                )}
+                {activeFilters.endDate && (
                     <div className="inline-flex items-center h-5 px-2 bg-orange-100 text-orange-700 rounded-full text-xs">
                       <span className="leading-none">До: {formatDateForDisplay(activeFilters.endDate)}</span>
-                    </div>
-                  )}
+                  </div>
+                )}
                   <button 
-                    onClick={resetFilters} 
+                    onClick={handleResetFilters} 
                     className="text-xs text-orange-600 hover:text-orange-700 hover:underline whitespace-nowrap h-5 flex items-center"
                   >
                     Сбросить все
@@ -415,56 +453,31 @@ const EventsPage: React.FC = () => {
             )}
           </div>
           
-          {/* Initial loading state with skeleton loaders */}
-          {showInitialLoading ? (
-            <div className="space-y-8">
-              <EventGroupSkeleton />
-              <EventGroupSkeleton />
-            </div>
-          ) : showNoData ? (
+          {error && <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
+          {!data?.data?.length && !error && !isDynamicLoading ? (
             <div className="text-center py-12">
               <h3 className="text-xl font-semibold mb-2">
                 {isFilterActive ? "Мероприятия не найдены для выбранного диапазона дат" : "Мероприятия не найдены"}
               </h3>
               {isFilterActive && (
-                <button onClick={resetFilters} className="px-4 py-2 bg-orange-500 text-white rounded-lg">Сбросить фильтры</button>
+                <button onClick={handleResetFilters} className="px-4 py-2 bg-orange-500 text-white rounded-lg">Сбросить фильтры</button>
               )}
             </div>
           ) : (
-            <>
-              {/* Render grouped events */}
-              {Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
-                <div key={date} className="mb-8">
-                  <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {eventsForDate.map((event, index) => {
-                      const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
-                      return (
-                        <div key={event.id} ref={isLastCard ? loadMoreRef : undefined}>
-                          <EventCard event={event} />
-                        </div>
-                      );
-                    })}
+            Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
+                  <div key={date} className="mb-8">
+                <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {eventsForDate.map((event, index) => {
+                    const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
+                    return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? ref : undefined} />;
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-              
-              {/* Loading indicator for pagination */}
-              {showPaginationLoading && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {[1, 2, 3].map((i) => (
-                    <EventCardSkeleton key={`loading-${i}`} />
-                  ))}
-                </div>
-              )}
-              
-              {/* Show loading more indicator */}
-              {data.data.length < data.total && !isFetching && (
-                <div className="text-center py-2 mt-2">
-                  <p className="text-gray-400 text-sm">Загрузка дополнительных мероприятий...</p>
-                </div>
-              )}
-            </>
+            ))
+          )}
+          {!hasMore && data?.data && data.data.length > 0 && !isDynamicLoading && (
+            <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>
           )}
         </div>
       </main>
@@ -473,4 +486,4 @@ const EventsPage: React.FC = () => {
   );
 };
 
-export default EventsPage; 
+export default EventsPage;

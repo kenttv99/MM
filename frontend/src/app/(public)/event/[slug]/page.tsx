@@ -19,9 +19,20 @@ import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
-import { ApiResponse } from "@/types/api";
 
-const extractIdFromSlug = (slug: string): string => slug.split("-").pop() || "";
+const extractIdFromSlug = (slug: string): string => {
+  const parts = slug.split("-");
+  const id = parts.pop() || "";
+  return id;
+};
+
+const extractTitleFromSlug = (slug: string): string => {
+  const parts = slug.split("-");
+  // Remove the last part (id)
+  parts.pop();
+  // Join the remaining parts and convert to title case
+  return parts.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+};
 
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -114,8 +125,9 @@ export default function EventPage() {
         fetchInProgressRef.current = true;
         setIsLoading(true);
         
+        const eventId = extractIdFromSlug(slug);
         const timestamp = Date.now();
-        const url = `/v1/public/events/${slug}?t=${timestamp}`;
+        const url = `/v1/public/events/${eventId}?t=${timestamp}`;
         
         logWithThrottle(`EventPage: Fetching event data from ${url}`);
         
@@ -125,16 +137,42 @@ export default function EventPage() {
         
         if (isRequestCancelled) return;
         
+        console.log("EventPage: Raw response data:", response);
+        
         if (response && typeof response === 'object' && 'title' in response) {
-          logWithThrottle("EventPage: Event data received successfully");
+          console.log("EventPage: Event title from API:", response.title);
+          console.log("EventPage: Event ID from slug:", eventId);
+          console.log("EventPage: Full slug:", slug);
+          
+          // Если название не совпадает со slug, обновляем его из slug
+          if (!response.title || response.title === "Мероприятие " + eventId) {
+            const titleFromSlug = extractTitleFromSlug(slug);
+            console.log("EventPage: Title from slug:", titleFromSlug);
+            response.title = titleFromSlug;
+          }
+          
+          console.log("EventPage: Final event title:", response.title);
           setEvent(response as EventData);
-          setFetchError(null);
-          setHasServerError(false);
+          
+          // Сохраняем заголовок в localStorage для быстрых ссылок
+          try {
+            localStorage.setItem(`event-title-${eventId}`, response.title);
+            localStorage.setItem(`event-slug-${eventId}`, slug);
+            console.log("EventPage: Saved to localStorage:", {
+              title: response.title,
+              slug: slug
+            });
+          } catch (error) {
+            console.error("EventPage: Error saving to localStorage:", error);
+          }
+          
+            setFetchError(null);
+            setHasServerError(false);
           hasInitialFetchRef.current = true;
-        } else {
+          } else {
           logWithThrottle("EventPage: Invalid event data received");
-          setFetchError("Мероприятие не найдено");
-        }
+            setFetchError("Мероприятие не найдено");
+          }
       } catch (err) {
         if (!isRequestCancelled) {
           console.error("EventPage: Error fetching event:", err);
@@ -154,7 +192,7 @@ export default function EventPage() {
         fetchEventData();
       }
     }, 100);
-    
+
     return () => {
       isRequestCancelled = true;
       clearTimeout(initDelay);
@@ -194,7 +232,7 @@ export default function EventPage() {
   const handleModalClose = useCallback(() => setIsModalOpen(false), []);
   const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
   const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
-  
+
   // Handle booking success
   const handleBookingSuccess = useCallback(() => {
     if (!slug || fetchInProgressRef.current) return;
@@ -213,9 +251,9 @@ export default function EventPage() {
       cache: "no-store",
       signal: controller.signal
     })
-      .then((response: ApiResponse<EventData>) => {
+      .then((response) => {
         // Check if response is an aborted response
-        if (response && 'aborted' in response) {
+        if ('aborted' in response) {
           logWithThrottle("EventPage: Request was aborted: " + response.reason);
           
           // Если запрос был отклонен из-за глобальной блокировки, установим таймаут для сброса
@@ -224,13 +262,19 @@ export default function EventPage() {
           }
           return;
         }
-        
-        // Check if response is valid event data
-        if (response && typeof response === 'object' && 'title' in response) {
-          setEvent(response as EventData);
-          setFetchError(null);
-          setHasServerError(false);
+
+        // Check if response contains an error
+        if ('error' in response) {
+          logWithThrottle("EventPage: Error in response: " + response.error);
+          setFetchError(response.error);
+          setHasServerError(response.status >= 500);
+          return;
         }
+        
+        // At this point, response must be EventData
+        setEvent(response);
+        setFetchError(null);
+        setHasServerError(false);
       })
       .catch((err) => {
         // Check if the error is due to abort
@@ -240,6 +284,8 @@ export default function EventPage() {
         }
         
         console.error("EventPage: Error fetching updated event data:", err);
+        setFetchError(err.message);
+        setHasServerError(true);
       })
       .finally(() => {
         setIsLoading(false);
@@ -285,7 +331,7 @@ export default function EventPage() {
       </div>
     );
   }
-  
+
   // Render event content
   return (
     <div className="min-h-screen flex flex-col">

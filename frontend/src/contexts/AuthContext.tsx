@@ -1,8 +1,8 @@
 // frontend/src/contexts/AuthContext.tsx
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode } from "react";
-import { useLoading } from "@/contexts/LoadingContext";
+import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, useMemo } from "react";
+import { apiFetch } from "@/utils/api";
 
 interface UserData {
   id: number;
@@ -32,41 +32,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const hasInitialized = useRef(false);
   const lastCheckTime = useRef<number>(0);
   const isMounted = useRef<boolean>(false);
-  const authTimeout = useRef<NodeJS.Timeout | null>(null);
-  const { setStaticLoading } = useLoading();
 
   const CHECK_INTERVAL = 5000;
 
-  // Автоматический сброс состояния загрузки через 3 секунды
-  useEffect(() => {
-    if (isLoading) {
-      if (authTimeout.current) {
-        clearTimeout(authTimeout.current);
-      }
-      
-      authTimeout.current = setTimeout(() => {
-        if (isMounted.current) {
-          console.log("AuthContext: Auto-resetting loading state after timeout");
-          setIsLoading(false);
-          setStaticLoading(false);
-        }
-      }, 3000); // 3 секунды максимум для проверки авторизации
-    }
-    
-    return () => {
-      if (authTimeout.current) {
-        clearTimeout(authTimeout.current);
-      }
-    };
-  }, [isLoading, setStaticLoading]);
-
-  const updateUserData = (data: UserData, resetLoading = true) => {
+  const updateUserData = useCallback((data: UserData, resetLoading = true) => {
     setUserData(data);
     if (resetLoading) {
       setIsLoading(false);
-      setStaticLoading(false);
     }
-  };
+  }, []);
 
   const handleLoginSuccess = useCallback((token: string, user: UserData) => {
     if (typeof window !== "undefined") {
@@ -75,8 +49,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsAuth(true);
     setUserData(user);
     setIsLoading(false);
-    setStaticLoading(false);
-  }, [setStaticLoading]);
+  }, []);
 
   const logout = useCallback(() => {
     if (typeof window !== "undefined") {
@@ -85,8 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsAuth(false);
     setUserData(null);
     setIsLoading(false);
-    setStaticLoading(false);
-  }, [setStaticLoading]);
+  }, []);
 
   const checkAuth = useCallback(async () => {
     const now = Date.now();
@@ -101,15 +73,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setIsAuth(false);
       setUserData(null);
       setIsLoading(false);
-      setStaticLoading(false);
       return false;
     }
 
-    setIsAuth(true);
-    setIsLoading(false);
-    setStaticLoading(false);
-    return true;
-  }, [isAuth, setStaticLoading]);
+    try {
+      const data = await apiFetch<UserData>("/user_edits/me", {
+        method: "GET",
+        headers: { "Authorization": `Bearer ${token}` },
+      });
+      
+      if ('aborted' in data) {
+        throw new Error(data.reason || "Request was aborted");
+      }
+      
+      if ('error' in data) {
+        throw new Error(data.error);
+      }
+      
+      setIsAuth(true);
+      setUserData(data);
+      setIsLoading(false);
+      return true;
+    } catch (error) {
+      console.error("Error checking auth:", error);
+      logout();
+      return false;
+    }
+  }, [isAuth, logout]);
 
   useEffect(() => {
     console.log("AuthContext useEffect triggered, hasInitialized:", hasInitialized.current);
@@ -117,29 +107,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Устанавливаем флаг монтирования
     isMounted.current = true;
     
+    // Проверяем, не была ли уже выполнена инициализация
     if (!hasInitialized.current) {
       hasInitialized.current = true;
-      // Сначала проверяем авторизацию
-      checkAuth().then(() => {
-        // После проверки авторизации сбрасываем состояние загрузки
-        if (isMounted.current) {
-          setIsLoading(false);
-          setStaticLoading(false);
+      
+      // Проверяем авторизацию сразу
+      const checkAuthAndReset = async () => {
+        try {
+          await checkAuth();
+        } catch (error) {
+          console.error("AuthContext: Error during auth check:", error);
+        } finally {
+          // Сбрасываем состояние загрузки только если компонент все еще смонтирован
+          if (isMounted.current) {
+            // Даем время для завершения статической загрузки
+            setTimeout(() => {
+              if (isMounted.current) {
+                setIsLoading(false);
+              }
+            }, 100);
+          }
         }
-      });
+      };
+      
+      checkAuthAndReset();
     }
     
-    // Очистка при размонтировании
+    // Очищаем при размонтировании
     return () => {
       isMounted.current = false;
-      if (authTimeout.current) {
-        clearTimeout(authTimeout.current);
-      }
     };
-  }, [checkAuth, setStaticLoading]);
+  }, [checkAuth]);
+
+  const contextValue = useMemo(() => ({
+    isAuth,
+    userData,
+    isLoading,
+    checkAuth,
+    updateUserData,
+    handleLoginSuccess,
+    logout
+  }), [isAuth, userData, isLoading, checkAuth, updateUserData, handleLoginSuccess, logout]);
 
   return (
-    <AuthContext.Provider value={{ isAuth, userData, isLoading, checkAuth, updateUserData, handleLoginSuccess, logout }}>
+    <AuthContext.Provider value={contextValue}>
       {children}
     </AuthContext.Provider>
   );

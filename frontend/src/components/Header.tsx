@@ -14,6 +14,45 @@ import AuthModal from "./common/AuthModal";
 import { NavItem } from "@/types/index";
 import Notifications from "./Notifications";
 
+// Добавляем уровни логирования для оптимизации вывода
+const LOG_LEVEL = {
+  NONE: 0,
+  ERROR: 1,
+  WARN: 2,
+  INFO: 3,
+  DEBUG: 4,
+};
+
+// Устанавливаем уровень логирования (можно менять при разработке/продакшене)
+const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production' 
+  ? LOG_LEVEL.WARN 
+  : LOG_LEVEL.INFO;
+
+// Вспомогательные функции для логирования с разными уровнями
+const logDebug = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+    console.log(`Header.tsx: ${message}`, data);
+  }
+};
+
+const logInfo = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
+    console.log(`Header.tsx: ${message}`, data);
+  }
+};
+
+const logWarn = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
+    console.log(`Header.tsx: ⚠️ ${message}`, data);
+  }
+};
+
+const logError = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
+    console.error(`Header.tsx: ⛔ ${message}`, data);
+  }
+};
+
 const HeaderSkeleton = () => (
   <div className="h-[64px] sm:h-[72px] fixed top-0 left-0 right-0 z-30 bg-white/90 flex items-center">
     <div className="container mx-auto px-4 sm:px-6 flex items-center justify-between">
@@ -72,15 +111,19 @@ const Header: React.FC = () => {
 
   // Немедленно реагируем на изменение isAuthChecked
   useEffect(() => {
-    console.log('Header: Auth check status changed', { isAuthChecked });
-    if (isAuthChecked) {
-      console.log('Header: Auth check completed, showing header');
-      setForceShowHeader(true);
-      // Очищаем таймаут, если проверка аутентификации завершилась
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-        headerLoadingTimeoutRef.current = null;
+    // Логируем только критические изменения, а не каждый рендер
+    if (isAuthChecked !== checkedRef.current) {
+      logInfo('Auth check status changed', { isAuthChecked });
+      if (isAuthChecked) {
+        logInfo('Auth check completed, showing header');
+        setForceShowHeader(true);
+        // Очищаем таймаут, если проверка аутентификации завершилась
+        if (headerLoadingTimeoutRef.current) {
+          clearTimeout(headerLoadingTimeoutRef.current);
+          headerLoadingTimeoutRef.current = null;
+        }
       }
+      checkedRef.current = isAuthChecked;
     }
   }, [isAuthChecked]);
 
@@ -89,7 +132,7 @@ const Header: React.FC = () => {
   useEffect(() => {
     // Логируем только важные изменения, не каждый рендер
     if (authLoading !== loadingRef.current || isAuthChecked !== checkedRef.current) {
-      console.log('Header: Auth loading state changed', { authLoading, isAuthChecked });
+      logDebug('Auth loading state changed', { authLoading, isAuthChecked });
       loadingRef.current = authLoading;
       checkedRef.current = isAuthChecked;
     }
@@ -105,9 +148,9 @@ const Header: React.FC = () => {
     }
     
     if (authLoading && !forceShowHeader) {
-      console.log('Header: Setting force show timeout');
+      logDebug('Setting force show timeout');
       headerLoadingTimeoutRef.current = setTimeout(() => {
-        console.log('Header: Force showing header after timeout');
+        logInfo('Force showing header after timeout');
         setForceShowHeader(true);
       }, 200); // Сокращаем время ожидания до 200мс для еще более быстрой реакции
     }
@@ -121,11 +164,9 @@ const Header: React.FC = () => {
 
   // Сбрасываем forceShowHeader при изменении authLoading на false
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && !isAuthChecked) {
       // Логируем только в случае неполной проверки аутентификации
-      if (!isAuthChecked) {
-        console.log('Header: Keeping force show flag true because auth check is not complete');
-      }
+      logDebug('Keeping force show flag true because auth check is not complete');
     }
   }, [authLoading, isAuthChecked]);
 
@@ -133,7 +174,7 @@ const Header: React.FC = () => {
   useEffect(() => {
     // Логируем только при изменении стадии, а не при каждом рендере
     if (prevStageRef.current !== currentStage) {
-      console.log('Header: Loading stage changed', { 
+      logDebug('Loading stage changed', { 
         currentStage, 
         isAuthChecked,
         authLoading,
@@ -248,11 +289,11 @@ const Header: React.FC = () => {
   
   // Логируем только при изменении решения о показе скелетона
   if (shouldShowSkeletonRef.current !== shouldShowSkeleton) {
-    console.log('Header: Render decision', { 
+    logDebug('Render decision', { 
       shouldShowSkeleton, 
       authLoading, 
       forceShowHeader, 
-      isAuthChecked,
+      isAuthChecked, 
       currentStage 
     });
     shouldShowSkeletonRef.current = shouldShowSkeleton;

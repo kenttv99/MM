@@ -11,8 +11,50 @@ import { useLoading } from "@/contexts/LoadingContext";
 import { useInView } from "react-intersection-observer";
 import { apiFetch } from "@/utils/api";
 import Header from "@/components/Header";
+import { LoadingStage } from "@/contexts/LoadingContext";
+
+// Добавляем уровни логирования для оптимизации вывода
+const LOG_LEVEL = {
+  NONE: 0,
+  ERROR: 1,
+  WARN: 2,
+  INFO: 3,
+  DEBUG: 4,
+};
+
+// Устанавливаем уровень логирования (можно менять при разработке/продакшене)
+const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production' 
+  ? LOG_LEVEL.WARN 
+  : LOG_LEVEL.INFO;
+
+// Вспомогательные функции для логирования с разными уровнями
+const logDebug = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+    console.log(`EventsPage: ${message}`, data);
+  }
+};
+
+const logInfo = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
+    console.log(`EventsPage: ${message}`, data);
+  }
+};
+
+const logWarn = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
+    console.log(`EventsPage: ⚠️ ${message}`, data);
+  }
+};
+
+const logError = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
+    console.error(`EventsPage: ⛔ ${message}`, data);
+  }
+};
 
 const ITEMS_PER_PAGE = 6;
+// Определяем API_BASE_URL локально, если он не экспортирован из api.ts
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface EventsResponse {
   data: EventData[];
@@ -185,14 +227,71 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | nu
 );
 EventCard.displayName = "EventCard";
 
+// Компонент скелетона для карточки мероприятия
+const EventCardSkeleton: React.FC = () => (
+  <div className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all duration-300 h-[300px] flex flex-col overflow-hidden">
+    <div className="relative h-48 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded-t-xl animate-shimmer bg-[length:200%_100%]"></div>
+    <div className="p-4 flex-grow flex flex-col">
+      <div className="h-6 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-3/4 mb-3 animate-shimmer bg-[length:200%_100%]"></div>
+      <div className="space-y-2 flex-grow">
+        <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded animate-shimmer bg-[length:200%_100%]"></div>
+        <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-5/6 animate-shimmer bg-[length:200%_100%]"></div>
+        <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-4/6 animate-shimmer bg-[length:200%_100%]"></div>
+      </div>
+      <div className="flex justify-between items-center mt-4">
+        <div className="flex items-center">
+          <div className="w-4 h-4 rounded-full bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 mr-2 animate-shimmer bg-[length:200%_100%]"></div>
+          <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-20 animate-shimmer bg-[length:200%_100%]"></div>
+        </div>
+        <div className="h-5 bg-gradient-to-r from-orange-200 via-orange-100 to-orange-200 rounded-full w-24 animate-shimmer bg-[length:200%_100%]"></div>
+      </div>
+    </div>
+  </div>
+);
+
+// Компонент для отображения сетки скелетона мероприятий
+const EventsSkeletonGrid: React.FC = () => {
+  // Генерируем разное количество карточек в разных группах для реалистичности
+  const skeletonGroups = [
+    { title: 'Ближайшие мероприятия', count: 3 },
+    { title: 'Будущие мероприятия', count: 3 },
+    { title: 'Прошедшие мероприятия', count: 2 }
+  ];
+  
+  return (
+    <>
+      <style jsx global>{`
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+        .animate-shimmer {
+          animation: shimmer 1.5s infinite;
+        }
+      `}</style>
+      {skeletonGroups.map((group, groupIndex) => (
+        <div key={`skeleton-group-${groupIndex}`} className="mb-8">
+          <div className="h-6 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-48 mb-3 animate-shimmer bg-[length:200%_100%]"></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: group.count }).map((_, i) => (
+              <EventCardSkeleton key={`skeleton-${groupIndex}-${i}`} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </>
+  );
+};
+
 const EventsPage = () => {
-  const { setDynamicLoading, isDynamicLoading } = useLoading();
+  const { setDynamicLoading, isDynamicLoading, currentStage, setStage } = useLoading();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
+  const [showInitialSkeleton, setShowInitialSkeleton] = useState(true);
   const [error, setError] = useState<Error | null>(null);
   const [data, setData] = useState<EventsResponse | null>(null);
   const startDateInputRef = useRef<HTMLInputElement | null>(null);
@@ -202,189 +301,261 @@ const EventsPage = () => {
   const prevEventsRef = useRef<{ [key: string]: EventData[] }>({});
   const isMounted = useRef(true);
   const hasInitialData = useRef(false);
-  const loadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const loadingStateRef = useRef({ isLoading: false, isFetching: false });
   const abortControllerRef = useRef<AbortController | null>(null);
+  const firstLoadRef = useRef(true);
 
-  const fetchEvents = useCallback(async () => {
+  // Функция загрузки данных - максимально упрощенная версия
+  const fetchEvents = useCallback(async (pageNum = page) => {
     if (!isMounted.current) return;
-
+    
+    // Защита от слишком частых запросов
     const currentTime = Date.now();
     if (currentTime - lastFetchTime.current < minFetchInterval) {
-      console.log('Events: Skipping request due to rate limiting');
+      logDebug('Skipping fetch - rate limiting active');
       return;
     }
-
+    
+    // Обновляем время последнего запроса
     lastFetchTime.current = currentTime;
     
-    // Cancel any in-flight requests
+    // Отменяем предыдущий запрос
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     
-    // Create a new abort controller
+    // Создаем новый контроллер
     abortControllerRef.current = new AbortController();
     
-    try {
-      setIsFetching(true);
-      if (!hasInitialData.current) {
-        setIsLoading(true);
+    // Обновляем состояние загрузки
+    setIsFetching(true);
+    setIsLoading(!hasInitialData.current);
+    setDynamicLoading(true);
+    
+    // Логируем запрос
+    logInfo('Fetching events', { 
+      page: pageNum, 
+      hasInitialData: hasInitialData.current,
+      filters: {
+        startDate: activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : 'none',
+        endDate: activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : 'none'
       }
-      
-      setDynamicLoading(true);
-      
-      const endpoint = `/v1/public/events?page=${page}&limit=${ITEMS_PER_PAGE}&search=&start_date=${activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : ''}&end_date=${activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : ''}`;
-      
+    });
+    
+    // Формируем URL запроса
+    const endpoint = `/v1/public/events?page=${pageNum}&limit=${ITEMS_PER_PAGE}&search=&start_date=${
+      activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : ''
+    }&end_date=${
+      activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : ''
+    }`;
+    
+    try {
+      // Выполняем запрос, всегда используя обход проверки стадии загрузки
       const response = await apiFetch<EventsResponse | EventData[]>(endpoint, {
-        signal: abortControllerRef.current.signal
+        signal: abortControllerRef.current.signal,
+        bypassLoadingStageCheck: true
       });
       
+      // Проверяем, что компонент не был размонтирован
       if (!isMounted.current) return;
       
+      // Обрабатываем возможные ошибки
       if ('error' in response) {
-        throw new Error(response.error);
+        logError('API returned error', response.error);
+        setError(new Error(response.error?.message || 'API error'));
+        return;
       }
       
       if ('aborted' in response) {
-        throw new Error('Request was aborted: ' + response.reason);
+        logInfo('Request was aborted', response.reason);
+        return;
       }
       
-      // Format the response
-      const formattedResponse = Array.isArray(response) 
-        ? { data: response, total: response.length } 
-        : response;
+      // Обрабатываем полученные данные
+      let formattedResponse: EventsResponse = { data: [], total: 0 };
       
-      // Check if we have more pages to load
-      setHasMore(formattedResponse.data.length === ITEMS_PER_PAGE);
+      if (Array.isArray(response)) {
+        // Обработка массива
+        formattedResponse = { data: response, total: response.length };
+      } else if (response && typeof response === 'object') {
+        // Обработка объекта с разными структурами
+        if ('data' in response && Array.isArray(response.data)) {
+          const total = 'total' in response && typeof response.total === 'number' 
+            ? response.total 
+            : response.data.length;
+          
+          formattedResponse = {
+            data: response.data,
+            total: total
+          };
+        } else if ('items' in response && Array.isArray(response.items)) {
+          formattedResponse = { data: response.items, total: response.items.length };
+        } else if ('events' in response && Array.isArray(response.events)) {
+          formattedResponse = { data: response.events, total: response.events.length };
+        } else if ('results' in response && Array.isArray(response.results)) {
+          formattedResponse = { data: response.results, total: response.results.length };
+        }
+      }
       
+      // Обновляем состояние компонента
       setData(formattedResponse);
+      setHasMore(Array.isArray(formattedResponse.data) && formattedResponse.data.length === ITEMS_PER_PAGE);
       setError(null);
+      
+      // ВАЖНО: устанавливаем флаг, что данные загружены - это предотвратит повторные загрузки
       hasInitialData.current = true;
       
+      logInfo('Events data loaded successfully', { 
+        count: formattedResponse.data.length,
+        total: formattedResponse.total
+      });
     } catch (err: any) {
       if (!isMounted.current) return;
       
-      // Only set error if it's not an abort error
+      logError('Error fetching events', {
+        name: err?.name,
+        message: err?.message
+      });
+      
       if (err.name !== 'AbortError') {
-        console.error("Error fetching events:", err);
         setError(err instanceof Error ? err : new Error(String(err)));
       }
     } finally {
       if (isMounted.current) {
+        // Сбрасываем все статусы загрузки
         setIsLoading(false);
         setIsFetching(false);
         setDynamicLoading(false);
       }
     }
-  }, [page, activeFilters, setDynamicLoading]);
+  }, [page, activeFilters.startDate, activeFilters.endDate, setDynamicLoading, ITEMS_PER_PAGE]);
 
-  // Initial fetch
+  // Один эффект для инициализации и загрузки данных - максимально упрощенный
   useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
-
-  // Cleanup on unmount
-  useEffect(() => {
+    // Устанавливаем флаги при монтировании
     isMounted.current = true;
+    hasInitialData.current = false; // Важно сбросить при каждом монтировании
+    
+    logInfo('Events page mounted - initializing');
+
+    // Одна простая функция, которая гарантированно загрузит данные
+    const performInitialDataFetch = () => {
+      if (!isMounted.current || hasInitialData.current) return; // Загружаем только один раз
+      
+      logInfo('Performing guaranteed initial data fetch');
+      fetchEvents();
+    };
+
+    // Запускаем таймер безусловной загрузки данных через 200мс
+    const fetchTimer = setTimeout(() => {
+      if (isMounted.current && !hasInitialData.current) {
+        logInfo('Initial data fetch timer triggered - loading data unconditionally');
+        performInitialDataFetch();
+      }
+    }, 200);
+    
+    // Запускаем таймер скрытия скелетона через определенное время,
+    // чтобы гарантировать, что пользователь не увидит пустую страницу
+    const skeletonTimer = setTimeout(() => {
+      if (isMounted.current) {
+        logInfo('Hiding skeleton regardless of data state');
+        setShowInitialSkeleton(false);
+      }
+    }, 2000); // Даем 2 секунды на загрузку, потом в любом случае скрываем
+    
+    // Очистка при размонтировании
     return () => {
       isMounted.current = false;
+      clearTimeout(fetchTimer);
+      clearTimeout(skeletonTimer);
+      
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      
+      // Сбрасываем все статусы загрузки при размонтировании
+      setIsLoading(false);
+      setIsFetching(false);
+      setDynamicLoading(false);
     };
-  }, []);
+  }, []); // Пустой массив зависимостей - запуск только при монтировании
 
-  // Мемоизируем isFilterActive
-  const isFilterActive = useMemo(() => {
-    return activeFilters.startDate !== "" || activeFilters.endDate !== "";
-  }, [activeFilters]);
+  // Отдельный эффект для изменения page
+  useEffect(() => {
+    if (!isMounted.current || page === 1 || !hasInitialData.current) return;
+    
+    logInfo('Page changed, fetching new data', { page });
+    fetchEvents(page);
+  }, [page, fetchEvents]);
 
-  // Настройка бесконечной прокрутки
+  // Бесконечная прокрутка
   const { ref, inView } = useInView({
     threshold: 0.5,
     triggerOnce: false,
   });
 
-  // Эффект для загрузки следующей страницы при прокрутке
+  // Эффект для бесконечной прокрутки
   useEffect(() => {
-    if (!isMounted.current) return;
-    
-    if (inView && hasMore && !isLoading && !isFetching && hasInitialData.current) {
-      const now = Date.now();
-      if (now - lastFetchTime.current >= minFetchInterval) {
-        console.log('EventsPage: Loading next page', { 
-          currentPage: page, 
-          hasMore, 
-          isLoading, 
-          isFetching 
-        });
-        
-        lastFetchTime.current = now;
-        setPage(prev => prev + 1);
-      }
+    if (!isMounted.current || !inView || !hasMore || isLoading || isFetching || !hasInitialData.current) {
+      return;
     }
-  }, [inView, hasMore, isLoading, isFetching, page, minFetchInterval]);
+    
+    const currentTime = Date.now();
+    if (currentTime - lastFetchTime.current >= minFetchInterval) {
+      logInfo('Loading next page via infinite scroll');
+      setPage(prev => prev + 1);
+    }
+  }, [inView, hasMore, isLoading, isFetching, minFetchInterval]);
 
-  // Мемоизируем функцию сброса фильтров
+  // Мемоизированные функции для фильтров
   const handleResetFilters = useCallback(() => {
     setActiveFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
     setPage(1);
   }, []);
 
-  // Мемоизируем функцию применения фильтров
   const handleApplyFilters = useCallback(() => {
     setPage(1);
     setIsFilterOpen(false);
-  }, []);
-
-  // Мемоизируем функцию группировки событий
-  const groupedEvents = useMemo(() => {
-    if (!data?.data) return {};
-    return groupEventsByDate(data.data);
-  }, [data?.data]);
-
-  // Обновляем состояние загрузки только при изменении isLoading
-  useEffect(() => {
-    if (!isMounted.current) return;
     
-    console.log('EventsPage: Loading state effect', { 
-      isLoading, 
-      isFetching, 
-      currentState: loadingStateRef.current 
-    });
-    
-    // Обновляем ссылку на текущее состояние
-    loadingStateRef.current = { isLoading, isFetching };
-    
-    // Если состояние загрузки изменилось, обновляем глобальное состояние
-    if (isLoading !== undefined) {
-      console.log('EventsPage: Updating global loading state', { isLoading });
-      setDynamicLoading(isLoading);
-    }
-  }, [isLoading, isFetching, setDynamicLoading]);
+    // Инициируем загрузку данных с новыми фильтрами
+    setTimeout(() => {
+      if (isMounted.current) {
+        fetchEvents(1);
+      }
+    }, 0);
+  }, [fetchEvents]);
 
-  const groupEventsByDate = (events: EventData[]) => {
+  // Определяем мемоизированное значение isFilterActive
+  const isFilterActive = useMemo(() => {
+    return activeFilters.startDate !== "" || activeFilters.endDate !== "";
+  }, [activeFilters]);
+
+  // Функция группировки событий
+  const groupEventsByDate = useCallback((events: EventData[]) => {
     // Проверяем, изменились ли события
     if (JSON.stringify(prevEventsRef.current) === JSON.stringify(events)) {
       return prevEventsRef.current;
     }
     
-    console.log('Grouping events:', events);
     const grouped: { [key: string]: EventData[] } = {};
     events.forEach(event => {
       const dateKey = formatDateForDisplay(event.start_date);
-      console.log('Event date key:', dateKey, 'for event:', event);
       grouped[dateKey] = grouped[dateKey] || [];
       grouped[dateKey].push(event);
     });
-    console.log('Grouped events:', grouped);
     
-    // Сохраняем сгруппированные события
     prevEventsRef.current = grouped;
-    
     return grouped;
-  };
+  }, []);
+
+  // Мемоизируем сгруппированные события
+  const groupedEvents = useMemo(() => {
+    if (!data?.data) return {};
+    return groupEventsByDate(data.data);
+  }, [data?.data, groupEventsByDate]);
+
+  // Определяем, нужно ли показывать скелетон
+  const shouldShowSkeleton = isLoading || isFetching || isDynamicLoading || showInitialSkeleton;
 
   if (error) return <ErrorPlaceholder />;
 
@@ -410,19 +581,19 @@ const EventsPage = () => {
             </div>
 
             {/* Filter dropdown */}
-              {isFilterOpen && (
-                <DateFilter
-                  startDate={activeFilters.startDate}
-                  endDate={activeFilters.endDate}
-                  onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
-                  onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
+            {isFilterOpen && (
+              <DateFilter
+                startDate={activeFilters.startDate}
+                endDate={activeFilters.endDate}
+                onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
+                onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
                 onApply={handleApplyFilters}
-                  onClose={() => setIsFilterOpen(false)}
+                onClose={() => setIsFilterOpen(false)}
                 onReset={handleResetFilters}
-                  startDateRef={startDateInputRef}
-                  endDateRef={endDateInputRef}
-                />
-              )}
+                startDateRef={startDateInputRef}
+                endDateRef={endDateInputRef}
+              />
+            )}
             
             {/* Active filters display */}
             {isFilterActive && (
@@ -451,7 +622,12 @@ const EventsPage = () => {
           </div>
           
           {error && <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg">{error}</div>}
-          {!data?.data?.length && !error && !isDynamicLoading ? (
+          
+          {shouldShowSkeleton ? (
+            // Показываем скелетон во время загрузки или при первоначальном рендере
+            <EventsSkeletonGrid />
+          ) : !data?.data?.length ? (
+            // Если нет данных и не идет загрузка
             <div className="text-center py-12">
               <h3 className="text-xl font-semibold mb-2">
                 {isFilterActive ? "Мероприятия не найдены для выбранного диапазона дат" : "Мероприятия не найдены"}
@@ -461,18 +637,20 @@ const EventsPage = () => {
               )}
             </div>
           ) : (
+            // Показываем сгруппированные мероприятия
             Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
-                  <div key={date} className="mb-8">
+              <div key={date} className="mb-8">
                 <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                      {eventsForDate.map((event, index) => {
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {eventsForDate.map((event, index) => {
                     const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
                     return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? ref : undefined} />;
-                      })}
-                    </div>
-                  </div>
+                  })}
+                </div>
+              </div>
             ))
           )}
+          
           {!hasMore && data?.data && data.data.length > 0 && !isDynamicLoading && (
             <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>
           )}

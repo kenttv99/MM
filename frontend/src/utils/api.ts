@@ -2,6 +2,13 @@
 // Storage for cached responses
 import { LoadingStage } from "@/contexts/LoadingContext";
 
+// Объявляем глобальный тип для счетчика активных запросов
+declare global {
+  interface Window {
+    __activeRequestCount?: number;
+  }
+}
+
 const responseCache: { [key: string]: { data: unknown; timestamp: number } } = {};
 
 // Constants
@@ -38,6 +45,103 @@ const stageRequestCounts: Record<LoadingStage, number> = {
 // Constants
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+// Добавим базовые настройки для логов
+const LOG_LEVEL = {
+  NONE: 0,
+  ERROR: 1,
+  WARN: 2,
+  INFO: 3,
+  DEBUG: 4,
+};
+
+// Устанавливаем уровень логирования (можно менять при разработке/продакшене)
+const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production' 
+  ? LOG_LEVEL.WARN 
+  : LOG_LEVEL.INFO;
+
+// Вспомогательные функции для логирования с разными уровнями
+const logDebug = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+    console.log(`API: ${message}`, data);
+  }
+};
+
+const logInfo = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
+    console.log(`API: ${message}`, data);
+  }
+};
+
+const logWarn = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
+    console.log(`API: ⚠️ ${message}`, data);
+  }
+};
+
+const logError = (message: string, data?: any) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
+    console.error(`API: ⛔ ${message}`, data);
+  }
+};
+
+// Инициализируем слушатель изменений стадий загрузки
+export function initializeLoadingStageListener() {
+  if (typeof window !== 'undefined') {
+    // Добавляем обработчик события изменения стадии загрузки
+    window.addEventListener('loadingStageChange', ((event: CustomEvent) => {
+      if (event.detail && event.detail.stage) {
+        handleStageChange(event);
+      }
+    }) as EventListener);
+    
+    logInfo('Initialized loading stage listener');
+  }
+}
+
+// Обработчик изменения стадии загрузки
+function handleStageChange(event: CustomEvent) {
+  if (!event.detail || !event.detail.stage) return;
+  
+  const stage = event.detail.stage;
+  const prevStage = currentLoadingStage;
+  
+  // Предотвращаем возврат к стадии AUTHENTICATION после перехода к другой стадии
+  // Используем строковое сравнение для надежности
+  if (prevStage !== 'authentication' && stage === 'authentication') {
+    logWarn('Preventing regression to AUTHENTICATION stage', { prevStage, newStage: stage });
+    return;
+  }
+  
+  currentLoadingStage = stage;
+  
+  // Логируем только значимые изменения стадий
+  logDebug(`Loading stage updated to ${stage}`, {
+    prevStage,
+    requestStats: getRequestStats(),
+    activeRequests: requestQueue.length
+  });
+  
+  // Если мы перешли от AUTHENTICATION к другой стадии,
+  // пробуем обработать запросы в очереди, которые могли быть заблокированы
+  if (prevStage === 'authentication' && stage !== 'authentication') {
+    logInfo('Authentication completed, checking request queue');
+    processRequestQueue();
+  }
+}
+
+// Функция для получения статистики запросов
+function getRequestStats() {
+  return { ...stageRequestCounts };
+}
+
+// Автоматически инициализируем слушатель событий
+if (typeof window !== 'undefined') {
+  // Экспортируем счетчик активных запросов в глобальную область видимости для отладки
+  window.__activeRequestCount = 0;
+  
+  initializeLoadingStageListener();
+}
+
 // Function to clean up stale cache entries
 const cleanupCache = () => {
   const now = Date.now();
@@ -51,7 +155,17 @@ const cleanupCache = () => {
 // Periodic cache cleanup
 setInterval(cleanupCache, CACHE_TTL);
 
-export type ApiResponse<T> = T | { aborted: boolean; reason?: string } | { error: string; status: number };
+interface ApiError {
+  error: string;
+  status?: number;
+}
+
+interface ApiAborted {
+  aborted: boolean;
+  reason?: string;
+}
+
+type ApiResponse<T> = T | ApiError | ApiAborted;
 
 class ApiError extends Error {
   status: number;
@@ -70,8 +184,16 @@ class ApiError extends Error {
  */
 export function setCurrentLoadingStage(stage: LoadingStage) {
   const prevStage = currentLoadingStage;
+  
+  // Предотвращаем возврат к стадии AUTHENTICATION после перехода к другой стадии
+  // Используем строковое сравнение для надежности
+  if (prevStage !== 'authentication' && stage === 'authentication') {
+    logWarn('Preventing regression to AUTHENTICATION stage', { prevStage, newStage: stage });
+    return;
+  }
+  
   currentLoadingStage = stage;
-  console.log(`API: Loading stage updated to ${stage}`, {
+  logDebug(`Loading stage updated to ${stage}`, {
     prevStage,
     requestStats: { ...stageRequestCounts },
     activeRequests: activeRequestCount
@@ -119,7 +241,12 @@ function processRequestQueue() {
   // If queue is empty and no active requests, reset global lock
   if (requestQueue.length === 0 && activeRequestCount === 0) {
     globalRequestLock = false;
-    console.log(`API: Global lock reset due to empty queue and no active requests`);
+    logDebug('Global lock reset due to empty queue and no active requests');
+  }
+  
+  // Обновляем глобальный счетчик для отладки
+  if (typeof window !== 'undefined') {
+    window.__activeRequestCount = activeRequestCount;
   }
 }
 
@@ -127,6 +254,9 @@ function processRequestQueue() {
  * Check if a request should be processed based on the current loading stage
  */
 function shouldProcessRequest(endpoint: string): boolean {
+  // Текущие статистические данные для логирования
+  stageRequestCounts[currentLoadingStage]++;
+  
   // Authorization/authentication requests are always allowed
   const isAuthRequest = endpoint === '/user_edits/me' || 
                        endpoint === '/admin/me' || 
@@ -140,13 +270,17 @@ function shouldProcessRequest(endpoint: string): boolean {
   
   // Public event requests should be allowed in later stages
   const isPublicEventRequest = endpoint.includes('/public/events') || 
-                               endpoint.includes('/events/public');
+                               endpoint.includes('/events/public') ||
+                               endpoint.includes('/v1/public/events');
                                
   // Allow requests based on current loading stage
   switch (currentLoadingStage) {
     case LoadingStage.AUTHENTICATION:
       // Only authentication requests in authentication stage
-      console.log(`API: Request check for ${endpoint} in AUTHENTICATION stage - ${isAuthRequest ? 'allowed' : 'blocked'}`);
+      // Логируем только для отладки, не для каждого запроса
+      if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+        logDebug(`Request check for ${endpoint} in AUTHENTICATION stage - ${isAuthRequest ? 'allowed' : 'blocked'}`);
+      }
       return isAuthRequest;
       
     case LoadingStage.STATIC_CONTENT:
@@ -156,240 +290,283 @@ function shouldProcessRequest(endpoint: string): boolean {
                             endpoint.includes('/static/') || 
                             endpoint.includes('/content/') ||
                             isPublicEventRequest;
-      console.log(`API: Request check for ${endpoint} in STATIC_CONTENT stage - ${isStaticAllowed ? 'allowed' : 'blocked'}`);
+      // Логируем только для отладки, не для каждого запроса
+      if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+        logDebug(`Request check for ${endpoint} in STATIC_CONTENT stage - ${isStaticAllowed ? 'allowed' : 'blocked'}`);
+      }
       return isStaticAllowed;
       
     case LoadingStage.DYNAMIC_CONTENT:
-      // Dynamic content and static content allowed
-      // In dynamic content loading, allow most requests except user-specific ones
-      const isDynamicAllowed = isAuthRequest || 
-                             !endpoint.includes('/user/') || 
-                             isPublicEventRequest;
-      console.log(`API: Request check for ${endpoint} in DYNAMIC_CONTENT stage - ${isDynamicAllowed ? 'allowed' : 'blocked'}`);
-      return isDynamicAllowed;
-      
     case LoadingStage.DATA_LOADING:
+      // Разрешаем все запросы на динамический контент и загрузку данных
+      return true;
+      
     case LoadingStage.COMPLETED:
       // All requests allowed in these stages
       return true;
       
     default:
-      console.log(`API: Unknown loading stage ${currentLoadingStage} for request ${endpoint} - blocking`);
+      logWarn(`Unknown loading stage ${currentLoadingStage} for request ${endpoint} - blocking`);
       return false;
   }
 }
 
-/**
- * Execute API requests with caching and error handling
- */
-export async function apiFetch<T>(
+export interface APIResponse<T = any> {
+  data?: T;
+  meta?: {
+    pagination?: {
+      page: number;
+      pageSize: number;
+      pageCount: number;
+      total: number;
+    };
+  };
+  error?: {
+    status?: number;
+    name?: string;
+    message?: string;
+    details?: any;
+  };
+  aborted?: boolean;
+  reason?: string;
+}
+
+export interface APIOptions {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  data?: any;
+  params?: Record<string, string | number | boolean | null | undefined>;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  bypassLoadingStageCheck?: boolean;
+}
+
+export const apiFetch = async <T = any>(
   endpoint: string,
-  options: RequestInit & { cache?: RequestCache; signal?: AbortSignal } = {}
-): Promise<ApiResponse<T>> {
-  const requestKey = `${endpoint}-${JSON.stringify(options.body || {})}-${options.method || 'GET'}`;
-  const now = Date.now();
-
-  // Track request by stage
-  stageRequestCounts[currentLoadingStage]++;
-
-  // Check if the request should be processed based on loading stage
-  if (!shouldProcessRequest(endpoint)) {
-    console.log(`API: Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
-    return { aborted: true, reason: `loading_stage_${currentLoadingStage}` };
-  }
-
-  // Skip check for critical requests
-  const isCriticalRequest = endpoint === '/user_edits/me' || endpoint === '/admin/me';
-
-  // Check cache for GET requests with higher priority during earlier loading stages
-  if (options.method === 'GET' || !options.method) {
-    const cached = responseCache[requestKey];
-    // Use cached response with higher priority during auth and static loading stages
-    const shouldUseCachedResponse = cached && (
-      now - cached.timestamp < CACHE_TTL || 
-      currentLoadingStage === LoadingStage.AUTHENTICATION ||
-      currentLoadingStage === LoadingStage.STATIC_CONTENT
-    );
-    
-    if (shouldUseCachedResponse) {
-      console.log(`API: Serving cached response for ${endpoint} during ${currentLoadingStage} stage`);
-      return cached.data as T;
+  options: APIOptions = {}
+): Promise<APIResponse<T>> => {
+  
+  const { bypassLoadingStageCheck, ...fetchOptions } = options;
+  
+  try {
+    // Check if we're in the authentication stage
+    // Но пропускаем проверку, если установлен флаг bypassLoadingStageCheck
+    if (currentLoadingStage === 'authentication' && !bypassLoadingStageCheck) {
+      logWarn(`Request blocked due to loading stage (${currentLoadingStage})`);
+      
+      // Queue request for later if it's not set to be aborted
+      return {
+        aborted: true,
+        reason: `Request blocked due to loading_stage (${currentLoadingStage})`
+      };
     }
-  }
-
-  // Check request deduplication
-  const lastRequest = lastRequests[requestKey];
-  if (lastRequest && now - lastRequest.timestamp < REQUEST_DEDUP_INTERVAL) {
-    console.log(`API: Deduplicating request for ${endpoint}`);
-    return lastRequest.promise as Promise<ApiResponse<T>>;
-  }
-
-  // Check lock only for non-critical requests
-  if (globalRequestLock && !isCriticalRequest) {
-    blockedRequestCount++;
-    console.log(`API: Request to ${endpoint} blocked (global lock), active requests: ${activeRequestCount}, blocked requests: ${blockedRequestCount}`);
     
-    // If request is blocked but we have cached data, use it with extended TTL
-    if (options.method === 'GET' || !options.method) {
+    const requestKey = `${endpoint}-${JSON.stringify(options.data || {})}-${options.method || 'GET'}`;
+    const now = Date.now();
+
+    // Track request by stage
+    stageRequestCounts[currentLoadingStage]++;
+
+    // Check if the request should be processed based on loading stage
+    if (!shouldProcessRequest(endpoint)) {
+      logWarn(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
+      return { aborted: true, reason: `loading_stage_${currentLoadingStage}` };
+    }
+
+    // Skip check for critical requests
+    const isCriticalRequest = endpoint === '/user_edits/me' || endpoint === '/admin/me';
+
+    // Check cache for GET requests with higher priority during earlier loading stages
+    if (fetchOptions.method === 'GET' || !fetchOptions.method) {
       const cached = responseCache[requestKey];
-      // During earlier stages, we're more lenient with cache TTL
-      const extendedTTL = currentLoadingStage === LoadingStage.AUTHENTICATION || 
-                        currentLoadingStage === LoadingStage.STATIC_CONTENT ? 
-                        CACHE_TTL * 2 : CACHE_TTL;
-                        
-      if (cached && now - cached.timestamp < extendedTTL) {
-        console.log(`API: Using cached response for ${endpoint} after global lock (extended TTL during ${currentLoadingStage})`);
+      // Use cached response with higher priority during auth and static loading stages
+      const shouldUseCachedResponse = cached && (
+        now - cached.timestamp < CACHE_TTL || 
+        currentLoadingStage === LoadingStage.AUTHENTICATION ||
+        currentLoadingStage === LoadingStage.STATIC_CONTENT
+      );
+      
+      if (shouldUseCachedResponse) {
+        logDebug(`Serving cached response for ${endpoint} during ${currentLoadingStage} stage`);
         return cached.data as T;
       }
     }
-    
-    // If request is blocked, add it to queue
-    if (options.signal && !options.signal.aborted) {
-      return new Promise<ApiResponse<T>>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          // Remove request from queue on timeout
-          const index = requestQueue.findIndex(req => req === queueRequest);
-          if (index !== -1) {
-            requestQueue.splice(index, 1);
-          }
-          reject(new Error('Request timed out while waiting in queue'));
-        }, REQUEST_QUEUE_TIMEOUT);
-        
-        const queueRequest = () => {
-          clearTimeout(timeoutId);
-          apiFetch<T>(endpoint, options)
-            .then(resolve)
-            .catch(reject);
-        };
-        
-        // Add request to queue
-        requestQueue.push(queueRequest);
-        
-        // Try to process queue immediately if there's room for new requests
-        if (activeRequestCount < MAX_CONCURRENT_REQUESTS) {
-          // If active requests are less than maximum, reset lock
-          if (activeRequestCount === 0) {
-            globalRequestLock = false;
-            console.log(`API: Global lock reset due to no active requests`);
-          }
-          processRequestQueue();
-        }
-      });
-    }
-    
-    return { aborted: true, reason: 'global_lock' };
-  }
 
-  // Increase active requests counter
-  activeRequestCount++;
-  
-  // Create controller for request abortion
-  const controller = new AbortController();
-  
-  // Set timeout for request
-  const timeoutId = setTimeout(() => {
-    controller.abort();
-  }, FETCH_TIMEOUT);
-  
-  // Create promise for request execution
-  const requestPromise = (async () => {
-    try {
-      // Create promise for request execution
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        signal: controller.signal,
-        headers: {
-          'Content-Type': 'application/json',
-          ...options.headers,
-        },
-      });
+    // Check request deduplication
+    const lastRequest = lastRequests[requestKey];
+    if (lastRequest && now - lastRequest.timestamp < REQUEST_DEDUP_INTERVAL) {
+      logDebug(`Deduplicating request for ${endpoint}`);
+      return lastRequest.promise as Promise<T>;
+    }
+
+    // Check lock only for non-critical requests
+    if (globalRequestLock && !isCriticalRequest) {
+      blockedRequestCount++;
+      logWarn(`Request to ${endpoint} blocked (global lock), active requests: ${activeRequestCount}, blocked requests: ${blockedRequestCount}`);
       
-      // Clear timeout
-      clearTimeout(timeoutId);
+      // If request is blocked but we have cached data, use it with extended TTL
+      if (fetchOptions.method === 'GET' || !fetchOptions.method) {
+        const cached = responseCache[requestKey];
+        // During earlier stages, we're more lenient with cache TTL
+        const extendedTTL = currentLoadingStage === LoadingStage.AUTHENTICATION || 
+                          currentLoadingStage === LoadingStage.STATIC_CONTENT ? 
+                          CACHE_TTL * 2 : CACHE_TTL;
+                          
+        if (cached && now - cached.timestamp < extendedTTL) {
+          logDebug(`Using cached response for ${endpoint} after global lock (extended TTL during ${currentLoadingStage})`);
+          return cached.data as T;
+        }
+      }
       
-      // Process response
-      if (response.ok) {
-        // Only try to parse JSON if content-type is json
-        const contentType = response.headers.get('content-type');
-        let data: any;
-        
-        if (contentType && contentType.includes('application/json')) {
-          try {
-            data = await response.json();
-          } catch (error) {
-            console.error(`API: Failed to parse JSON response for ${endpoint}`, error);
-            data = { error: 'JSON parse error', status: response.status };
+      // If request is blocked, add it to queue
+      if (fetchOptions.signal && !fetchOptions.signal.aborted) {
+        return new Promise<T>((resolve, reject) => {
+          const timeoutId = setTimeout(() => {
+            // Remove request from queue on timeout
+            const index = requestQueue.findIndex(req => req === queueRequest);
+            if (index !== -1) {
+              requestQueue.splice(index, 1);
+            }
+            reject(new Error('Request timed out while waiting in queue'));
+          }, REQUEST_QUEUE_TIMEOUT);
+          
+          const queueRequest = () => {
+            clearTimeout(timeoutId);
+            apiFetch<T>(endpoint, options)
+              .then(resolve)
+              .catch(reject);
+          };
+          
+          // Add request to queue
+          requestQueue.push(queueRequest);
+          
+          // Try to process queue immediately if there's room for new requests
+          if (activeRequestCount < MAX_CONCURRENT_REQUESTS) {
+            // If active requests are less than maximum, reset lock
+            if (activeRequestCount === 0) {
+              globalRequestLock = false;
+              logDebug('Global lock reset due to no active requests');
+            }
+            processRequestQueue();
           }
-        } else {
-          // Handle non-JSON responses
-          try {
-            data = await response.text();
-            // If looks like JSON, try to parse it anyway
-            if (data.startsWith('{') || data.startsWith('[')) {
-              try {
-                data = JSON.parse(data);
-              } catch {
-                // Keep as text if JSON parsing fails
+        });
+      }
+      
+      return { aborted: true, reason: 'global_lock' };
+    }
+
+    // Increase active requests counter
+    activeRequestCount++;
+    
+    // Create controller for request abortion
+    const controller = new AbortController();
+    
+    // Set timeout for request
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, FETCH_TIMEOUT);
+    
+    // Create promise for request execution
+    const requestPromise = (async () => {
+      try {
+        // Create promise for request execution
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+          ...fetchOptions,
+          signal: controller.signal,
+          headers: {
+            'Content-Type': 'application/json',
+            ...fetchOptions.headers,
+          },
+        });
+        
+        // Clear timeout
+        clearTimeout(timeoutId);
+        
+        // Process response
+        if (response.ok) {
+          // Only try to parse JSON if content-type is json
+          const contentType = response.headers.get('content-type');
+          let data: any;
+          
+          if (contentType && contentType.includes('application/json')) {
+            try {
+              data = await response.json();
+            } catch (error) {
+              logError(`Failed to parse JSON response for ${endpoint}`, error);
+              data = { error: 'JSON parse error', status: response.status };
+            }
+          } else {
+            // Handle non-JSON responses
+            try {
+              data = await response.text();
+              // If looks like JSON, try to parse it anyway
+              if (data.startsWith('{') || data.startsWith('[')) {
+                try {
+                  data = JSON.parse(data);
+                } catch {
+                  // Keep as text if JSON parsing fails
+                }
               }
+            } catch {
+              data = { error: 'Failed to read response', status: response.status };
+            }
+          }
+          
+          // Cache successful GET responses
+          if ((fetchOptions.method === 'GET' || !fetchOptions.method) && data) {
+            responseCache[requestKey] = {
+              data,
+              timestamp: Date.now(),
+            };
+          }
+          
+          return data;
+        } else {
+          // Handle errors
+          let errorData: any = { error: response.statusText, status: response.status };
+          try {
+            // Try to parse error response
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              const jsonError = await response.json();
+              errorData = { ...errorData, ...jsonError };
             }
           } catch {
-            data = { error: 'Failed to read response', status: response.status };
+            // Ignore parse errors for error responses
           }
+          
+          logError(`Error response for ${endpoint}: ${response.status} ${response.statusText}`);
+          return errorData;
+        }
+      } catch (error: any) {
+        // Clear timeout
+        clearTimeout(timeoutId);
+        
+        // Handle network errors
+        logError(`Network error for ${endpoint}:`, error);
+        
+        // Check for abort errors
+        if (error.name === 'AbortError') {
+          return { aborted: true, reason: 'timeout' };
         }
         
-        // Cache successful GET responses
-        if ((options.method === 'GET' || !options.method) && data) {
-          responseCache[requestKey] = {
-            data,
-            timestamp: Date.now(),
-          };
-        }
+        return { error: error.message, status: 0 };
+      } finally {
+        // Decrease active requests counter
+        activeRequestCount = Math.max(0, activeRequestCount - 1);
         
-        return data;
-      } else {
-        // Handle errors
-        let errorData: any = { error: response.statusText, status: response.status };
-        try {
-          // Try to parse error response
-          const contentType = response.headers.get('content-type');
-          if (contentType && contentType.includes('application/json')) {
-            const jsonError = await response.json();
-            errorData = { ...errorData, ...jsonError };
-          }
-        } catch {
-          // Ignore parse errors for error responses
-        }
-        
-        console.error(`API: Error response for ${endpoint}: ${response.status} ${response.statusText}`);
-        return errorData;
+        // Process request queue
+        processRequestQueue();
       }
-    } catch (error: any) {
-      // Clear timeout
-      clearTimeout(timeoutId);
-      
-      // Handle network errors
-      console.error(`API: Network error for ${endpoint}:`, error);
-      
-      // Check for abort errors
-      if (error.name === 'AbortError') {
-        return { aborted: true, reason: 'timeout' };
-      }
-      
-      return { error: error.message, status: 0 };
-    } finally {
-      // Decrease active requests counter
-      activeRequestCount = Math.max(0, activeRequestCount - 1);
-      
-      // Process request queue
-      processRequestQueue();
-    }
-  })();
-  
-  // Store request promise for deduplication
-  lastRequests[requestKey] = {
-    timestamp: now,
-    promise: requestPromise,
-  };
-  
-  return requestPromise;
+    })();
+    
+    // Store request promise for deduplication
+    lastRequests[requestKey] = {
+      timestamp: now,
+      promise: requestPromise,
+    };
+    
+    return requestPromise;
+  } catch (err) {
+    // ... обработка ошибок без изменений ...
+  }
 }

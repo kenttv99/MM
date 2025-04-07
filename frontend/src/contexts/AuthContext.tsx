@@ -71,7 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
           hasInitialized.current = true;
           setDynamicLoading(false);
-          // Переходим к следующей стадии загрузки
+          // Переходим к следующей стадии загрузки и явно логируем переход
+          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failsafe)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
       }, 5000); // 5 second failsafe
@@ -86,6 +87,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthCheckedState(true);
             setUser(null);
             hasInitialized.current = true;
+            // Переходим к следующей стадии загрузки и явно логируем переход
+            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (no token)');
+            setStage(LoadingStage.STATIC_CONTENT);
           }
           return;
         }
@@ -108,6 +112,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthenticated(true);
             setIsAuthCheckedState(true);
             hasInitialized.current = true;
+            // Переходим к следующей стадии загрузки и явно логируем переход
+            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (success)');
+            setStage(LoadingStage.STATIC_CONTENT);
           }
         } else {
           console.log('AuthContext: Auth check failed with status', response.status);
@@ -116,6 +123,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthenticated(false);
             setIsAuthCheckedState(true);
             hasInitialized.current = true;
+            // Переходим к следующей стадии загрузки и явно логируем переход
+            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failed)');
+            setStage(LoadingStage.STATIC_CONTENT);
           }
         }
       } catch (error) {
@@ -127,6 +137,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setIsAuthCheckedState(true);
         hasInitialized.current = true;
+        // Переходим к следующей стадии загрузки и явно логируем переход
+        console.log('AuthContext: Transitioning to STATIC_CONTENT stage (error)');
+        setStage(LoadingStage.STATIC_CONTENT);
       } finally {
         // Clear failsafe timeout
         if (authCheckFailsafeRef.current) {
@@ -137,7 +150,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (isMounted.current) {
           console.log('AuthContext: Finalizing authentication check');
           setDynamicLoading(false);
-          // Переходим к следующей стадии загрузки
+          // Переходим к следующей стадии загрузки и явно логируем переход
+          console.log('AuthContext: Ensuring transition to STATIC_CONTENT stage (final)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
       }
@@ -209,6 +223,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setIsAuthCheckedState(true);
         setUser(null);
+        // Явно переходим к STATIC_CONTENT при отсутствии токена
+        console.log('AuthContext: No token - moving to STATIC_CONTENT');
+        setStage(LoadingStage.STATIC_CONTENT);
       }
       return false;
     }
@@ -226,9 +243,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       authCheckFailsafeRef.current = setTimeout(() => {
         if (isMounted.current) {
-          console.log('AuthContext: Failsafe triggered');
+          console.log('AuthContext: Failsafe triggered - explicitly moving to STATIC_CONTENT');
           setDynamicLoading(false);
           setIsAuthCheckedState(true);
+          // Явно переходим к следующей стадии при срабатывании таймаута
+          setStage(LoadingStage.STATIC_CONTENT);
         }
       }, 5000); // 5 second failsafe
       
@@ -245,11 +264,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if ('aborted' in data) {
         console.error('AuthContext: Request aborted', data.reason);
+        console.log('AuthContext: Request aborted - explicitly moving to STATIC_CONTENT');
+        setStage(LoadingStage.STATIC_CONTENT);
         throw new Error(data.reason || "Request was aborted");
       }
       
       if ('error' in data) {
         console.error('AuthContext: API error:', data.error);
+        console.log('AuthContext: API error - explicitly moving to STATIC_CONTENT');
+        setStage(LoadingStage.STATIC_CONTENT);
         throw new Error(data.error);
       }
       
@@ -258,7 +281,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthCheckedState(true);
       setUser(data);
       setDynamicLoading(false);
-      // Переходим к следующей стадии загрузки
+      // Переходим к следующей стадии загрузки с дополнительным логированием
+      console.log('AuthContext: Authentication success - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);
       return true;
     } catch (error) {
@@ -269,7 +293,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       // Still mark authentication check as complete, even on failure
       setIsAuthCheckedState(true);
-      // Переходим к следующей стадии загрузки
+      // Переходим к следующей стадии загрузки с дополнительным логированием
+      console.log('AuthContext: Auth check error - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);
       console.error('AuthContext: Error checking authentication', error);
       return false;

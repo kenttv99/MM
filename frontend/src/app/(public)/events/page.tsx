@@ -304,6 +304,11 @@ const EventsPage = () => {
   const abortControllerRef = useRef<AbortController | null>(null);
   const firstLoadRef = useRef(true);
 
+  // Определяем мемоизированное значение isFilterActive перед его использованием
+  const isFilterActive = useMemo(() => {
+    return activeFilters.startDate !== "" || activeFilters.endDate !== "";
+  }, [activeFilters]);
+
   // Функция загрузки данных - максимально упрощенная версия
   const fetchEvents = useCallback(async (pageNum = page) => {
     if (!isMounted.current) return;
@@ -331,22 +336,34 @@ const EventsPage = () => {
     setIsLoading(!hasInitialData.current);
     setDynamicLoading(true);
     
-    // Логируем запрос
-    logInfo('Fetching events', { 
-      page: pageNum, 
-      hasInitialData: hasInitialData.current,
-      filters: {
-        startDate: activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : 'none',
-        endDate: activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : 'none'
-      }
-    });
+    // Проверяем, активны ли фильтры
+    const isFiltersActive = activeFilters.startDate !== "" || activeFilters.endDate !== "";
     
-    // Формируем URL запроса
+    // Определяем источник запроса для логов
+    const requestSource = new Error().stack?.includes('placeholder') 
+      ? 'placeholder_reset' 
+      : isFiltersActive ? 'filter_active' : 'filter_reset';
+    
+    // Формируем URL запроса с обязательным временным штампом для предотвращения кэширования
+    const nocacheParam = `&_nocache=${Date.now()}`;
     const endpoint = `/v1/public/events?page=${pageNum}&limit=${ITEMS_PER_PAGE}&search=&start_date=${
       activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : ''
     }&end_date=${
       activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : ''
-    }`;
+    }${nocacheParam}`;
+    
+    // Логируем запрос с полным URL
+    logInfo('Fetching events', { 
+      page: pageNum, 
+      hasInitialData: hasInitialData.current,
+      source: requestSource,
+      fullUrl: endpoint,
+      filters: {
+        startDate: activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : 'none',
+        endDate: activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : 'none',
+        active: isFiltersActive
+      }
+    });
     
     try {
       // Выполняем запрос, всегда используя обход проверки стадии загрузки
@@ -370,31 +387,39 @@ const EventsPage = () => {
         return;
       }
       
-      // Обрабатываем полученные данные
-      let formattedResponse: EventsResponse = { data: [], total: 0 };
+      // Детальное логирование полученного ответа
+      logInfo('Raw API response', {
+        responseType: typeof response,
+        hasDataProp: response.hasOwnProperty('data'), 
+        isArray: Array.isArray(response),
+        arrayLength: Array.isArray(response) ? response.length : 'not array',
+        responseKeys: typeof response === 'object' ? Object.keys(response) : 'not object'
+      });
       
+      let formattedResponse = {} as EventsResponse;
+      
+      // Обрабатываем разные форматы ответа
       if (Array.isArray(response)) {
-        // Обработка массива
         formattedResponse = { data: response, total: response.length };
-      } else if (response && typeof response === 'object') {
-        // Обработка объекта с разными структурами
-        if ('data' in response && Array.isArray(response.data)) {
-          const total = 'total' in response && typeof response.total === 'number' 
-            ? response.total 
-            : response.data.length;
-          
-          formattedResponse = {
-            data: response.data,
-            total: total
-          };
-        } else if ('items' in response && Array.isArray(response.items)) {
-          formattedResponse = { data: response.items, total: response.items.length };
-        } else if ('events' in response && Array.isArray(response.events)) {
-          formattedResponse = { data: response.events, total: response.events.length };
-        } else if ('results' in response && Array.isArray(response.results)) {
-          formattedResponse = { data: response.results, total: response.results.length };
-        }
+      } else if (response.data && Array.isArray(response.data)) {
+        formattedResponse = response as EventsResponse;
+      } else if (typeof response === 'object') {
+        // Пробуем извлечь данные из разных возможных свойств
+        const data = (response as any).items || (response as any).events || (response as any).results || [];
+        const responseTotal = typeof (response as any).total === 'number' ? (response as any).total : (Array.isArray(data) ? data.length : 0);
+        
+        formattedResponse = {
+          data: Array.isArray(data) ? data : [],
+          total: responseTotal
+        };
       }
+      
+      // Подробное логирование отформатированного ответа
+      logInfo('Formatted response', {
+        hasData: !!formattedResponse.data,
+        dataLength: Array.isArray(formattedResponse.data) ? formattedResponse.data.length : 'not array',
+        total: formattedResponse.total
+      });
       
       // Обновляем состояние компонента
       setData(formattedResponse);
@@ -508,10 +533,45 @@ const EventsPage = () => {
 
   // Мемоизированные функции для фильтров
   const handleResetFilters = useCallback(() => {
+    // Важно: вычисляем актуальное значение isFilterActive в момент вызова
+    const currentFilterActive = activeFilters.startDate !== "" || activeFilters.endDate !== "";
+    logInfo('Resetting filters and reloading data', { isFilterActive: currentFilterActive });
+    
+    // Устанавливаем новое состояние фильтров
     setActiveFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
     setPage(1);
-  }, []);
+    setData(null); // Сбрасываем данные, чтобы гарантировать перезагрузку
+    
+    // Отменяем текущий запрос если есть
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    
+    // Показываем скелетон на короткое время
+    setShowInitialSkeleton(true);
+    
+    // Сбрасываем флаг hasInitialData для гарантированной перезагрузки
+    hasInitialData.current = false;
+    firstLoadRef.current = true; // Сбрасываем флаг первой загрузки
+    
+    // Очистка кэша API перед новым запросом
+    window.dispatchEvent(new CustomEvent('clear-api-cache', { detail: { pattern: '/v1/public/events' }}));
+    
+    // Гарантированно скрываем скелетон через короткое время
+    setTimeout(() => {
+      if (isMounted.current) {
+        setShowInitialSkeleton(false);
+      }
+    }, 1500);
+    
+    // Инициируем загрузку данных сразу, без дополнительной задержки
+    setTimeout(() => {
+      if (isMounted.current) {
+        fetchEvents(1);
+      }
+    }, 100); // Небольшая задержка, чтобы убедиться, что состояние обновилось
+  }, [fetchEvents]);
 
   const handleApplyFilters = useCallback(() => {
     setPage(1);
@@ -524,11 +584,6 @@ const EventsPage = () => {
       }
     }, 0);
   }, [fetchEvents]);
-
-  // Определяем мемоизированное значение isFilterActive
-  const isFilterActive = useMemo(() => {
-    return activeFilters.startDate !== "" || activeFilters.endDate !== "";
-  }, [activeFilters]);
 
   // Функция группировки событий
   const groupEventsByDate = useCallback((events: EventData[]) => {
@@ -633,7 +688,121 @@ const EventsPage = () => {
                 {isFilterActive ? "Мероприятия не найдены для выбранного диапазона дат" : "Мероприятия не найдены"}
               </h3>
               {isFilterActive && (
-                <button onClick={handleResetFilters} className="px-4 py-2 bg-orange-500 text-white rounded-lg">Сбросить фильтры</button>
+                <button 
+                  onClick={() => {
+                    // Полностью очищаем состояние перед сбросом
+                    logInfo('Reset triggered from placeholder button - FULL RESET');
+                    
+                    // Полностью сбрасываем все состояния
+                    setData(null);
+                    setActiveFilters({ startDate: "", endDate: "" });
+                    setIsFilterOpen(false);
+                    setPage(1);
+                    setHasMore(true);
+                    
+                    // Отменяем текущий запрос если есть
+                    if (abortControllerRef.current) {
+                      abortControllerRef.current.abort();
+                    }
+                    
+                    // Принудительно показываем скелетон
+                    setShowInitialSkeleton(true);
+                    
+                    // Сбрасываем все флаги для гарантированной перезагрузки
+                    hasInitialData.current = false;
+                    firstLoadRef.current = true;
+                    prevEventsRef.current = {};
+                    
+                    // Очистка кэша API перед новым запросом
+                    window.dispatchEvent(new CustomEvent('clear-api-cache', { detail: { pattern: '/v1/public/events' }}));
+                    
+                    // Создаем новый контроллер для прямого запроса
+                    const controller = new AbortController();
+                    abortControllerRef.current = controller;
+                    
+                    // Прямой API запрос без фильтров и с уникальным временным штампом
+                    setTimeout(() => {
+                      if (!isMounted.current) return;
+                      
+                      logInfo('Performing direct API call with empty filters');
+                      
+                      // Указываем пустые значения фильтров в URL
+                      const directEndpoint = `/v1/public/events?page=1&limit=${ITEMS_PER_PAGE}&search=&start_date=&end_date=&_nocache=${Date.now()}`;
+                      
+                      logInfo('Direct API endpoint', { url: directEndpoint });
+                      
+                      // Устанавливаем состояние загрузки
+                      setIsFetching(true);
+                      setIsLoading(true);
+                      setDynamicLoading(true);
+                      
+                      apiFetch<EventsResponse | EventData[]>(directEndpoint, {
+                        signal: controller.signal,
+                        bypassLoadingStageCheck: true
+                      })
+                      .then(response => {
+                        if (!isMounted.current) return;
+                        
+                        // Подробно логируем полученные данные
+                        logInfo('Direct API response', { 
+                          type: typeof response,
+                          isArray: Array.isArray(response),
+                          keys: typeof response === 'object' ? Object.keys(response) : []
+                        });
+                        
+                        // Обрабатываем ответ
+                        let formattedResponse: EventsResponse = { data: [], total: 0 };
+                        
+                        if (Array.isArray(response)) {
+                          formattedResponse.data = response;
+                          formattedResponse.total = response.length;
+                        } else if (response.data && Array.isArray(response.data)) {
+                          formattedResponse = response as EventsResponse;
+                        } else if (typeof response === 'object') {
+                          const data = (response as any).items || (response as any).events || (response as any).results || [];
+                          formattedResponse.data = Array.isArray(data) ? data : [];
+                          formattedResponse.total = typeof (response as any).total === 'number' ? 
+                            (response as any).total : formattedResponse.data.length;
+                        }
+                        
+                        // Обновляем состояние
+                        setData(formattedResponse);
+                        setHasMore(formattedResponse.data.length === ITEMS_PER_PAGE);
+                        hasInitialData.current = true;
+                        
+                        logInfo('Direct API data loaded', { 
+                          count: formattedResponse.data.length,
+                          total: formattedResponse.total
+                        });
+                      })
+                      .catch(error => {
+                        if (!isMounted.current) return;
+                        logError('Error in direct API call', error);
+                        if (error.name !== 'AbortError') {
+                          setError(error instanceof Error ? error : new Error(String(error)));
+                        }
+                      })
+                      .finally(() => {
+                        if (!isMounted.current) return;
+                        
+                        // Сбрасываем состояние загрузки
+                        setIsLoading(false);
+                        setIsFetching(false);
+                        setDynamicLoading(false);
+                        
+                        // Гарантированно скрываем скелетон
+                        setTimeout(() => {
+                          if (isMounted.current) {
+                            setShowInitialSkeleton(false);
+                          }
+                        }, 1000);
+                      });
+                    }, 200);
+                  }} 
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg"
+                >
+                  Сбросить фильтры
+                </button>
               )}
             </div>
           ) : (

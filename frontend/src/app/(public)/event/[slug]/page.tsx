@@ -19,6 +19,137 @@ import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
+import { useLoading } from "@/contexts/LoadingContext";
+
+// Константы для уровней логирования
+const LOG_LEVEL = {
+  NONE: 0,
+  ERROR: 1,
+  WARN: 2,
+  INFO: 3,
+  DEBUG: 4,
+};
+
+// Уровень логирования по умолчанию
+const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production' 
+  ? LOG_LEVEL.WARN 
+  : LOG_LEVEL.INFO;
+
+// Стили для анимированного градиента
+const gradientStyles = `
+  .animated-gradient {
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .animated-gradient::before {
+    content: "";
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(-45deg, #ffe0c0, #ffcc99, #ffac63, #ff8c2d, #ff7700);
+    background-size: 400% 400%;
+    animation: moveGradient 18s linear infinite;
+    transform-origin: center center;
+    filter: blur(50px);
+  }
+  
+  @keyframes moveGradient {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+  
+  .event-title {
+    text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+  }
+`;
+
+// Компонент анимированного градиента вместо изображения
+const AnimatedGradientBackground = ({ className = "", children }: { className?: string, children?: React.ReactNode }) => (
+  <div className={`w-full h-full animated-gradient relative ${className}`}>
+    <style jsx>{gradientStyles}</style>
+    <div className="absolute inset-0 bg-black/20 z-10"></div>
+    {children}
+  </div>
+);
+
+// Компонент скелетона для страницы мероприятия
+const EventDetailsSkeleton: React.FC = () => (
+  <div className="min-h-screen flex flex-col bg-gray-50">
+    <Header />
+    <main className="flex-grow">
+      {/* Скелетон для обложки мероприятия */}
+      <div className="relative h-[400px] w-full px-6 mt-16 mb-8">
+        <div className="relative h-full w-full rounded-xl overflow-hidden bg-gradient-to-r from-gray-100 to-orange-100">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="h-12 w-[70%] bg-white/30 backdrop-blur-sm rounded-lg animate-pulse"></div>
+          </div>
+        </div>
+      </div>
+
+      <div className="container mx-auto px-6 py-12">
+        {/* Скелетон для блока деталей события */}
+        <div className="animate-pulse mb-12">
+          <div className="bg-white rounded-xl p-6 shadow-sm">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="flex flex-col items-center p-3">
+                <div className="w-12 h-12 bg-orange-200 rounded-full mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-24 mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-16"></div>
+              </div>
+              <div className="flex flex-col items-center p-3">
+                <div className="w-12 h-12 bg-orange-200 rounded-full mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-20 mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-16"></div>
+              </div>
+              <div className="flex flex-col items-center p-3">
+                <div className="w-12 h-12 bg-orange-200 rounded-full mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-32 mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-24"></div>
+              </div>
+              <div className="flex flex-col items-center p-3">
+                <div className="w-12 h-12 bg-orange-200 rounded-full mb-4"></div>
+                <div className="h-4 bg-gray-200 rounded w-16 mb-2"></div>
+                <div className="h-3 bg-gray-200 rounded w-24"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Скелетон для блока регистрации */}
+        <div className="animate-pulse mb-12">
+          <div className="bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto">
+            <div className="h-6 bg-orange-200 rounded w-48 mx-auto mb-6"></div>
+            <div className="space-y-4">
+              <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-gray-200 rounded"></div>
+              <div className="h-10 bg-orange-300 rounded"></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Скелетон для описания */}
+        <div className="animate-pulse max-w-3xl mx-auto">
+          <div className="h-6 bg-orange-200 rounded w-32 mb-4"></div>
+          <div className="space-y-3">
+            <div className="h-4 bg-gray-200 rounded w-full"></div>
+            <div className="h-4 bg-gray-200 rounded w-[90%]"></div>
+            <div className="h-4 bg-gray-200 rounded w-[95%]"></div>
+            <div className="h-4 bg-gray-200 rounded w-[85%]"></div>
+            <div className="h-4 bg-gray-200 rounded w-[90%]"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+    <Footer />
+  </div>
+);
 
 const extractIdFromSlug = (slug: string): string => {
   const parts = slug.split("-");
@@ -43,6 +174,8 @@ export default function EventPage() {
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const { isAuth } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [showInitialSkeleton, setShowInitialSkeleton] = useState(true);
+  const { setDynamicLoading } = useLoading();
   const fetchInProgressRef = useRef(false);
   const hasInitialFetchRef = useRef(false);
   const isMountedRef = useRef(false);
@@ -51,12 +184,44 @@ export default function EventPage() {
   const globalLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountCountRef = useRef(0);
   
-  // Функция для логирования с ограничением частоты
-  const logWithThrottle = (message: string) => {
-    const now = Date.now();
-    if (now - lastLogTimeRef.current > 500) { // Логируем не чаще чем раз в 500мс
-      console.log(message);
-      lastLogTimeRef.current = now;
+  // Функции логирования с разными уровнями
+  const logDebug = (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+      if (data) {
+        console.debug(`EventPage: ${message}`, data);
+      } else {
+        console.debug(`EventPage: ${message}`);
+      }
+    }
+  };
+
+  const logInfo = (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
+      if (data) {
+        console.log(`EventPage: ${message}`, data);
+      } else {
+        console.log(`EventPage: ${message}`);
+      }
+    }
+  };
+
+  const logWarn = (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
+      if (data) {
+        console.warn(`EventPage: ⚠️ ${message}`, data);
+      } else {
+        console.warn(`EventPage: ⚠️ ${message}`);
+      }
+    }
+  };
+
+  const logError = (message: string, data?: any) => {
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
+      if (data) {
+        console.error(`EventPage: ⛔ ${message}`, data);
+      } else {
+        console.error(`EventPage: ⛔ ${message}`);
+      }
     }
   };
   
@@ -65,7 +230,7 @@ export default function EventPage() {
     const now = Date.now();
     // Не делаем запросы чаще чем раз в 2 секунды
     if (now - lastFetchTimeRef.current < 2000) {
-      logWithThrottle("EventPage: Skipping fetch due to rate limiting");
+      logDebug("Skipping fetch due to rate limiting");
       return false;
     }
     return true;
@@ -80,7 +245,7 @@ export default function EventPage() {
     
     // Устанавливаем таймаут для сброса глобальной блокировки
     globalLockTimeoutRef.current = setTimeout(() => {
-      logWithThrottle("EventPage: Resetting global lock timeout");
+      logDebug("Resetting global lock timeout");
       fetchInProgressRef.current = false;
       globalLockTimeoutRef.current = null;
     }, 5000); // Сбрасываем через 5 секунд
@@ -89,7 +254,7 @@ export default function EventPage() {
   // Handle auth changes
   useEffect(() => {
     const handleAuthChange = () => {
-      logWithThrottle("EventPage: Auth change detected");
+      logInfo("Auth change detected");
       // Только сбрасываем флаг начальной загрузки
       hasInitialFetchRef.current = false;
     };
@@ -97,24 +262,34 @@ export default function EventPage() {
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, []);
 
-  // Fetch event data
+  // Fetch event data with improved error handling and loading state
   useEffect(() => {
     if (!slug) {
-      logWithThrottle("EventPage: No slug provided");
+      logWarn("No slug provided");
       setIsLoading(false);
+      setShowInitialSkeleton(false);
       return;
     }
     
     if (event && hasInitialFetchRef.current) {
-      logWithThrottle("EventPage: Event data already loaded");
+      logDebug("Event data already loaded");
       setIsLoading(false);
+      setShowInitialSkeleton(false);
       return;
     }
     
     if (fetchInProgressRef.current) {
-      logWithThrottle("EventPage: Fetch already in progress");
+      logDebug("Fetch already in progress");
       return;
     }
+    
+    // Устанавливаем таймер для гарантированного скрытия скелетона
+    const skeletonTimer = setTimeout(() => {
+      if (isMountedRef.current) {
+        logInfo('Hiding skeleton regardless of data state');
+        setShowInitialSkeleton(false);
+      }
+    }, 3000); // Максимальное время показа скелетона
     
     let isRequestCancelled = false;
     
@@ -124,64 +299,75 @@ export default function EventPage() {
       try {
         fetchInProgressRef.current = true;
         setIsLoading(true);
+        setDynamicLoading(true);
         
         const eventId = extractIdFromSlug(slug);
         const timestamp = Date.now();
         const url = `/v1/public/events/${eventId}?t=${timestamp}`;
         
-        logWithThrottle(`EventPage: Fetching event data from ${url}`);
+        logInfo(`Fetching event data`, { url, eventId });
+        
+        const controller = new AbortController();
         
         const response = await apiFetch<EventData>(url, {
-          cache: "no-store"
+          signal: controller.signal,
+          bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
         });
         
         if (isRequestCancelled) return;
         
-        console.log("EventPage: Raw response data:", response);
+        logInfo("Raw response data", response);
         
-        if (response && typeof response === 'object' && 'title' in response) {
-          console.log("EventPage: Event title from API:", response.title);
-          console.log("EventPage: Event ID from slug:", eventId);
-          console.log("EventPage: Full slug:", slug);
+        if ('error' in response) {
+          logError("Error in response", response.error);
+          setFetchError(response.error?.message || "Ошибка загрузки");
+          setHasServerError(response.error?.status ? response.error.status >= 500 : false);
+          return;
+        }
+        
+        // At this point, response must be EventData
+        if ('title' in response) {
+          // Обеспечиваем типобезопасный кастинг
+          const eventData = response as unknown as EventData;
+          setEvent(eventData);
           
           // Если название не совпадает со slug, обновляем его из slug
-          if (!response.title || response.title === "Мероприятие " + eventId) {
+          if (!eventData.title || eventData.title === "Мероприятие " + eventId) {
             const titleFromSlug = extractTitleFromSlug(slug);
-            console.log("EventPage: Title from slug:", titleFromSlug);
-            response.title = titleFromSlug;
+            logInfo("Using title from slug", { titleFromSlug });
+            eventData.title = titleFromSlug;
           }
-          
-          console.log("EventPage: Final event title:", response.title);
-          setEvent(response as EventData);
           
           // Сохраняем заголовок в localStorage для быстрых ссылок
           try {
-            localStorage.setItem(`event-title-${eventId}`, response.title);
+            localStorage.setItem(`event-title-${eventId}`, String(eventData.title));
             localStorage.setItem(`event-slug-${eventId}`, slug);
-            console.log("EventPage: Saved to localStorage:", {
-              title: response.title,
+            logDebug("Saved to localStorage", {
+              title: eventData.title,
               slug: slug
             });
           } catch (error) {
-            console.error("EventPage: Error saving to localStorage:", error);
+            logError("Error saving to localStorage", error);
           }
           
-            setFetchError(null);
-            setHasServerError(false);
+          setFetchError(null);
+          setHasServerError(false);
           hasInitialFetchRef.current = true;
-          } else {
-          logWithThrottle("EventPage: Invalid event data received");
-            setFetchError("Мероприятие не найдено");
-          }
+        } else {
+          logWarn("Invalid event data received", response);
+          setFetchError("Мероприятие не найдено");
+        }
       } catch (err) {
         if (!isRequestCancelled) {
-          console.error("EventPage: Error fetching event:", err);
+          logError("Error fetching event", err);
           setFetchError(err instanceof Error ? err.message : "Ошибка загрузки мероприятия");
         }
       } finally {
         if (!isRequestCancelled) {
           setIsLoading(false);
+          setDynamicLoading(false);
           fetchInProgressRef.current = false;
+          setShowInitialSkeleton(false);
         }
       }
     };
@@ -196,23 +382,25 @@ export default function EventPage() {
     return () => {
       isRequestCancelled = true;
       clearTimeout(initDelay);
+      clearTimeout(skeletonTimer);
       fetchInProgressRef.current = false;
     };
-  }, [slug, event]);
+  }, [slug, event, setDynamicLoading]);
   
   // Component mount/unmount handling
   useEffect(() => {
     const currentMountCount = mountCountRef.current;
     mountCountRef.current++;
     isMountedRef.current = true;
-    logWithThrottle(`EventPage: Component mounted (${currentMountCount + 1})`);
+    logInfo(`Component mounted (${currentMountCount + 1})`);
     
     return () => {
       isMountedRef.current = false;
-      logWithThrottle(`EventPage: Component unmounted (${currentMountCount + 1})`);
+      logInfo(`Component unmounted (${currentMountCount + 1})`);
       
       // Сбрасываем состояние при размонтировании
       setIsLoading(false);
+      setDynamicLoading(false);
       fetchInProgressRef.current = false;
       
       // Очищаем таймауты
@@ -221,10 +409,10 @@ export default function EventPage() {
         globalLockTimeoutRef.current = null;
       }
     };
-  }, []);
+  }, [setDynamicLoading]);
 
   // Event handlers
-  const handleBookingClick = useCallback(() => console.log("Booking click triggered"), []);
+  const handleBookingClick = useCallback(() => logDebug("Booking click triggered"), []);
   const handleLoginClick = useCallback(() => {
     setIsRegisterMode(false);
     setIsModalOpen(true);
@@ -233,13 +421,15 @@ export default function EventPage() {
   const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
   const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
 
-  // Handle booking success
+  // Handle booking success with improved request handling
   const handleBookingSuccess = useCallback(() => {
     if (!slug || fetchInProgressRef.current) return;
     if (!canMakeNewRequest()) return;
     
     // Set loading state
     setIsLoading(true);
+    setShowInitialSkeleton(true);
+    setDynamicLoading(true);
     fetchInProgressRef.current = true;
     lastFetchTimeRef.current = Date.now();
     
@@ -248,13 +438,13 @@ export default function EventPage() {
     
     // Fetch updated event data
     apiFetch<EventData>(`/v1/public/events/${slug}?t=${Date.now()}`, {
-      cache: "no-store",
-      signal: controller.signal
+      signal: controller.signal,
+      bypassLoadingStageCheck: true
     })
       .then((response) => {
         // Check if response is an aborted response
         if ('aborted' in response) {
-          logWithThrottle("EventPage: Request was aborted: " + response.reason);
+          logInfo("Request was aborted", { reason: response.reason });
           
           // Если запрос был отклонен из-за глобальной блокировки, установим таймаут для сброса
           if (response.reason === "global_lock") {
@@ -265,71 +455,68 @@ export default function EventPage() {
 
         // Check if response contains an error
         if ('error' in response) {
-          logWithThrottle("EventPage: Error in response: " + response.error);
-          setFetchError(response.error);
-          setHasServerError(response.status >= 500);
+          logError("Error in response", response.error);
+          setFetchError(response.error?.message || "Ошибка загрузки");
+          setHasServerError(response.error?.status ? response.error.status >= 500 : false);
           return;
         }
         
         // At this point, response must be EventData
-        setEvent(response);
+        const eventData = response as unknown as EventData;
+        setEvent(eventData);
         setFetchError(null);
         setHasServerError(false);
+        logInfo("Event data updated after booking success");
       })
       .catch((err) => {
         // Check if the error is due to abort
         if (err.name === 'AbortError') {
-          logWithThrottle("EventPage: Request was aborted by the browser");
+          logInfo("Request was aborted by the browser");
           return;
         }
         
-        console.error("EventPage: Error fetching updated event data:", err);
+        logError("Error fetching updated event data", err);
         setFetchError(err.message);
         setHasServerError(true);
       })
       .finally(() => {
         setIsLoading(false);
+        setShowInitialSkeleton(false);
+        setDynamicLoading(false);
         fetchInProgressRef.current = false;
       });
       
     // Return the controller for cleanup
     return controller;
-  }, [slug, canMakeNewRequest, resetGlobalLock]);
+  }, [slug, canMakeNewRequest, resetGlobalLock, setDynamicLoading]);
 
   // Debug render states
   useEffect(() => {
     if (isMountedRef.current) {
-      logWithThrottle(`EventPage: Render state - isLoading: ${isLoading} event: ${event ? "exists" : "null"} fetchError: ${fetchError}`);
+      logDebug(`Render state`, { 
+        isLoading, 
+        hasEvent: !!event, 
+        fetchError,
+        showingSkeleton: showInitialSkeleton
+      });
     }
-  }, [isLoading, event, fetchError]);
+  }, [isLoading, event, fetchError, showInitialSkeleton]);
 
   // Render error states
   if (hasServerError) {
-    logWithThrottle("EventPage: Rendering server error");
+    logWarn("Rendering server error");
     return <ErrorPlaceholder />;
   }
   
   if (fetchError) {
-    logWithThrottle("EventPage: Rendering fetch error");
+    logWarn("Rendering fetch error");
     return notFound();
   }
   
-  // Render loading state
-  if (!event || isLoading) {
-    logWithThrottle("EventPage: Rendering loading state");
-    return (
-      <div className="min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-grow flex items-center justify-center">
-          <div className="animate-pulse flex flex-col items-center">
-            <div className="h-12 w-12 bg-orange-200 rounded-full mb-4"></div>
-            <div className="h-4 bg-orange-200 rounded w-48 mb-2"></div>
-            <div className="h-4 bg-orange-200 rounded w-32"></div>
-          </div>
-        </main>
-        <Footer />
-      </div>
-    );
+  // Render loading state with improved skeleton
+  if (!event || isLoading || showInitialSkeleton) {
+    logInfo("Rendering loading state with improved skeleton");
+    return <EventDetailsSkeleton />;
   }
 
   // Render event content
@@ -346,15 +533,14 @@ export default function EventPage() {
             {event.image_url ? (
               <Image src={event.image_url} alt={event.title} fill className="object-cover" priority />
             ) : (
-              <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                <span className="text-gray-500"></span>
-              </div>
+              <AnimatedGradientBackground>
+              </AnimatedGradientBackground>
             )}
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <motion.h1
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="text-4xl font-bold text-white text-center px-4 max-w-[90vw]"
+                className="text-4xl font-bold text-white text-center px-4 max-w-[90vw] event-title"
                 style={{ fontSize: "clamp(1.5rem, 5vw, 2.5rem)" }}
               >
                 {event.title}

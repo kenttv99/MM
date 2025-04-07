@@ -527,7 +527,7 @@ const EventsPage = () => {
     const currentTime = Date.now();
     if (currentTime - lastFetchTime.current >= minFetchInterval) {
       logInfo('Loading next page via infinite scroll');
-      setPage(prev => prev + 1);
+        setPage(prev => prev + 1);
     }
   }, [inView, hasMore, isLoading, isFetching, minFetchInterval]);
 
@@ -636,19 +636,19 @@ const EventsPage = () => {
             </div>
 
             {/* Filter dropdown */}
-            {isFilterOpen && (
-              <DateFilter
-                startDate={activeFilters.startDate}
-                endDate={activeFilters.endDate}
-                onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
-                onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
+              {isFilterOpen && (
+                <DateFilter
+                  startDate={activeFilters.startDate}
+                  endDate={activeFilters.endDate}
+                  onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
+                  onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
                 onApply={handleApplyFilters}
-                onClose={() => setIsFilterOpen(false)}
+                  onClose={() => setIsFilterOpen(false)}
                 onReset={handleResetFilters}
-                startDateRef={startDateInputRef}
-                endDateRef={endDateInputRef}
-              />
-            )}
+                  startDateRef={startDateInputRef}
+                  endDateRef={endDateInputRef}
+                />
+              )}
             
             {/* Active filters display */}
             {isFilterActive && (
@@ -808,15 +808,15 @@ const EventsPage = () => {
           ) : (
             // Показываем сгруппированные мероприятия
             Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
-              <div key={date} className="mb-8">
+                  <div key={date} className="mb-8">
                 <h2 className="text-lg font-medium text-gray-500 mb-3">{date}</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {eventsForDate.map((event, index) => {
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                      {eventsForDate.map((event, index) => {
                     const isLastCard = groupIndex === Object.keys(groupedEvents).length - 1 && index === eventsForDate.length - 1;
                     return <EventCard key={event.id} event={event} lastCardRef={isLastCard ? ref : undefined} />;
-                  })}
-                </div>
-              </div>
+                      })}
+                    </div>
+                  </div>
             ))
           )}
           

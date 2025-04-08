@@ -35,6 +35,14 @@ interface ConfirmModalProps {
   success?: string;
 }
 
+interface APIResponse<T> {
+  data?: T;
+  error?: string;
+  status?: number;
+  aborted?: boolean;
+  reason?: string;
+}
+
 const ConfirmModal: React.FC<ConfirmModalProps> = ({
   isOpen,
   onClose,
@@ -157,8 +165,6 @@ const UserEventTickets = () => {
   const fetchTickets = async () => {
     if (isLoading && !isInitialLoad.current) return;
     
-    // Check if we're in a stage that allows fetching tickets
-    // According to the loading system, we need at least STATIC_CONTENT stage
     if (currentStage < "STATIC_CONTENT") {
       console.log(`UserEventTickets: Skipping fetch, current stage (${currentStage}) is too early`);
       return;
@@ -177,19 +183,19 @@ const UserEventTickets = () => {
       }
       
       console.log("UserEventTickets: Making API request to /user_edits/my-tickets");
-      const response = await apiFetch<UserTicket[]>("/user_edits/my-tickets", {
+      const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
         method: "GET",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        bypassLoadingStageCheck: true // Allow this request even during early stages
+        bypassLoadingStageCheck: true
       });
 
       console.log("UserEventTickets: API response received", response);
       
       if (response && !("aborted" in response)) {
-        if (response.error === 'Unauthorized' || response.status === 401) {
+        if ("error" in response && response.status === 401) {
           console.log("UserEventTickets: Unauthorized response detected, redirecting to home");
           localStorage.removeItem('token');
           localStorage.removeItem('userData');
@@ -197,18 +203,19 @@ const UserEventTickets = () => {
           return;
         }
         
-        setTickets(response);
-        hasInitialData.current = true;
-        setError(null);
-        console.log(`UserEventTickets: Successfully loaded ${response.length} tickets`);
-      } else if ("aborted" in response) {
+        if ("data" in response && Array.isArray(response.data)) {
+          setTickets(response.data);
+          hasInitialData.current = true;
+          setError(null);
+          console.log(`UserEventTickets: Successfully loaded ${response.data.length} tickets`);
+        }
+      } else if ("aborted" in response && response.reason) {
         console.log(`UserEventTickets: Request aborted: ${response.reason}`);
         setError(`Запрос отменен: ${response.reason}`);
       }
     } catch (err) {
       console.error("UserEventTickets: Error fetching tickets", err);
       
-      // Check if error is an unauthorized error
       if (err instanceof Error && err.message.includes('401')) {
         console.log("UserEventTickets: 401 Unauthorized error detected, redirecting to home");
         localStorage.removeItem('token');
@@ -261,20 +268,20 @@ const UserEventTickets = () => {
         user_id: userData.id
       });
       
-      const response = await apiFetch('/registration/cancel', {
+      const response = await apiFetch<APIResponse<void>>('/registration/cancel', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
+        data: {
           event_id: selectedTicket.event.id,
           user_id: userData.id
-        })
+        }
       });
       
       if (response && !("aborted" in response)) {
-        if (response.error === 'Unauthorized' || response.status === 401) {
+        if ("error" in response && response.status === 401) {
           console.log("UserEventTickets: Unauthorized response detected during cancel, redirecting to home");
           localStorage.removeItem('token');
           localStorage.removeItem('userData');
@@ -284,18 +291,16 @@ const UserEventTickets = () => {
         
         setCancelSuccess('Регистрация успешно отменена');
         
-        // Update tickets list after successful cancellation
         setTimeout(() => {
           setIsModalOpen(false);
           fetchTickets();
         }, 1500);
-      } else if ("aborted" in response) {
+      } else if ("aborted" in response && response.reason) {
         setCancelError(`Запрос отменен: ${response.reason}`);
       }
     } catch (err) {
       console.error('Error cancelling registration:', err);
       
-      // Check if error is an unauthorized error
       if (err instanceof Error && (err.message.includes('401') || err.message.includes('Unauthorized'))) {
         console.log("UserEventTickets: 401 Unauthorized error detected during cancel, redirecting to home");
         localStorage.removeItem('token');

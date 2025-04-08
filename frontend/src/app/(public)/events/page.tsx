@@ -569,19 +569,88 @@ const EventsPage = () => {
     // Очистка кэша API перед новым запросом
     window.dispatchEvent(new CustomEvent('clear-api-cache', { detail: { pattern: '/v1/public/events' }}));
     
-    // Гарантированно скрываем скелетон через короткое время
-    setTimeout(() => {
-      if (isMounted.current) {
-        setShowInitialSkeleton(false);
-      }
-    }, 1500);
+    // Создаем новый контроллер для прямого запроса
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
     
-    // Инициируем загрузку данных сразу, без дополнительной задержки
+    // Прямой API запрос без фильтров и с уникальным временным штампом
     setTimeout(() => {
-      if (isMounted.current) {
-        fetchEvents(1);
-      }
-    }, 100); // Небольшая задержка, чтобы убедиться, что состояние обновилось
+      if (!isMounted.current) return;
+      
+      logInfo('Performing direct API call with empty filters');
+      
+      // Указываем пустые значения фильтров в URL
+      const directEndpoint = `/v1/public/events?page=1&limit=${ITEMS_PER_PAGE}&search=&start_date=&end_date=&_nocache=${Date.now()}`;
+      
+      logInfo('Direct API endpoint', { url: directEndpoint });
+      
+      // Устанавливаем состояние загрузки
+      setIsFetching(true);
+      setIsLoading(true);
+      setDynamicLoading(true);
+      
+      apiFetch<EventsResponse | EventData[]>(directEndpoint, {
+        signal: controller.signal,
+        bypassLoadingStageCheck: true
+      })
+      .then(response => {
+        if (!isMounted.current) return;
+        
+        // Подробно логируем полученные данные
+        logInfo('Direct API response', { 
+          type: typeof response,
+          isArray: Array.isArray(response),
+          keys: typeof response === 'object' ? Object.keys(response) : []
+        });
+        
+        // Обрабатываем ответ
+        let formattedResponse: EventsResponse = { data: [], total: 0 };
+        
+        if (Array.isArray(response)) {
+          formattedResponse.data = response;
+          formattedResponse.total = response.length;
+        } else if ('data' in response && Array.isArray(response.data)) {
+          formattedResponse = response as EventsResponse;
+        } else if (typeof response === 'object') {
+          const data = (response as any).items || (response as any).events || (response as any).results || [];
+          formattedResponse.data = Array.isArray(data) ? data : [];
+          formattedResponse.total = typeof (response as any).total === 'number' ? 
+            (response as any).total : formattedResponse.data.length;
+        }
+        
+        // Обновляем состояние
+        setData(formattedResponse);
+        setHasMore(formattedResponse.data.length === ITEMS_PER_PAGE);
+        hasInitialData.current = true;
+        
+        logInfo('Direct API data loaded', { 
+          count: formattedResponse.data.length,
+          total: formattedResponse.total
+        });
+      })
+      .catch(error => {
+        if (!isMounted.current) return;
+        logError('Error in direct API call', error);
+        if (error.name !== 'AbortError') {
+          setError(error instanceof Error ? error : new Error(String(error)));
+        }
+      })
+      .finally(() => {
+        if (!isMounted.current) return;
+        
+        // Сбрасываем состояние загрузки
+        setIsLoading(false);
+        setIsFetching(false);
+        setDynamicLoading(false);
+        
+        // Гарантированно скрываем скелетон
+        setTimeout(() => {
+          if (isMounted.current) {
+            setShowInitialSkeleton(false);
+          }
+        }, 1000);
+      });
+    }, 200);
   }, [fetchEvents]);
 
   const handleApplyFilters = useCallback(() => {

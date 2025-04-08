@@ -282,7 +282,8 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (newStage === LoadingStage.AUTHENTICATION) {
       // Проверяем, были ли мы на более высокой стадии  
       const hasBeenPastAuth = stageChangeHistoryRef.current.some(
-        entry => entry.stage !== LoadingStage.AUTHENTICATION
+        entry => entry.stage !== LoadingStage.AUTHENTICATION && 
+                entry.stage !== LoadingStage.INITIAL
       );
       
       if (hasBeenPastAuth) {
@@ -299,7 +300,12 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     
-    logInfo('Setting stage', { stage, prevStage: stage });
+    // Улучшенное логирование для отладки
+    logInfo('Setting stage', { 
+      newStage, 
+      prevStage: stage,
+      history: [...stageChangeHistoryRef.current]
+    });
     
     // Обновляем состояние
     previousStageRef.current = stage;
@@ -359,16 +365,31 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       timestamp: Date.now()
     });
     
+    // Устанавливаем начальную стадию и логируем это
     setStage(LoadingStage.AUTHENTICATION);
     previousStageRef.current = LoadingStage.AUTHENTICATION;
     dispatchStageChangeEvent(LoadingStage.AUTHENTICATION, stageChangeHistoryRef);
-
+    
+    // Добавляем обработчик события для синхронизации с AuthContext
+    const handleAuthStageChange = (event: CustomEvent) => {
+      if (event.detail && event.detail.stage) {
+        const authStage = event.detail.stage;
+        if (authStage === LoadingStage.STATIC_CONTENT && stage === LoadingStage.INITIAL) {
+          logInfo('Syncing with AuthContext stage', { authStage, currentStage: stage });
+          setStage(LoadingStage.STATIC_CONTENT);
+        }
+      }
+    };
+    
+    window.addEventListener('auth-stage-change', handleAuthStageChange as EventListener);
+    
     return () => {
       isMounted.current = false;
       if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
       if (uiLockTimerRef.current) clearTimeout(uiLockTimerRef.current);
       if (spinnerCheckIntervalRef.current) clearInterval(spinnerCheckIntervalRef.current);
       if (stageTransitionTimerRef.current) clearTimeout(stageTransitionTimerRef.current);
+      window.removeEventListener('auth-stage-change', handleAuthStageChange as EventListener);
       activeRequestsCount = 0;
     };
   }, [pathname]);

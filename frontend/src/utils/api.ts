@@ -257,7 +257,7 @@ function processRequestQueue() {
  * Check if a request should be processed based on the current loading stage
  */
 function shouldProcessRequest(endpoint: string): boolean {
-  // Текущие статистические данные для логирования
+  // Track request statistics for current stage
   stageRequestCounts[currentLoadingStage]++;
   
   // Authorization/authentication requests are always allowed
@@ -275,13 +275,16 @@ function shouldProcessRequest(endpoint: string): boolean {
     return true;
   }
   
-  // Public event requests should be allowed in all stages
-  const isPublicEventRequest = endpoint.includes('/public/events') || 
-                               endpoint.includes('/events/public') ||
-                               endpoint.includes('/v1/public/events');
+  // Public event requests and event-related endpoints should be allowed in all stages
+  const isEventRequest = endpoint.includes('/public/events') || 
+                        endpoint.includes('/events/public') ||
+                        endpoint.includes('/v1/public/events') ||
+                        endpoint.includes('/user_edits/my-tickets') ||
+                        endpoint.includes('/events/') ||
+                        endpoint.includes('/registration/');
                                
-  if (isPublicEventRequest) {
-    // Разрешаем публичные запросы к мероприятиям на любой стадии
+  if (isEventRequest) {
+    // Allow event-related requests in any stage
     return true;
   }
   
@@ -289,7 +292,6 @@ function shouldProcessRequest(endpoint: string): boolean {
   switch (currentLoadingStage) {
     case LoadingStage.AUTHENTICATION:
       // Only authentication requests in authentication stage
-      // Логируем только для отладки, не для каждого запроса
       if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
         logDebug(`Request check for ${endpoint} in AUTHENTICATION stage - ${isAuthRequest ? 'allowed' : 'blocked'}`);
       }
@@ -299,10 +301,10 @@ function shouldProcessRequest(endpoint: string): boolean {
       // Static content requests are allowed after authentication
       // Allow basic content and public data during static content loading
       const isStaticAllowed = isAuthRequest || 
+                            isEventRequest ||
                             endpoint.includes('/static/') || 
                             endpoint.includes('/content/') ||
-                            endpoint.includes('/user_edits/my-tickets'); // Allow tickets endpoint
-      // Логируем только для отладки, не для каждого запроса
+                            endpoint.includes('/user_edits/my-tickets');
       if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
         logDebug(`Request check for ${endpoint} in STATIC_CONTENT stage - ${isStaticAllowed ? 'allowed' : 'blocked'}`);
       }
@@ -310,11 +312,11 @@ function shouldProcessRequest(endpoint: string): boolean {
       
     case LoadingStage.DYNAMIC_CONTENT:
     case LoadingStage.DATA_LOADING:
-      // Разрешаем все запросы на динамический контент и загрузку данных
+      // Allow all requests in dynamic content and data loading stages
       return true;
       
     case LoadingStage.COMPLETED:
-      // All requests allowed in these stages
+      // All requests allowed in completed stage
       return true;
       
     default:

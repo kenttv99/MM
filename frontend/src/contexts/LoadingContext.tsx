@@ -537,31 +537,50 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Effect for handling stage changes
   useEffect(() => {
-    // Если мы были на стадии выше AUTHENTICATION, запоминаем это
+    // If we were at a stage higher than AUTHENTICATION, remember this
     if (stage !== LoadingStage.AUTHENTICATION) {
       hasBeenPastAuthenticationRef.current = true;
     }
     
-    // Определяем, находимся ли мы в состоянии регрессии (переход с более высокой стадии к более низкой)
+    // Determine if we're in a regression state (transition from higher stage to lower)
     const prevStage = stageChangeHistoryRef.current.length > 0 ? 
       stageChangeHistoryRef.current[stageChangeHistoryRef.current.length - 1].stage : 
       null;
     const isRegression = prevStage && getStageLevel(stage) < getStageLevel(prevStage as LoadingStage);
     
-    // Добавляем дополнительную проверку для исключения ложных срабатываний
+    // Add additional check to exclude false triggers
     const isPossibleFalseRegression = stageChangeHistoryRef.current.length <= 2 || 
-                                     Date.now() - lastResetRef.current < 500; // Исключаем определение регрессии сразу после сброса
+                                     Date.now() - lastResetRef.current < 500;
     
-    // Если это регрессия к AUTHENTICATION, логируем предупреждение
+    // Special handling for events page
+    if (isEventsPage.current) {
+      // If we're on the events page and in AUTHENTICATION stage, force progress to STATIC_CONTENT
+      if (stage === LoadingStage.AUTHENTICATION) {
+        logInfo('Events page detected in AUTHENTICATION stage, progressing to STATIC_CONTENT');
+        // Use a shorter timeout for events page to improve loading speed
+        setTimeout(() => {
+          if (isMounted.current && stage === LoadingStage.AUTHENTICATION) {
+            updateStage(LoadingStage.STATIC_CONTENT);
+          }
+        }, 100);
+        return;
+      }
+      
+      // If we're on events page and have active requests, ensure we're at least at STATIC_CONTENT
+      if (activeRequestsCount > 0 && getStageLevel(stage) < getStageLevel(LoadingStage.STATIC_CONTENT)) {
+        logInfo('Events page has active requests but low stage, progressing to STATIC_CONTENT');
+        updateStage(LoadingStage.STATIC_CONTENT);
+        return;
+      }
+    }
+    
+    // If this is a regression to AUTHENTICATION, log warning
     if (isRegression && stage === LoadingStage.AUTHENTICATION && 
         stageChangeHistoryRef.current.length > 2 && !isPossibleFalseRegression) {
-      // Логируем предупреждение, но уменьшаем до logWarn
       logWarn('Detected regression to AUTHENTICATION, forcing STATIC_CONTENT', {
         stageHistory: [...stageChangeHistoryRef.current]
       });
       
-      // Принудительно переводим на стадию STATIC_CONTENT с небольшой задержкой
-      // чтобы избежать циклических обновлений состояния
       setTimeout(() => {
         if (isMounted.current) {
           updateStage(LoadingStage.STATIC_CONTENT);
@@ -570,21 +589,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
     
-    // НОВОЕ ИСПРАВЛЕНИЕ: специальная обработка для страницы событий
-    if (stage === LoadingStage.AUTHENTICATION && isEventsPage.current) {
-      // Если мы на странице событий и застряли на стадии AUTHENTICATION, 
-      // устанавливаем таймер для принудительного перехода
-      const eventsPageTimer = setTimeout(() => {
-        if (isMounted.current && stage === LoadingStage.AUTHENTICATION) {
-          logWarn('Events page stuck in AUTHENTICATION, force progressing to STATIC_CONTENT');
-          updateStage(LoadingStage.STATIC_CONTENT);
-        }
-      }, 800); // Ускоряем таймаут для страницы событий
-      
-      return () => clearTimeout(eventsPageTimer);
-    }
-    
-    // Логируем изменение стадии только для статистики (уменьшаем до logDebug)
+    // Log stage change for statistics
     logDebug('Stage changed', {
       currentStage: stage,
       isStaticLoading: loadingStateRef.current.isStaticLoading,

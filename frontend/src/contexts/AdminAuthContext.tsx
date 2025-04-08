@@ -87,17 +87,62 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [router, setStage]);
 
   const logoutAdmin = useCallback(() => {
-    console.log('AdminAuthContext: Logging out admin');
-    localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-    setIsAdminAuth(false);
-    setAdminData(null);
-    setIsLoading(false);
-    setIsAuthChecked(false);
-    // Reset to authentication stage on logout
-    setStage(LoadingStage.AUTHENTICATION);
-    router.push("/admin-login");
+    console.log('AdminAuthContext: Starting admin logout');
+    
+    // Batch state updates
+    const batchUpdate = () => {
+      setIsAdminAuth(false);
+      setAdminData(null);
+      setIsLoading(false);
+      setIsAuthChecked(false);
+    };
+
+    try {
+      // First, notify that we're starting admin logout
+      window.dispatchEvent(new CustomEvent('admin-logout-start'));
+      
+      // Clear admin storage
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
+
+      // Batch our state updates
+      batchUpdate();
+
+      // Only update loading stage if we're in admin context
+      const isInAdminContext = window.location.pathname.startsWith('/admin');
+      if (isInAdminContext) {
+        console.log('AdminAuthContext: Setting stage to AUTHENTICATION after logout');
+        setStage(LoadingStage.AUTHENTICATION);
+      } else {
+        console.log('AdminAuthContext: Skipping stage update due to non-admin context');
+      }
+
+      // Notify about admin logout completion
+      window.dispatchEvent(new CustomEvent('admin-logout-complete'));
+      
+      // Navigate to admin login
+      router.push("/admin-login");
+    } catch (error) {
+      console.error('AdminAuthContext: Error during logout:', error);
+      // Still perform state cleanup on error
+      batchUpdate();
+    }
   }, [router, setStage]);
+
+  // Add listener for main auth logout to sync states
+  useEffect(() => {
+    const handleMainLogout = () => {
+      console.log('AdminAuthContext: Detected main auth logout, syncing state');
+      if (isAdminAuth) {
+        logoutAdmin();
+      }
+    };
+
+    window.addEventListener('auth-logout-start', handleMainLogout);
+    return () => {
+      window.removeEventListener('auth-logout-start', handleMainLogout);
+    };
+  }, [isAdminAuth, logoutAdmin]);
 
   const validateToken = useCallback(async () => {
     console.log('AdminAuthContext: Validating admin token');

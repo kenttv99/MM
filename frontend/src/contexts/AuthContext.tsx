@@ -246,34 +246,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     console.log('AuthContext: Authentication state updated successfully');
   }, []);
 
-  const logout = useCallback(() => {
-    if (!isMounted.current) return;
+  const logout = useCallback(async () => {
+    console.log('AuthContext: Starting logout process');
     
-    console.log('AuthContext: Logging out user');
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("token");
-      localStorage.removeItem("userData");
+    // Batch state updates to prevent multiple re-renders
+    const batchUpdate = () => {
+      setUser(null);
+      setIsAuthenticated(false);
+      setIsAuthCheckedState(true);
+      hasInitialized.current = false;
       tokenRef.current = null;
-    }
-    setIsAuthenticated(false);
-    setIsAuthCheckedState(false);
-    setUser(null);
-    
-    // Dispatch custom event to notify components about auth state change
-    const event = new CustomEvent('authStateChanged', {
-      detail: {
-        isAuth: false,
-        userData: null,
-        token: null
+    };
+
+    try {
+      // First, notify that we're starting logout
+      window.dispatchEvent(new CustomEvent('auth-logout-start'));
+      
+      // Clear localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
       }
-    });
-    window.dispatchEvent(event);
-    
-    // Reset to authentication stage on logout
-    setStage(LoadingStage.AUTHENTICATION);
-    
-    console.log('AuthContext: Logout completed, authentication state reset');
+
+      // Batch our state updates
+      batchUpdate();
+
+      // Only update loading stage if we're not in admin context
+      const isInAdminContext = window.location.pathname.startsWith('/admin');
+      if (!isInAdminContext) {
+        console.log('AuthContext: Setting stage to AUTHENTICATION after logout');
+        setStage(LoadingStage.AUTHENTICATION);
+      } else {
+        console.log('AuthContext: Skipping stage update due to admin context');
+      }
+
+      // Notify that logout is complete
+      window.dispatchEvent(new CustomEvent('auth-logout-complete'));
+      
+    } catch (error) {
+      console.error('AuthContext: Error during logout:', error);
+      // Still perform state cleanup on error
+      batchUpdate();
+    }
   }, [setStage]);
+
+  // Add event listener for admin logout to sync states
+  useEffect(() => {
+    const handleAdminLogout = () => {
+      console.log('AuthContext: Detected admin logout, syncing state');
+      if (isAuthenticated) {
+        logout();
+      }
+    };
+
+    window.addEventListener('admin-logout', handleAdminLogout);
+    return () => {
+      window.removeEventListener('admin-logout', handleAdminLogout);
+    };
+  }, [isAuthenticated, logout]);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     if (!isMounted.current) return false;

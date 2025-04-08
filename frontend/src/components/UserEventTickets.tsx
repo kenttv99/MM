@@ -38,6 +38,17 @@ const isSameDay = (date1: string, date2: string): boolean => {
   }
 };
 
+// Add a function to translate ticket types
+const getTicketTypeInRussian = (ticketType: string): string => {
+  const translations: Record<string, string> = {
+    'free': 'Бесплатный',
+    'standart': 'Стандартный',
+    'vip': 'VIP',
+    'org': 'Организатор'
+  };
+  return translations[ticketType.toLowerCase()] || ticketType;
+};
+
 interface UserTicket {
   id: number;
   event: EventData;
@@ -738,7 +749,7 @@ const UserEventTickets = () => {
                       )}
                       <div className="flex items-start gap-2 text-sm text-gray-600">
                         <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                        <span className="break-words">{ticket.ticket_type}</span>
+                        <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
                       </div>
                       
                       {/* Последний элемент информации */}

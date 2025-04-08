@@ -667,31 +667,53 @@ const UserEventTickets = () => {
                 className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
               >
                 {/* Top section: Title and Status */}
-                <div className="flex justify-between items-start mb-2">
+                <div className="flex justify-between items-center mb-2">
                   <h3 className="text-lg font-semibold text-gray-800">
                     {ticket.event.title}
                   </h3>
-                  <div
-                    className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
-                      ticket.status
-                    )}`}
-                  >
-                    {getStatusText(ticket.status)}
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
+                        ticket.status
+                      )}`}
+                    >
+                      {getStatusText(ticket.status)}
+                    </div>
+                    {ticket.status !== "completed" && (
+                      <button 
+                        onClick={() => handleCancelClick(ticket)}
+                        className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
+                      >
+                        Отменить
+                      </button>
+                    )}
                   </div>
                 </div>
                 
-                <div className="flex">
-                  {/* Left ticket number */}
+                <div className="flex h-full">
+                  {/* Вертикальный номер билета */}
                   <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
-                    <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm flex flex-col items-center">
-                      <div className="text-xs text-gray-500 uppercase font-medium text-center whitespace-nowrap">НОМЕР БИЛЕТА</div>
-                      <div className="text-xl font-bold text-orange-600">#{ticket.id.toString().padStart(4, '0')}</div>
+                    <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
+                      {/* Левая колонка - заголовок */}
+                      <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
+                        <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
+                          НОМЕР БИЛЕТА
+                        </p>
+                      </div>
+                      
+                      {/* Правая колонка - номер */}
+                      <div className="flex-1 flex items-center justify-center pl-1">
+                        <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
+                          #{ticket.id.toString().padStart(4, '0')}
+                        </p>
+                      </div>
                     </div>
                   </div>
                   
-                  {/* Right side with event info and cancel button */}
-                  <div className="flex-1 ml-4">
-                    <div className="grid grid-cols-1 gap-1">
+                  {/* Основное содержимое */}
+                  <div className="flex-1 ml-3">
+                    {/* Информация о событии */}
+                    <div className="space-y-2">
                       <div className="flex items-start gap-2 text-sm text-gray-600">
                         <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
                         <span className="break-words">
@@ -718,30 +740,12 @@ const UserEventTickets = () => {
                         <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
                         <span className="break-words">{ticket.ticket_type}</span>
                       </div>
+                      
+                      {/* Последний элемент информации */}
                       <div className="flex items-start gap-2 text-sm text-gray-600">
                         <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
                         <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
                       </div>
-                      
-                      {/* Cancel button aligned with info items */}
-                      {ticket.status !== "completed" && (
-                        <div className="flex items-center justify-end">
-                          <div
-                            onClick={() => handleCancelClick(ticket)}
-                            className="text-red-600 hover:text-red-800 transition-colors cursor-pointer text-sm"
-                            role="button"
-                            tabIndex={0}
-                            aria-label="Отменить регистрацию"
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' || e.key === ' ') {
-                                handleCancelClick(ticket);
-                              }
-                            }}
-                          >
-                            Отменить
-                          </div>
-                        </div>
-                      )}
                     </div>
                   </div>
                 </div>

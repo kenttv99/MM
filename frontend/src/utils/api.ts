@@ -300,7 +300,8 @@ function shouldProcessRequest(endpoint: string): boolean {
       // Allow basic content and public data during static content loading
       const isStaticAllowed = isAuthRequest || 
                             endpoint.includes('/static/') || 
-                            endpoint.includes('/content/');
+                            endpoint.includes('/content/') ||
+                            endpoint.includes('/user_edits/my-tickets'); // Allow tickets endpoint
       // Логируем только для отладки, не для каждого запроса
       if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
         logDebug(`Request check for ${endpoint} in STATIC_CONTENT stage - ${isStaticAllowed ? 'allowed' : 'blocked'}`);
@@ -367,6 +368,11 @@ export async function apiFetch<T>(
     // Check if the request should be processed based on loading stage
     if (!bypassLoadingStageCheck && !shouldProcessRequest(endpoint)) {
       logWarn(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
+      
+      // Add more context to the log
+      if (endpoint.includes('/user_edits/my-tickets')) {
+        logWarn(`Tickets request blocked. Current stage: ${currentLoadingStage}, Required stage: STATIC_CONTENT or higher`);
+      }
       
       return {
         aborted: true,

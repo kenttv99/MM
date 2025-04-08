@@ -8,9 +8,28 @@ from sqlalchemy.future import select
 from backend.config.logging_config import logger
 from backend.schemas_enums.schemas import RegistrationRequest, CancelRegistrationRequest, RegistrationResponse
 from backend.schemas_enums.enums import EventStatus, Status
+from sqlalchemy import func
 
 router = APIRouter()
 bearer_scheme = HTTPBearer()
+
+async def get_next_ticket_number(db: AsyncSession, event_id: int) -> str:
+    """
+    Generate a ticket number in the format n-n where:
+    - First n is the event ID
+    - Second n is a unique sequential number for this event (no length restriction)
+    """
+    # Get the count of existing registrations for this event
+    result = await db.execute(
+        select(func.count(Registration.id)).where(Registration.event_id == event_id)
+    )
+    count = result.scalar() or 0
+    
+    # Generate the next ticket number (event_id-count+1)
+    # No length restriction for the sequential number
+    ticket_number = f"{event_id}-{count + 1}"
+    
+    return ticket_number
 
 @router.post("/register", response_model=RegistrationResponse)
 async def register_for_event(
@@ -45,12 +64,15 @@ async def register_for_event(
         await db.commit()
         raise HTTPException(status_code=400, detail="No available tickets")
 
+    # Generate a ticket number in the format n-nnn
+    ticket_number = await get_next_ticket_number(db, event_id)
+    
     registration = Registration(
         user_id=user_id,
         event_id=event_id,
         ticket_type_id=ticket.id,
-        ticket_number=f"TICKET-{event_id}-{user_id}-{datetime.utcnow().timestamp()}",
-        payment_status=False,
+        ticket_number=ticket_number,
+        payment_status=ticket.free_registration,
         status=Status.approved.name,
         amount_paid=0 if ticket.free_registration else ticket.price,
     )

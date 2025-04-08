@@ -35,26 +35,63 @@ const UserEventTickets = () => {
   const skeletonTimeout = 2000; // ms
   const initialLoadDelay = 200; // ms
 
+  // Add logging for component lifecycle
+  useEffect(() => {
+    console.log(`UserEventTickets: Component mounted, current stage: ${currentStage}`);
+    return () => {
+      console.log("UserEventTickets: Component unmounted");
+    };
+  }, []);
+
+  // Log stage changes
+  useEffect(() => {
+    console.log(`UserEventTickets: Stage changed to ${currentStage}`);
+  }, [currentStage]);
+
   const fetchTickets = async () => {
     if (isLoading && !isInitialLoad.current) return;
-    if (currentStage < "DYNAMIC_CONTENT") return;
+    
+    // Check if we're in a stage that allows fetching tickets
+    // According to the loading system, we need at least STATIC_CONTENT stage
+    if (currentStage < "STATIC_CONTENT") {
+      console.log(`UserEventTickets: Skipping fetch, current stage (${currentStage}) is too early`);
+      return;
+    }
 
+    console.log(`UserEventTickets: Fetching tickets, current stage: ${currentStage}`);
+    
     try {
       const token = localStorage.getItem('token');
+      if (!token) {
+        console.log("UserEventTickets: No token found in localStorage");
+        setError("Необходима авторизация");
+        setIsLoading(false);
+        return;
+      }
+      
+      console.log("UserEventTickets: Making API request to /user_edits/my-tickets");
       const response = await apiFetch<UserTicket[]>("/user_edits/my-tickets", {
         method: "GET",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
+        bypassLoadingStageCheck: true // Allow this request even during early stages
       });
 
+      console.log("UserEventTickets: API response received", response);
+      
       if (response && !("aborted" in response)) {
         setTickets(response);
         hasInitialData.current = true;
         setError(null);
+        console.log(`UserEventTickets: Successfully loaded ${response.length} tickets`);
+      } else if ("aborted" in response) {
+        console.log(`UserEventTickets: Request aborted: ${response.reason}`);
+        setError(`Запрос отменен: ${response.reason}`);
       }
     } catch (err) {
+      console.error("UserEventTickets: Error fetching tickets", err);
       setError(err instanceof Error ? err.message : "Ошибка загрузки билетов");
     } finally {
       setIsLoading(false);
@@ -63,7 +100,8 @@ const UserEventTickets = () => {
   };
 
   useEffect(() => {
-    if (currentStage >= "DYNAMIC_CONTENT") {
+    if (currentStage >= "STATIC_CONTENT") {
+      console.log(`UserEventTickets: Setting up fetch timer for stage ${currentStage}`);
       const timer = setTimeout(() => {
         fetchTickets();
       }, initialLoadDelay);

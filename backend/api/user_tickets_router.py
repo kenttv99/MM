@@ -44,7 +44,7 @@ async def get_user_tickets(
                 id=registration.id,
                 event=registration.event,
                 ticket_type=registration.ticket_type.name,
-                registration_date=registration.created_at,
+                registration_date=registration.submission_time,
                 status=registration.status
             )
             for registration in registrations

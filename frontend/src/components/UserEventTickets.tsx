@@ -664,72 +664,85 @@ const UserEventTickets = () => {
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors relative"
+                className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
               >
-                <div className="flex items-start justify-between relative h-full">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                      {ticket.event.title}
-                    </h3>
-                    <div className="space-y-2 text-sm text-gray-600">
-                      <div className="flex items-center gap-2">
-                        <FaCalendarAlt className="text-orange-500" />
-                        <span>
+                {/* Top section: Title and Status */}
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    {ticket.event.title}
+                  </h3>
+                  <div
+                    className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
+                      ticket.status
+                    )}`}
+                  >
+                    {getStatusText(ticket.status)}
+                  </div>
+                </div>
+                
+                <div className="flex">
+                  {/* Left ticket number */}
+                  <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
+                    <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm flex flex-col items-center">
+                      <div className="text-xs text-gray-500 uppercase font-medium text-center whitespace-nowrap">НОМЕР БИЛЕТА</div>
+                      <div className="text-xl font-bold text-orange-600">#{ticket.id.toString().padStart(4, '0')}</div>
+                    </div>
+                  </div>
+                  
+                  {/* Right side with event info and cancel button */}
+                  <div className="flex-1 ml-4">
+                    <div className="grid grid-cols-1 gap-1">
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">
                           {formatDateForDisplay(ticket.event.start_date)}
                           {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
                             ` - ${formatDateForDisplay(ticket.event.end_date)}`}
                         </span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <FaClock className="text-orange-500" />
-                        <span>
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaClock className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">
                           {formatTimeForDisplay(ticket.event.start_date)}
                           {ticket.event.end_date && 
                             ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
                         </span>
                       </div>
                       {ticket.event.location && (
-                        <div className="flex items-center gap-2">
-                          <FaMapMarkerAlt className="text-orange-500" />
-                          <span>{ticket.event.location}</span>
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                          <span className="break-words">{ticket.event.location}</span>
                         </div>
                       )}
-                      <div className="flex items-center gap-2">
-                        <FaTicketAlt className="text-orange-500" />
-                        <span>{ticket.ticket_type}</span>
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">{ticket.ticket_type}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <FaRegCalendarCheck className="text-orange-500" />
-                        <span>Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
                       </div>
+                      
+                      {/* Cancel button aligned with info items */}
+                      {ticket.status !== "completed" && (
+                        <div className="flex items-center justify-end">
+                          <div
+                            onClick={() => handleCancelClick(ticket)}
+                            className="text-red-600 hover:text-red-800 transition-colors cursor-pointer text-sm"
+                            role="button"
+                            tabIndex={0}
+                            aria-label="Отменить регистрацию"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                handleCancelClick(ticket);
+                              }
+                            }}
+                          >
+                            Отменить
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
-                  <div className="absolute top-0 right-0 h-full flex flex-col items-center justify-between">
-                    <div
-                      className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                        ticket.status
-                      )}`}
-                    >
-                      {getStatusText(ticket.status)}
-                    </div>
-                    
-                    {/* Show cancel button for all tickets except completed ones */}
-                    {ticket.status !== "completed" && (
-                      <div
-                        onClick={() => handleCancelClick(ticket)}
-                        className={`px-3 py-1 rounded-full text-xs font-medium text-red-600 hover:text-red-800 transition-colors cursor-pointer`}
-                        role="button"
-                        tabIndex={0}
-                        aria-label="Отменить регистрацию"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            handleCancelClick(ticket);
-                          }
-                        }}
-                      >
-                        Отменить
-                      </div>
-                    )}
                   </div>
                 </div>
               </motion.div>

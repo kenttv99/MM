@@ -2,9 +2,9 @@ import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
 import { EventData } from "@/types/events";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
 // Define the date formatting function directly
@@ -127,11 +127,15 @@ const UserEventTickets = () => {
   const { currentStage } = useLoading();
   const { userData } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
   const hasInitialData = useRef(false);
   const isInitialLoad = useRef(true);
   const minFetchInterval = 200; // ms
   const skeletonTimeout = 2000; // ms
   const initialLoadDelay = 200; // ms
+  const fetchAttempted = useRef(false);
+  const retryTimeout = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchTime = useRef<number>(0);
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -145,8 +149,11 @@ const UserEventTickets = () => {
     console.log(`UserEventTickets: Component mounted, current stage: ${currentStage}`);
     return () => {
       console.log("UserEventTickets: Component unmounted");
+      if (retryTimeout.current) {
+        clearTimeout(retryTimeout.current);
+      }
     };
-  }, []);
+  }, [currentStage]);
 
   // Check authentication on mount
   useEffect(() => {
@@ -162,15 +169,33 @@ const UserEventTickets = () => {
     console.log(`UserEventTickets: Stage changed to ${currentStage}`);
   }, [currentStage]);
 
+  // Add effect to detect navigation changes
+  useEffect(() => {
+    console.log(`UserEventTickets: Pathname changed to ${pathname}`);
+    
+    // Check if we're on a profile-related page
+    if (pathname && (pathname.includes('/profile') || pathname.includes('/account'))) {
+      console.log('UserEventTickets: Detected navigation to profile page');
+      
+      // Check if enough time has passed since the last fetch
+      const now = Date.now();
+      if (now - lastFetchTime.current > minFetchInterval) {
+        console.log('UserEventTickets: Triggering ticket fetch due to navigation');
+        fetchAttempted.current = false;
+        fetchTickets();
+      } else {
+        console.log('UserEventTickets: Skipping fetch due to rate limiting');
+      }
+    }
+  }, [pathname]);
+
   const fetchTickets = async () => {
     if (isLoading && !isInitialLoad.current) return;
+    if (fetchAttempted.current) return;
     
-    if (currentStage < "STATIC_CONTENT") {
-      console.log(`UserEventTickets: Skipping fetch, current stage (${currentStage}) is too early`);
-      return;
-    }
-
     console.log(`UserEventTickets: Fetching tickets, current stage: ${currentStage}`);
+    fetchAttempted.current = true;
+    lastFetchTime.current = Date.now();
     
     try {
       const token = localStorage.getItem('token');
@@ -194,6 +219,27 @@ const UserEventTickets = () => {
 
       console.log("UserEventTickets: API response received", response);
       
+      // Add more detailed logging for response structure
+      console.log("UserEventTickets: Response type check", {
+        hasData: "data" in response,
+        hasError: "error" in response,
+        hasAborted: "aborted" in response,
+        isArray: Array.isArray(response),
+        responseKeys: Object.keys(response)
+      });
+      
+      // Handle direct array response
+      if (Array.isArray(response)) {
+        console.log("UserEventTickets: Response is a direct array, setting tickets");
+        // Cast the array to UserTicket[] to satisfy TypeScript
+        const ticketsArray = response as unknown as UserTicket[];
+        setTickets(ticketsArray);
+        hasInitialData.current = true;
+        setError(null);
+        console.log(`UserEventTickets: Successfully loaded ${ticketsArray.length} tickets`);
+        return;
+      }
+      
       if (response && !("aborted" in response)) {
         if ("error" in response && response.status === 401) {
           console.log("UserEventTickets: Unauthorized response detected, redirecting to home");
@@ -204,13 +250,39 @@ const UserEventTickets = () => {
         }
         
         if ("data" in response && Array.isArray(response.data)) {
+          console.log("UserEventTickets: Setting tickets from response.data", response.data);
           setTickets(response.data);
           hasInitialData.current = true;
           setError(null);
           console.log(`UserEventTickets: Successfully loaded ${response.data.length} tickets`);
+        } else if ("data" in response && !Array.isArray(response.data)) {
+          console.log("UserEventTickets: Response.data is not an array", response.data);
+          // Try to convert to array if possible
+          if (response.data) {
+            const dataArray = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
+            setTickets(dataArray);
+            hasInitialData.current = true;
+            setError(null);
+            console.log(`UserEventTickets: Converted and loaded ${dataArray.length} tickets`);
+          } else {
+            console.log("UserEventTickets: Response.data is null or undefined");
+            setTickets([]);
+            setError(null);
+          }
         }
       } else if ("aborted" in response && response.reason) {
         console.log(`UserEventTickets: Request aborted: ${response.reason}`);
+        
+        // If request was aborted due to loading stage, retry after a delay
+        if (response.reason.includes('loading_stage')) {
+          console.log('UserEventTickets: Request blocked due to loading stage, retrying after delay');
+          retryTimeout.current = setTimeout(() => {
+            fetchAttempted.current = false;
+            fetchTickets();
+          }, 500);
+          return;
+        }
+        
         setError(`Запрос отменен: ${response.reason}`);
       }
     } catch (err) {
@@ -231,16 +303,20 @@ const UserEventTickets = () => {
     }
   };
 
+  // Initial fetch on mount
   useEffect(() => {
-    if (currentStage >= "STATIC_CONTENT") {
-      console.log(`UserEventTickets: Setting up fetch timer for stage ${currentStage}`);
-      const timer = setTimeout(() => {
-        fetchTickets();
-      }, initialLoadDelay);
+    console.log(`UserEventTickets: Setting up fetch timer`);
+    const timer = setTimeout(() => {
+      fetchTickets();
+    }, initialLoadDelay);
 
-      return () => clearTimeout(timer);
-    }
-  }, [currentStage]);
+    return () => {
+      clearTimeout(timer);
+      if (retryTimeout.current) {
+        clearTimeout(retryTimeout.current);
+      }
+    };
+  }, []);
 
   const handleCancelClick = (ticket: UserTicket) => {
     setSelectedTicket(ticket);
@@ -400,68 +476,72 @@ const UserEventTickets = () => {
     <>
       <div className="max-h-[400px] overflow-y-auto pr-2">
         <div className="space-y-3">
-          {tickets.map((ticket) => (
-            <motion.div
-              key={ticket.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors relative"
-            >
-              <div className="flex items-start justify-between relative h-full">
-                <div className="flex-1">
-                  <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                    {ticket.event.title}
-                  </h3>
-                  <div className="space-y-2 text-sm text-gray-600">
-                    <div className="flex items-center gap-2">
-                      <FaCalendarAlt className="text-orange-500" />
-                      <span>
-                        {formatDateForDisplay(ticket.event.start_date)}
-                        {ticket.event.end_date &&
-                          ` - ${formatDateForDisplay(ticket.event.end_date)}`}
-                      </span>
-                    </div>
-                    {ticket.event.location && (
+          {tickets.map((ticket, index) => (
+            <div key={ticket.id}>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors relative"
+              >
+                <div className="flex items-start justify-between relative h-full">
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                      {ticket.event.title}
+                    </h3>
+                    <div className="space-y-2 text-sm text-gray-600">
                       <div className="flex items-center gap-2">
-                        <FaMapMarkerAlt className="text-orange-500" />
-                        <span>{ticket.event.location}</span>
+                        <FaCalendarAlt className="text-orange-500" />
+                        <span>
+                          {formatDateForDisplay(ticket.event.start_date)}
+                          {ticket.event.end_date &&
+                            ` - ${formatDateForDisplay(ticket.event.end_date)}`}
+                        </span>
+                      </div>
+                      {ticket.event.location && (
+                        <div className="flex items-center gap-2">
+                          <FaMapMarkerAlt className="text-orange-500" />
+                          <span>{ticket.event.location}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-2">
+                        <FaTicketAlt className="text-orange-500" />
+                        <span>{ticket.ticket_type}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="absolute top-0 right-0 h-full flex flex-col items-center justify-between">
+                    <div
+                      className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                        ticket.status
+                      )}`}
+                    >
+                      {getStatusText(ticket.status)}
+                    </div>
+                    
+                    {/* Show cancel button for all tickets except completed ones */}
+                    {ticket.status !== "completed" && (
+                      <div
+                        onClick={() => handleCancelClick(ticket)}
+                        className={`px-3 py-1 rounded-full text-xs font-medium text-red-600 hover:text-red-800 transition-colors cursor-pointer`}
+                        role="button"
+                        tabIndex={0}
+                        aria-label="Отменить регистрацию"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            handleCancelClick(ticket);
+                          }
+                        }}
+                      >
+                        Отменить
                       </div>
                     )}
-                    <div className="flex items-center gap-2">
-                      <FaTicketAlt className="text-orange-500" />
-                      <span>{ticket.ticket_type}</span>
-                    </div>
                   </div>
                 </div>
-                <div className="absolute top-0 right-0 h-full flex flex-col items-center justify-between">
-                  <div
-                    className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                      ticket.status
-                    )}`}
-                  >
-                    {getStatusText(ticket.status)}
-                  </div>
-                  
-                  {/* Show cancel button for all tickets except completed ones */}
-                  {ticket.status !== "completed" && (
-                    <div
-                      onClick={() => handleCancelClick(ticket)}
-                      className={`px-3 py-1 rounded-full text-xs font-medium text-red-600 hover:text-red-800 transition-colors cursor-pointer`}
-                      role="button"
-                      tabIndex={0}
-                      aria-label="Отменить регистрацию"
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          handleCancelClick(ticket);
-                        }
-                      }}
-                    >
-                      Отменить
-                    </div>
-                  )}
-                </div>
-              </div>
-            </motion.div>
+              </motion.div>
+              {index < tickets.length - 1 && (
+                <div className="h-px bg-gray-100 my-3 mx-auto w-[70%]"></div>
+              )}
+            </div>
           ))}
         </div>
       </div>
@@ -481,4 +561,4 @@ const UserEventTickets = () => {
   );
 };
 
-export default UserEventTickets; 
+export default UserEventTickets;

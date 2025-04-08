@@ -41,7 +41,7 @@ app.mount("/images", StaticFiles(directory="private_media"), name="images")
 app.include_router(user_edit_routers, prefix="/user_edits", tags=["User Edits"])
 app.include_router(user_auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(event_router, prefix="/v1/public/events", tags=["Events"])
-app.include_router(guests_registration_routers, prefix="/user_edits", tags=["Registration"])
+app.include_router(guests_registration_routers, prefix="/registration", tags=["Registration"])
 app.include_router(notification_router, prefix="", tags=["Notifications"])  # Подключаем новый роутер
 
 @app.middleware("http")

@@ -27,6 +27,16 @@ const nextConfig = {
         source: '/events/:path*',
         destination: 'http://localhost:8000/events/:path*',
       },
+      // Fix the user_edits path to ensure it's properly routed
+      {
+        source: '/user_edits/:path*',
+        destination: 'http://localhost:8000/user_edits/:path*',
+      },
+      // Add registration path
+      {
+        source: '/registration/:path*',
+        destination: 'http://localhost:8000/registration/:path*',
+      },
       // Admin server routes (port 8001)
       {
         source: '/admin/auth/:path*',

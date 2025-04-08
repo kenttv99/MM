@@ -44,16 +44,49 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     setSuccess(undefined);
 
     try {
-      await apiFetch<{ message: string }>("/user_edits/register", {
-        method: "POST",
+      // Check if registration is closed or completed
+      if (isRegistrationClosedOrCompleted) {
+        throw new Error("Регистрация на это мероприятие закрыта");
+      }
+
+      // Check if there are available tickets
+      if (remainingQuantity <= 0) {
+        throw new Error("К сожалению, все билеты уже распроданы");
+      }
+
+      const token = localStorage.getItem('token');
+      if (!token) {
+        throw new Error('Необходима авторизация');
+      }
+
+      console.log('Sending registration request with data:', {
+        event_id: parseInt(eventId),
+        user_id: userData!.id
+      });
+
+      // Use the correct endpoint format with standard fetch for better debugging
+      const response = await fetch('/registration/register', {
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          event_id: eventId,
-          user_id: userData!.id,
-        }),
+          event_id: parseInt(eventId),
+          user_id: userData!.id
+        })
       });
+
+      console.log('Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`Ошибка при бронировании: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('Success response:', data);
 
       setSuccess("Вы успешно забронировали билет!");
       setTimeout(() => {
@@ -62,7 +95,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       }, 1500);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Ошибка при бронировании.");
-      console.error(err);
+      console.error('Booking error:', err);
     }
   };
 

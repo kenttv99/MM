@@ -6,26 +6,28 @@ from backend.database.user_db import AsyncSession, Event, get_async_db, Registra
 from backend.config.auth import get_current_user, log_user_activity
 from sqlalchemy.future import select
 from backend.config.logging_config import logger
+from pydantic import BaseModel
 
 from backend.schemas_enums.enums import EventStatus, Status
 
 router = APIRouter()
 bearer_scheme = HTTPBearer()
 
+class RegistrationRequest(BaseModel):
+    event_id: int
+    user_id: int
+
 @router.post("/register")
 async def register_for_event(
-    data: dict,
+    data: RegistrationRequest,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ):
     token = credentials.credentials
     current_user = await get_current_user(token, db)
-    event_id = data.get("event_id")
-    user_id = data.get("user_id")
-
-    if not event_id or not user_id:
-        raise HTTPException(status_code=400, detail="Event ID and User ID are required")
+    event_id = data.event_id
+    user_id = data.user_id
 
     # Проверка существующей регистрации
     existing_registration = await db.execute(

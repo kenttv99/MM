@@ -472,6 +472,10 @@ export async function apiFetch<T>(
             'Content-Type': 'application/json',
             ...fetchOptions.headers,
           },
+          // Add body for POST, PUT, PATCH requests
+          ...(fetchOptions.method && ['POST', 'PUT', 'PATCH'].includes(fetchOptions.method) && fetchOptions.data
+            ? { body: JSON.stringify(fetchOptions.data) }
+            : {}),
         });
         
         // Clear timeout

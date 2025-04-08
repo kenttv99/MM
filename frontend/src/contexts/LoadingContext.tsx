@@ -622,8 +622,46 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     };
 
+    // Add event listener for page reload
+    const handlePageReload = () => {
+      console.log('LoadingContext: Page reload detected');
+      
+      // Check if we have a token in localStorage
+      const hasToken = typeof window !== 'undefined' && localStorage.getItem('token') !== null;
+      
+      if (hasToken) {
+        console.log('LoadingContext: Token found in localStorage, preserving authentication state');
+        // If we have a token, don't reset to AUTHENTICATION stage
+        if (stage === LoadingStage.AUTHENTICATION) {
+          console.log('LoadingContext: Forcing transition to STATIC_CONTENT on reload with token');
+          updateStage(LoadingStage.STATIC_CONTENT);
+        }
+      }
+    };
+    
+    // Add event listener for logout
+    const handleLogout = () => {
+      console.log('LoadingContext: Logout event detected');
+      // Reset stage change history on logout
+      stageChangeHistoryRef.current = [{
+        stage: LoadingStage.AUTHENTICATION,
+        timestamp: Date.now()
+      }];
+    };
+
     window.addEventListener('popstate', handleNavigation);
-    return () => window.removeEventListener('popstate', handleNavigation);
+    window.addEventListener('load', handlePageReload);
+    window.addEventListener('authStateChanged', (event: any) => {
+      if (event.detail && event.detail.isAuth === false) {
+        handleLogout();
+      }
+    });
+    
+    return () => {
+      window.removeEventListener('popstate', handleNavigation);
+      window.removeEventListener('load', handlePageReload);
+      window.removeEventListener('authStateChanged', handleLogout as EventListener);
+    };
   }, [stage, loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, activeRequestsCount, updateStage]);
 
   const value = useMemo(() => ({

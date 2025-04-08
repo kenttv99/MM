@@ -39,6 +39,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const CHECK_INTERVAL = 5000;
   const authCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const authCheckFailsafeRef = useRef<NodeJS.Timeout | null>(null);
+  const tokenRef = useRef<string | null>(null);
 
   // Effect for authentication check
   useEffect(() => {
@@ -78,7 +79,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }, 5000);
       
       try {
+        // Get token from localStorage and store in ref for faster access
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        tokenRef.current = token;
         
         if (!token) {
           console.log('AuthContext: No token found');
@@ -94,40 +97,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return;
         }
         
-        // Make the auth check request
-        console.log('AuthContext: Verifying authentication with token');
-        const response = await fetch('/auth/me', {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          }
-        });
-        
-        if (response.ok) {
-          console.log('AuthContext: Auth check successful');
-          const data = await response.json();
-          if (isMounted.current) {
-            setUser(data);
+        // Try to get user data from localStorage first
+        const storedUserData = typeof window !== 'undefined' ? localStorage.getItem('userData') : null;
+        if (storedUserData) {
+          try {
+            const parsedUserData = JSON.parse(storedUserData);
+            console.log('AuthContext: Found user data in localStorage');
+            setUser(parsedUserData);
             setIsAuthenticated(true);
             setIsAuthCheckedState(true);
             hasInitialized.current = true;
-            // Переходим к следующей стадии загрузки и явно логируем переход
-            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (success)');
+            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (from localStorage)');
             setStage(LoadingStage.STATIC_CONTENT);
-          }
-        } else {
-          console.log('AuthContext: Auth check failed with status', response.status);
-          if (isMounted.current) {
-            setUser(null);
-            setIsAuthenticated(false);
-            setIsAuthCheckedState(true);
-            hasInitialized.current = true;
-            // Переходим к следующей стадии загрузки и явно логируем переход
-            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failed)');
-            setStage(LoadingStage.STATIC_CONTENT);
+            
+            // Still verify with server in background
+            verifyWithServer(token);
+            return;
+          } catch (e) {
+            console.error('AuthContext: Error parsing stored user data', e);
+            localStorage.removeItem('userData');
           }
         }
+        
+        // Make the auth check request
+        await verifyWithServer(token);
       } catch (error) {
         console.error('AuthContext: Error during authentication check:', error);
         
@@ -152,6 +145,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setDynamicLoading(false);
           // Переходим к следующей стадии загрузки и явно логируем переход
           console.log('AuthContext: Ensuring transition to STATIC_CONTENT stage (final)');
+          setStage(LoadingStage.STATIC_CONTENT);
+        }
+      }
+    };
+
+    // Helper function to verify token with server
+    const verifyWithServer = async (token: string) => {
+      console.log('AuthContext: Verifying authentication with token');
+      const response = await fetch('/auth/me', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (response.ok) {
+        console.log('AuthContext: Auth check successful');
+        const data = await response.json();
+        if (isMounted.current) {
+          setUser(data);
+          setIsAuthenticated(true);
+          setIsAuthCheckedState(true);
+          hasInitialized.current = true;
+          // Store user data in localStorage for faster retrieval on next load
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('userData', JSON.stringify(data));
+          }
+          // Переходим к следующей стадии загрузки и явно логируем переход
+          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (success)');
+          setStage(LoadingStage.STATIC_CONTENT);
+        }
+      } else {
+        console.log('AuthContext: Auth check failed with status', response.status);
+        if (isMounted.current) {
+          setUser(null);
+          setIsAuthenticated(false);
+          setIsAuthCheckedState(true);
+          hasInitialized.current = true;
+          // Clear invalid token and user data
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('token');
+            localStorage.removeItem('userData');
+          }
+          // Переходим к следующей стадии загрузки и явно логируем переход
+          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failed)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
       }
@@ -189,6 +228,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Store token and user data in localStorage
     localStorage.setItem('token', token);
     localStorage.setItem('userData', JSON.stringify(userData));
+    tokenRef.current = token;
     
     // Force a re-render by updating a ref
     hasInitialized.current = true;
@@ -212,12 +252,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     console.log('AuthContext: Logging out user');
     if (typeof window !== "undefined") {
       localStorage.removeItem("token");
+      localStorage.removeItem("userData");
+      tokenRef.current = null;
     }
     setIsAuthenticated(false);
     setIsAuthCheckedState(false);
     setUser(null);
+    
+    // Dispatch custom event to notify components about auth state change
+    const event = new CustomEvent('authStateChanged', {
+      detail: {
+        isAuth: false,
+        userData: null,
+        token: null
+      }
+    });
+    window.dispatchEvent(event);
+    
     // Reset to authentication stage on logout
     setStage(LoadingStage.AUTHENTICATION);
+    
+    console.log('AuthContext: Logout completed, authentication state reset');
   }, [setStage]);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
@@ -228,7 +283,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return isAuthenticated;
     }
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    // Use token from ref if available, otherwise get from localStorage
+    const token = tokenRef.current || (typeof window !== "undefined" ? localStorage.getItem("token") : null);
+    if (token) {
+      tokenRef.current = token;
+    }
+    
     lastCheckTime.current = now;
 
     if (!token) {
@@ -288,6 +348,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsAuthenticated(true);
       setIsAuthCheckedState(true);
       setUser(response);
+      
+      // Update localStorage with fresh user data
+      if (typeof window !== "undefined") {
+        localStorage.setItem("userData", JSON.stringify(response));
+      }
+      
       setDynamicLoading(false);
       console.log('AuthContext: Authentication success - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);

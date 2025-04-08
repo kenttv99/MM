@@ -1,7 +1,7 @@
 // frontend/src/components/Header.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, memo, useMemo } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import Logo from "./Logo";
@@ -53,6 +53,222 @@ const logError = (message: string, data?: any) => {
   }
 };
 
+// Глобальное состояние для отслеживания видимости хедера
+// Это предотвратит мигание при повторных монтированиях компонента
+const globalHeaderState = {
+  hasShownHeader: false,
+  isInitialized: false,
+  lastAuthState: null as boolean | null,
+  lastAuthChecked: false,
+  lastLoadingStage: null as LoadingStage | null,
+  mountCount: 0,
+  initialRender: true,
+  isLoggingOut: false
+};
+
+// Хук для управления состоянием хедера
+const useHeaderState = () => {
+  const { isAuth, userData, logout, isAuthChecked } = useAuth();
+  const { currentStage } = useLoading();
+  const [isScrolled, setIsScrolled] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [forceShowHeader, setForceShowHeader] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const mountId = useRef(Math.random().toString(36).substring(7));
+  const isAuthRef = useRef(isAuth);
+  const userDataRef = useRef(userData);
+  const currentStageRef = useRef(currentStage);
+  const [initialRenderComplete, setInitialRenderComplete] = useState(false);
+
+  // Track first mount and update global mount count
+  useEffect(() => {
+    globalHeaderState.mountCount++;
+    
+    // Mark initial render as complete after a small delay
+    const timer = setTimeout(() => {
+      setInitialRenderComplete(true);
+      globalHeaderState.initialRender = false;
+    }, 50);
+    
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []);
+
+  // Update refs when auth state or loading stage changes
+  useEffect(() => {
+    const hasAuthChanged = isAuthRef.current !== isAuth || userDataRef.current !== userData;
+    const hasStageChanged = currentStageRef.current !== currentStage;
+
+    if (hasAuthChanged || hasStageChanged) {
+      console.log('Header: State changed', { 
+        prevAuth: isAuthRef.current, 
+        newAuth: isAuth,
+        prevUserData: userDataRef.current,
+        newUserData: userData,
+        prevStage: currentStageRef.current,
+        newStage: currentStage,
+        isLoggingOut: isLoggingOut || globalHeaderState.isLoggingOut
+      });
+
+      isAuthRef.current = isAuth;
+      userDataRef.current = userData;
+      currentStageRef.current = currentStage;
+
+      // Force header update when auth state changes or when moving past authentication stage
+      if (hasAuthChanged || (hasStageChanged && currentStage !== LoadingStage.AUTHENTICATION)) {
+        setForceShowHeader(true);
+        
+        // Update global header state
+        globalHeaderState.lastAuthState = isAuth;
+        globalHeaderState.lastAuthChecked = isAuthChecked;
+        globalHeaderState.lastLoadingStage = currentStage;
+        globalHeaderState.hasShownHeader = true;
+        
+        // Reset logout state if auth state has changed
+        if (hasAuthChanged && !isAuth && (isLoggingOut || globalHeaderState.isLoggingOut)) {
+          setIsLoggingOut(false);
+          globalHeaderState.isLoggingOut = false;
+        }
+      }
+    }
+  }, [isAuth, userData, currentStage, isAuthChecked, isLoggingOut]);
+
+  // Handle scroll
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 0);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Handle auth state changes
+  useEffect(() => {
+    const handleAuthChange = (event: CustomEvent) => {
+      console.log('Header: Received auth state change event', event.detail);
+      setForceShowHeader(true);
+    };
+
+    window.addEventListener('authStateChanged', handleAuthChange as EventListener);
+    return () => window.removeEventListener('authStateChanged', handleAuthChange as EventListener);
+  }, []);
+
+  // Determine if skeleton should be shown
+  const shouldShowSkeleton = useMemo(() => {
+    // Always show skeleton on initial render
+    if (!initialRenderComplete || globalHeaderState.initialRender) {
+      return true;
+    }
+    
+    // Show skeleton during logout process
+    if (isLoggingOut || globalHeaderState.isLoggingOut) {
+      return true;
+    }
+    
+    // Otherwise, show skeleton during authentication checks
+    const isInitialAuthCheck = !isAuthChecked && currentStage === LoadingStage.AUTHENTICATION;
+    const isExplicitAuthStage = currentStage === LoadingStage.AUTHENTICATION && !forceShowHeader;
+    
+    return isInitialAuthCheck || isExplicitAuthStage;
+  }, [isAuthChecked, currentStage, forceShowHeader, initialRenderComplete, isLoggingOut]);
+
+  const toggleMobileMenu = useCallback(() => {
+    setIsMobileMenuOpen(prev => !prev);
+  }, []);
+
+  const openLogin = useCallback(() => {
+    setIsRegisterMode(false);
+    setIsModalOpen(true);
+  }, []);
+
+  const openRegistration = useCallback(() => {
+    setIsRegisterMode(true);
+    setIsModalOpen(true);
+  }, []);
+
+  const handleModalClose = useCallback(() => {
+    setIsModalOpen(false);
+  }, []);
+
+  const toggleToLogin = useCallback(() => {
+    setIsRegisterMode(false);
+  }, []);
+
+  const toggleToRegister = useCallback(() => {
+    setIsRegisterMode(true);
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    console.log('Header: Logout clicked');
+    try {
+      // Set logging out state to show skeleton during transition
+      setIsLoggingOut(true);
+      globalHeaderState.isLoggingOut = true;
+      
+      // Close mobile menu and modal
+      setIsMobileMenuOpen(false);
+      setIsModalOpen(false);
+      
+      // Perform logout
+      await logout();
+      console.log('Header: Logout successful');
+      
+      // Force header update
+      setForceShowHeader(true);
+      
+      // Keep showing skeleton until we detect auth state change
+      // Only reset logout state if auth is already false (sync logout)
+      if (!isAuth) {
+        setTimeout(() => {
+          setIsLoggingOut(false);
+          globalHeaderState.isLoggingOut = false;
+        }, 300);
+      }
+      // For async logout, the auth state effect will handle resetting the logout state
+    } catch (error) {
+      console.error('Header: Logout failed', error);
+      setIsLoggingOut(false);
+      globalHeaderState.isLoggingOut = false;
+    }
+  }, [logout, isAuth]);
+
+  // Add explicit effect to handle auth state changes after logout
+  useEffect(() => {
+    // Only trigger when auth changes from true to false and we're in logout state
+    if (!isAuth && (isLoggingOut || globalHeaderState.isLoggingOut)) {
+      console.log('Header: Auth state updated after logout');
+      // Give time for the auth state to fully propagate
+      setTimeout(() => {
+        setIsLoggingOut(false);
+        globalHeaderState.isLoggingOut = false;
+        setForceShowHeader(true);
+      }, 300);
+    }
+  }, [isAuth, isLoggingOut]);
+
+  return {
+    isAuth,
+    userData,
+    isScrolled,
+    isMobileMenuOpen,
+    setIsMobileMenuOpen,
+    isModalOpen,
+    isRegisterMode,
+    shouldShowSkeleton,
+    toggleMobileMenu,
+    openLogin,
+    openRegistration,
+    handleModalClose,
+    toggleToLogin,
+    toggleToRegister,
+    handleLogout,
+    mountId: mountId.current
+  };
+};
+
 const HeaderSkeleton = () => (
   <div className="h-[64px] sm:h-[72px] fixed top-0 left-0 right-0 z-30 bg-white/90 flex items-center">
     <div className="container mx-auto px-4 sm:px-6 flex items-center justify-between">
@@ -93,188 +309,24 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
 };
 
 const Header: React.FC = () => {
-  const { isAuth, userData, logout, isLoading: authLoading, isAuthChecked } = useAuth();
-  const { currentStage } = useLoading();
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
-  const lastScrollY = useRef<number>(0);
-  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
-  const isInitialMount = useRef<boolean>(true);
-  const headerLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [forceShowHeader, setForceShowHeader] = useState(false);
-  const loadingRef = useRef<boolean>(authLoading);
-  const checkedRef = useRef<boolean>(isAuthChecked);
-  const prevStageRef = useRef<LoadingStage | null>(null);
-  const shouldShowSkeletonRef = useRef<boolean>(false);
-  const hasShownHeaderRef = useRef<boolean>(false);
-  const [, forceUpdate] = useState({});
-
-  // Единый эффект для управления отображением хедера
-  useEffect(() => {
-    // Определяем, нужно ли показывать хедер
-    const shouldShowHeader = isAuthChecked || 
-      currentStage === LoadingStage.STATIC_CONTENT || 
-      currentStage === LoadingStage.DYNAMIC_CONTENT || 
-      currentStage === LoadingStage.DATA_LOADING || 
-      currentStage === LoadingStage.COMPLETED;
-
-    // Если хедер уже был показан, не возвращаемся к скелетону
-    if (hasShownHeaderRef.current) {
-      setForceShowHeader(true);
-      return;
-    }
-
-    // Если нужно показать хедер, обновляем состояние
-    if (shouldShowHeader) {
-      setForceShowHeader(true);
-      hasShownHeaderRef.current = true;
-      
-      // Очищаем таймаут, если он был установлен
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-        headerLoadingTimeoutRef.current = null;
-      }
-      
-      logInfo('Showing header based on auth check or loading stage', { 
-        isAuthChecked, 
-        currentStage,
-        hasShownHeader: hasShownHeaderRef.current
-      });
-    } else if (authLoading) {
-      // Если аутентификация загружается, устанавливаем таймаут для показа хедера
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-      }
-      
-      headerLoadingTimeoutRef.current = setTimeout(() => {
-        setForceShowHeader(true);
-        hasShownHeaderRef.current = true;
-        logInfo('Showing header after timeout', { 
-          authLoading, 
-          isAuthChecked,
-          currentStage
-        });
-      }, 200);
-    }
-
-    return () => {
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-      }
-    };
-  }, [authLoading, isAuthChecked, currentStage]);
-
-  // Слушаем события изменения состояния аутентификации
-  useEffect(() => {
-    const handleAuthStateChange = (event: CustomEvent) => {
-      logInfo('Received auth state change event', event.detail);
-      
-      // Обновляем ссылки на текущее состояние
-      loadingRef.current = event.detail.isAuthenticated;
-      checkedRef.current = true;
-      
-      // Если пользователь аутентифицирован, показываем хедер
-      if (event.detail.isAuthenticated) {
-        setForceShowHeader(true);
-        hasShownHeaderRef.current = true;
-        
-        // Очищаем таймаут, если он был установлен
-        if (headerLoadingTimeoutRef.current) {
-          clearTimeout(headerLoadingTimeoutRef.current);
-          headerLoadingTimeoutRef.current = null;
-        }
-        
-        logInfo('Showing header due to authentication', { 
-          isAuthenticated: event.detail.isAuthenticated,
-          hasShownHeader: hasShownHeaderRef.current
-        });
-      }
-    };
-
-    window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
-    return () => {
-      window.removeEventListener('authStateChanged', handleAuthStateChange as EventListener);
-    };
-  }, []);
-
-  // Эффект для отслеживания первого монтирования
-  useEffect(() => {
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      logInfo('Header component mounted', { 
-        authLoading, 
-        isAuthChecked,
-        currentStage
-      });
-    }
-  }, [authLoading, isAuthChecked, currentStage]);
-
-  // Эффект для отслеживания прокрутки
-  useEffect(() => {
-    let isScrolling = false;
-
-    const handleScroll = () => {
-      if (!isScrolling) {
-        isScrolling = true;
-        
-        if (scrollTimeout.current) {
-          clearTimeout(scrollTimeout.current);
-        }
-
-        scrollTimeout.current = setTimeout(() => {
-          const currentScrollY = window.scrollY;
-          // Only update state if scroll position has changed significantly (more than 20px)
-          if (Math.abs(currentScrollY - lastScrollY.current) > 20) {
-            setIsScrolled(currentScrollY > 20);
-            lastScrollY.current = currentScrollY;
-          }
-          isScrolling = false;
-        }, 100); // Throttle to max once every 100ms
-      }
-    };
-
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => {
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-      window.removeEventListener("scroll", handleScroll);
-    };
-  }, []);
-
-  const toggleMobileMenu = useCallback(() => {
-    setIsMobileMenuOpen((prev) => !prev);
-  }, []);
-
-  const openLogin = useCallback(() => {
-    setIsRegisterMode(false);
-    setIsModalOpen(true);
-  }, []);
-
-  const openRegistration = useCallback(() => {
-    setIsRegisterMode(true);
-    setIsModalOpen(true);
-  }, []);
-
-  const handleModalClose = useCallback(() => {
-    setIsModalOpen(false);
-    setIsRegisterMode(false);
-  }, []);
-
-  const toggleToLogin = useCallback(() => {
-    setIsRegisterMode(false);
-  }, []);
-
-  const toggleToRegister = useCallback(() => {
-    setIsRegisterMode(true);
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    logout();
-    setIsMobileMenuOpen(false);
-  }, [logout]);
+  const {
+    isAuth,
+    userData,
+    isScrolled,
+    isMobileMenuOpen,
+    setIsMobileMenuOpen,
+    isModalOpen,
+    isRegisterMode,
+    shouldShowSkeleton,
+    toggleMobileMenu,
+    openLogin,
+    openRegistration,
+    handleModalClose,
+    toggleToLogin,
+    toggleToRegister,
+    handleLogout,
+    mountId
+  } = useHeaderState();
 
   const guestNavItems: NavItem[] = [
     { label: "Регистрация", onClick: openRegistration },
@@ -284,27 +336,6 @@ const Header: React.FC = () => {
     { href: "/profile", label: "Профиль" },
     { label: "Выход", onClick: handleLogout },
   ];
-
-  // Показываем скелетон только если:
-  // 1. Аутентификация загружается
-  // 2. Мы не достигли стадии STATIC_CONTENT или выше
-  // 3. Не сработал таймаут принудительного показа
-  // 4. Проверка аутентификации не завершена
-  // 5. Хедер еще не был показан
-  const shouldShowSkeleton = authLoading && !forceShowHeader && !isAuthChecked && !hasShownHeaderRef.current;
-  
-  // Логируем только при изменении решения о показе скелетона
-  if (shouldShowSkeletonRef.current !== shouldShowSkeleton) {
-    logDebug('Render decision', { 
-      shouldShowSkeleton, 
-      authLoading, 
-      forceShowHeader, 
-      isAuthChecked, 
-      currentStage,
-      hasShownHeader: hasShownHeaderRef.current
-    });
-    shouldShowSkeletonRef.current = shouldShowSkeleton;
-  }
   
   if (shouldShowSkeleton) {
     return <HeaderSkeleton />;
@@ -458,4 +489,5 @@ const Header: React.FC = () => {
   );
 };
 
-export default Header;
+// Используем React.memo для предотвращения ненужных ререндеров
+export default memo(Header);

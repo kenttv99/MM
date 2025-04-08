@@ -31,25 +31,25 @@ const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production'
 // Вспомогательные функции для логирования с разными уровнями
 const logDebug = (message: string, data?: any) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
-    console.log(`Header.tsx: ${message}`, data);
+    console.log(`Header: ${message}`, data);
   }
 };
 
 const logInfo = (message: string, data?: any) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
-    console.log(`Header.tsx: ${message}`, data);
+    console.log(`Header: ${message}`, data);
   }
 };
 
 const logWarn = (message: string, data?: any) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
-    console.log(`Header.tsx: ⚠️ ${message}`, data);
+    console.log(`Header: ⚠️ ${message}`, data);
   }
 };
 
 const logError = (message: string, data?: any) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
-    console.error(`Header.tsx: ⛔ ${message}`, data);
+    console.error(`Header: ⛔ ${message}`, data);
   }
 };
 
@@ -108,105 +108,110 @@ const Header: React.FC = () => {
   const checkedRef = useRef<boolean>(isAuthChecked);
   const prevStageRef = useRef<LoadingStage | null>(null);
   const shouldShowSkeletonRef = useRef<boolean>(false);
+  const hasShownHeaderRef = useRef<boolean>(false);
+  const [, forceUpdate] = useState({});
 
-  // Немедленно реагируем на изменение isAuthChecked
+  // Единый эффект для управления отображением хедера
   useEffect(() => {
-    // Логируем только критические изменения, а не каждый рендер
-    if (isAuthChecked !== checkedRef.current) {
-      logInfo('Auth check status changed', { isAuthChecked });
-      if (isAuthChecked) {
-        logInfo('Auth check completed, showing header');
-        setForceShowHeader(true);
-        // Очищаем таймаут, если проверка аутентификации завершилась
-        if (headerLoadingTimeoutRef.current) {
-          clearTimeout(headerLoadingTimeoutRef.current);
-          headerLoadingTimeoutRef.current = null;
-        }
-      }
-      checkedRef.current = isAuthChecked;
-    }
-  }, [isAuthChecked]);
+    // Определяем, нужно ли показывать хедер
+    const shouldShowHeader = isAuthChecked || 
+      currentStage === LoadingStage.STATIC_CONTENT || 
+      currentStage === LoadingStage.DYNAMIC_CONTENT || 
+      currentStage === LoadingStage.DATA_LOADING || 
+      currentStage === LoadingStage.COMPLETED;
 
-  // Принудительно показать хедер через определенное время,
-  // чтобы избежать зависания на скелетоне
-  useEffect(() => {
-    // Логируем только важные изменения, не каждый рендер
-    if (authLoading !== loadingRef.current || isAuthChecked !== checkedRef.current) {
-      logDebug('Auth loading state changed', { authLoading, isAuthChecked });
-      loadingRef.current = authLoading;
-      checkedRef.current = isAuthChecked;
-    }
-    
-    if (headerLoadingTimeoutRef.current) {
-      clearTimeout(headerLoadingTimeoutRef.current);
-    }
-    
-    // Показываем хедер сразу, если аутентификация уже проверена
-    if (isAuthChecked) {
+    // Если хедер уже был показан, не возвращаемся к скелетону
+    if (hasShownHeaderRef.current) {
       setForceShowHeader(true);
       return;
     }
-    
-    if (authLoading && !forceShowHeader) {
-      logDebug('Setting force show timeout');
+
+    // Если нужно показать хедер, обновляем состояние
+    if (shouldShowHeader) {
+      setForceShowHeader(true);
+      hasShownHeaderRef.current = true;
+      
+      // Очищаем таймаут, если он был установлен
+      if (headerLoadingTimeoutRef.current) {
+        clearTimeout(headerLoadingTimeoutRef.current);
+        headerLoadingTimeoutRef.current = null;
+      }
+      
+      logInfo('Showing header based on auth check or loading stage', { 
+        isAuthChecked, 
+        currentStage,
+        hasShownHeader: hasShownHeaderRef.current
+      });
+    } else if (authLoading) {
+      // Если аутентификация загружается, устанавливаем таймаут для показа хедера
+      if (headerLoadingTimeoutRef.current) {
+        clearTimeout(headerLoadingTimeoutRef.current);
+      }
+      
       headerLoadingTimeoutRef.current = setTimeout(() => {
-        logInfo('Force showing header after timeout');
         setForceShowHeader(true);
-      }, 200); // Сокращаем время ожидания до 200мс для еще более быстрой реакции
+        hasShownHeaderRef.current = true;
+        logInfo('Showing header after timeout', { 
+          authLoading, 
+          isAuthChecked,
+          currentStage
+        });
+      }, 200);
     }
-    
+
     return () => {
       if (headerLoadingTimeoutRef.current) {
         clearTimeout(headerLoadingTimeoutRef.current);
       }
     };
-  }, [authLoading, forceShowHeader, isAuthChecked]);
+  }, [authLoading, isAuthChecked, currentStage]);
 
-  // Сбрасываем forceShowHeader при изменении authLoading на false
+  // Слушаем события изменения состояния аутентификации
   useEffect(() => {
-    if (!authLoading && !isAuthChecked) {
-      // Логируем только в случае неполной проверки аутентификации
-      logDebug('Keeping force show flag true because auth check is not complete');
-    }
-  }, [authLoading, isAuthChecked]);
-
-  // Отслеживаем стадии загрузки
-  useEffect(() => {
-    // Логируем только при изменении стадии, а не при каждом рендере
-    if (prevStageRef.current !== currentStage) {
-      logDebug('Loading stage changed', { 
-        currentStage, 
-        isAuthChecked,
-        authLoading,
-        forceShowHeader 
-      });
-      prevStageRef.current = currentStage;
-    }
-    
-    // Показываем хедер если:
-    // 1. Аутентификация завершена
-    // 2. Мы достигли стадии STATIC_CONTENT или выше
-    if (isAuthChecked || 
-        currentStage === LoadingStage.STATIC_CONTENT || 
-        currentStage === LoadingStage.DYNAMIC_CONTENT || 
-        currentStage === LoadingStage.DATA_LOADING || 
-        currentStage === LoadingStage.COMPLETED) {
-      setForceShowHeader(true);
+    const handleAuthStateChange = (event: CustomEvent) => {
+      logInfo('Received auth state change event', event.detail);
       
-      // Очищаем таймаут, так как уже показываем хедер
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-        headerLoadingTimeoutRef.current = null;
+      // Обновляем ссылки на текущее состояние
+      loadingRef.current = event.detail.isAuthenticated;
+      checkedRef.current = true;
+      
+      // Если пользователь аутентифицирован, показываем хедер
+      if (event.detail.isAuthenticated) {
+        setForceShowHeader(true);
+        hasShownHeaderRef.current = true;
+        
+        // Очищаем таймаут, если он был установлен
+        if (headerLoadingTimeoutRef.current) {
+          clearTimeout(headerLoadingTimeoutRef.current);
+          headerLoadingTimeoutRef.current = null;
+        }
+        
+        logInfo('Showing header due to authentication', { 
+          isAuthenticated: event.detail.isAuthenticated,
+          hasShownHeader: hasShownHeaderRef.current
+        });
       }
-    }
-  }, [currentStage, isAuthChecked, authLoading, forceShowHeader]);
+    };
 
+    window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
+    return () => {
+      window.removeEventListener('authStateChanged', handleAuthStateChange as EventListener);
+    };
+  }, []);
+
+  // Эффект для отслеживания первого монтирования
   useEffect(() => {
     if (isInitialMount.current) {
       isInitialMount.current = false;
+      logInfo('Header component mounted', { 
+        authLoading, 
+        isAuthChecked,
+        currentStage
+      });
     }
-  }, [isAuth, userData, isMobileMenuOpen]);
+  }, [authLoading, isAuthChecked, currentStage]);
 
+  // Эффект для отслеживания прокрутки
   useEffect(() => {
     let isScrolling = false;
 
@@ -285,7 +290,8 @@ const Header: React.FC = () => {
   // 2. Мы не достигли стадии STATIC_CONTENT или выше
   // 3. Не сработал таймаут принудительного показа
   // 4. Проверка аутентификации не завершена
-  const shouldShowSkeleton = authLoading && !forceShowHeader && !isAuthChecked;
+  // 5. Хедер еще не был показан
+  const shouldShowSkeleton = authLoading && !forceShowHeader && !isAuthChecked && !hasShownHeaderRef.current;
   
   // Логируем только при изменении решения о показе скелетона
   if (shouldShowSkeletonRef.current !== shouldShowSkeleton) {
@@ -294,7 +300,8 @@ const Header: React.FC = () => {
       authLoading, 
       forceShowHeader, 
       isAuthChecked, 
-      currentStage 
+      currentStage,
+      hasShownHeader: hasShownHeaderRef.current
     });
     shouldShowSkeletonRef.current = shouldShowSkeleton;
   }

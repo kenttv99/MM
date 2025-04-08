@@ -9,7 +9,11 @@ export enum LoadingStage {
   STATIC_CONTENT = 'static_content',
   DYNAMIC_CONTENT = 'dynamic_content',
   DATA_LOADING = 'data_loading',
-  COMPLETED = 'completed'
+  COMPLETED = 'completed',
+  INITIAL = 'initial',
+  AUTH_CHECK = 'auth_check',
+  COMPLETE = 'complete',
+  ERROR = 'error'
 }
 
 // Type guard for checking if a stage is AUTHENTICATION
@@ -26,6 +30,12 @@ interface LoadingContextType {
   resetLoading: () => void;
   currentStage: LoadingStage;
   setStage: (stage: LoadingStage) => void;
+  isLoading: boolean;
+  setIsLoading: (isLoading: boolean) => void;
+  progress: number;
+  setProgress: (progress: number) => void;
+  error: string | null;
+  setError: (error: string | null) => void;
 }
 
 // Добавим базовые настройки для логов
@@ -114,12 +124,12 @@ function dispatchStageChangeEvent(stage: LoadingStage, stageChangeHistoryRef: Re
 }
 
 export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isStaticLoading, setIsStaticLoading] = useState(false);
-  const [isDynamicLoading, setIsDynamicLoading] = useState(false);
-  const [currentStage, setCurrentStage] = useState<LoadingStage>(LoadingStage.AUTHENTICATION);
-  
-  const pathname = usePathname();
+  const [stage, setStage] = useState<LoadingStage>(LoadingStage.INITIAL);
+  const [isLoading, setIsLoading] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState<string | null>(null);
   const isMounted = useRef(true);
+  const pathname = usePathname();
   const isInitialized = useRef(false);
   const loadingStateRef = useRef({ isStaticLoading: false, isDynamicLoading: false });
   const autoResetTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -148,33 +158,33 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, []);
 
   // Function for safe state update
-  const safeSetState = useCallback((setter: (value: boolean) => void, value: boolean) => {
+  const safeSetState = useCallback(() => {
     if (isMounted.current) {
       // Don't reset state if there are active requests on events page
-      if (!value && isEventsPage.current && activeRequestsCount > 0) {
+      if (!isLoading && isEventsPage.current && activeRequestsCount > 0) {
         return;
       }
       
-      setter(value);
       loadingStateRef.current = {
         ...loadingStateRef.current,
-        [setter === setIsStaticLoading ? 'isStaticLoading' : 'isDynamicLoading']: value
+        isStaticLoading: isLoading,
+        isDynamicLoading: isLoading
       };
     }
-  }, []);
+  }, [isLoading]);
 
   // Function for setting static loading
   const setStaticLoading = useCallback((isLoading: boolean) => {
     // Логируем только при изменении состояния
     if (loadingStateRef.current.isStaticLoading !== isLoading) {
-      console.log('LoadingContext: Setting static loading', { isLoading, currentStage });
+      console.log('LoadingContext: Setting static loading', { isLoading, stage });
     }
     
-    if (isLoading && currentStage === LoadingStage.AUTHENTICATION) {
-      setCurrentStage(LoadingStage.STATIC_CONTENT);
+    if (isLoading && stage === LoadingStage.AUTHENTICATION) {
+      setStage(LoadingStage.STATIC_CONTENT);
     }
-    safeSetState(setIsStaticLoading, isLoading);
-  }, [safeSetState, currentStage]);
+    safeSetState();
+  }, [safeSetState, stage]);
 
   // Function for setting dynamic loading
   const setDynamicLoading = useCallback((isLoading: boolean) => {
@@ -188,22 +198,22 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     
     // Логируем только при изменении состояния
     if (loadingStateRef.current.isDynamicLoading !== isLoading) {
-      logInfo('Setting dynamic loading', { isLoading, currentStage });
+      logInfo('Setting dynamic loading', { isLoading, stage });
     }
     
     if (isLoading) {
       activeRequestsCount++;
-      if (currentStage === LoadingStage.STATIC_CONTENT) {
-        setCurrentStage(LoadingStage.DYNAMIC_CONTENT);
+      if (stage === LoadingStage.STATIC_CONTENT) {
+        setStage(LoadingStage.DYNAMIC_CONTENT);
       }
     } else {
       activeRequestsCount = Math.max(0, activeRequestsCount - 1);
-      if (activeRequestsCount === 0 && currentStage === LoadingStage.DYNAMIC_CONTENT) {
-        setCurrentStage(LoadingStage.DATA_LOADING);
+      if (activeRequestsCount === 0 && stage === LoadingStage.DYNAMIC_CONTENT) {
+        setStage(LoadingStage.DATA_LOADING);
       }
     }
-    safeSetState(setIsDynamicLoading, isLoading);
-  }, [safeSetState, currentStage]);
+    safeSetState();
+  }, [safeSetState, stage]);
 
   // Function for resetting loading state
   const resetLoading = useCallback(() => {
@@ -214,7 +224,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     
     // Don't reset during authentication stage
-    if (currentStage === LoadingStage.AUTHENTICATION) {
+    if (stage === LoadingStage.AUTHENTICATION) {
       console.log('LoadingContext: Skipping reset during authentication stage');
       return;
     }
@@ -224,7 +234,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     
     console.log('LoadingContext: Resetting loading state', {
       activeRequests: activeRequestsCount,
-      currentStage
+      stage
     });
     
     if (isMounted.current) {
@@ -234,21 +244,20 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
       
-      setIsStaticLoading(false);
-      setIsDynamicLoading(false);
+      setIsLoading(false);
       loadingStateRef.current = { isStaticLoading: false, isDynamicLoading: false };
       activeRequestsCount = 0;
       
       // Reset stage to COMPLETED when all loading is done
-      const stage = currentStage as LoadingStage;
-      if (stage !== LoadingStage.COMPLETED && stage !== LoadingStage.AUTHENTICATION) {
-        setCurrentStage(LoadingStage.COMPLETED);
+      const stageLevel = getStageLevel(stage as LoadingStage);
+      if (stageLevel !== -1 && stageLevel !== 4) {
+        setStage(LoadingStage.COMPLETED);
       }
     }
-  }, [currentStage]);
+  }, [stage, getStageLevel]);
   
   // Internal function to set stage that handles stage change history and other logic
-  const setStageInternal = useCallback((stage: LoadingStage) => {
+  const updateStage = useCallback((newStage: LoadingStage) => {
     if (!isMounted.current) {
       return;
     }
@@ -256,13 +265,13 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Обнаружение циклов установки одной и той же стадии
     const now = Date.now();
     const recentSameStageChanges = stageChangeHistoryRef.current
-      .filter(entry => entry.stage === stage && now - entry.timestamp < 2000)
+      .filter(entry => entry.stage === newStage && now - entry.timestamp < 2000)
       .length;
     
     // Если часто повторяем одну и ту же стадию, это может быть цикл
     if (recentSameStageChanges >= 3) {
       logWarn('Detected potential stage change loop', {
-        stage,
+        stage: newStage,
         recentChanges: recentSameStageChanges,
         history: [...stageChangeHistoryRef.current]
       });
@@ -270,7 +279,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     
     // Особая обработка возвратов к стадии AUTHENTICATION
-    if (stage === LoadingStage.AUTHENTICATION) {
+    if (newStage === LoadingStage.AUTHENTICATION) {
       // Проверяем, были ли мы на более высокой стадии  
       const hasBeenPastAuth = stageChangeHistoryRef.current.some(
         entry => entry.stage !== LoadingStage.AUTHENTICATION
@@ -278,7 +287,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       
       if (hasBeenPastAuth) {
         logWarn('Preventing regression to AUTHENTICATION after being at higher stages', {
-          currentStage,
+          currentStage: stage,
           history: [...stageChangeHistoryRef.current]
         });
         return; // Просто блокируем без перенаправления
@@ -286,18 +295,18 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     
     // Пропускаем установку, если стадия не изменилась
-    if (stage === currentStage) {
+    if (newStage === stage) {
       return;
     }
     
-    logInfo('Setting stage', { stage, prevStage: currentStage });
+    logInfo('Setting stage', { stage, prevStage: stage });
     
     // Обновляем состояние
-    previousStageRef.current = currentStage;
-    setCurrentStage(stage);
+    previousStageRef.current = stage;
+    setStage(newStage);
     
     // Отправляем событие изменения стадии
-    dispatchStageChangeEvent(stage, stageChangeHistoryRef);
+    dispatchStageChangeEvent(newStage, stageChangeHistoryRef);
     
     // Automatically progress to next stage after a timeout if stuck
     if (stageTransitionTimerRef.current) {
@@ -305,31 +314,31 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     
     // Set a timeout to auto-progress if needed
-    if (stage !== LoadingStage.COMPLETED) {
+    if (newStage !== LoadingStage.COMPLETED) {
       stageTransitionTimerRef.current = setTimeout(() => {
         // If we're still in the same stage after the timeout, move to the next one
-        if (isMounted.current && currentStage === stage) {
+        if (isMounted.current && stage === newStage) {
           console.log('LoadingContext: Auto-progressing stage', { from: stage });
           switch (stage) {
             case LoadingStage.AUTHENTICATION:
               // Для стадии аутентификации просто переходим к следующей стадии
               // после таймаута, AuthContext сам разберется с проверкой
-              setCurrentStage(LoadingStage.STATIC_CONTENT);
+              setStage(LoadingStage.STATIC_CONTENT);
               break;
             case LoadingStage.STATIC_CONTENT:
-              setCurrentStage(LoadingStage.DYNAMIC_CONTENT);
+              setStage(LoadingStage.DYNAMIC_CONTENT);
               break;
             case LoadingStage.DYNAMIC_CONTENT:
-              setCurrentStage(LoadingStage.DATA_LOADING);
+              setStage(LoadingStage.DATA_LOADING);
               break;
             case LoadingStage.DATA_LOADING:
-              setCurrentStage(LoadingStage.COMPLETED);
+              setStage(LoadingStage.COMPLETED);
               break;
           }
         }
       }, 5000); // 5 second timeout for auto-progression
     }
-  }, [currentStage]);
+  }, [stage]);
 
   // Effect for initializing state
   useEffect(() => {
@@ -350,7 +359,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       timestamp: Date.now()
     });
     
-    setCurrentStage(LoadingStage.AUTHENTICATION);
+    setStage(LoadingStage.AUTHENTICATION);
     previousStageRef.current = LoadingStage.AUTHENTICATION;
     dispatchStageChangeEvent(LoadingStage.AUTHENTICATION, stageChangeHistoryRef);
 
@@ -381,7 +390,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Никогда не сбрасываем до AUTHENTICATION, если мы уже были на других стадиях
       if (hasBeenPastAuth) {
         console.log('LoadingContext: Skipping reset to AUTHENTICATION stage - already been past auth', { 
-          currentStage, 
+          currentStage: stage, 
           hasBeenPastAuth,
           stageHistory: stageChangeHistoryRef.current 
         });
@@ -391,7 +400,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Проверяем, можно ли безопасно сбросить до AUTHENTICATION
       const canResetToAuth = 
         // Если мы и так в стадии аутентификации, то можно просто обновить
-        currentStage === 'authentication' || 
+        stage === 'authentication' || 
         // Если нет активных загрузок, то можно сбросить
         (!loadingStateRef.current.isStaticLoading && 
          !loadingStateRef.current.isDynamicLoading && 
@@ -399,7 +408,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       
       if (canResetToAuth) {
         console.log('LoadingContext: Resetting to AUTHENTICATION stage on navigation', { 
-          currentStage, 
+          currentStage: stage, 
           pathname,
           isStaticLoading: loadingStateRef.current.isStaticLoading,
           isDynamicLoading: loadingStateRef.current.isDynamicLoading,
@@ -407,7 +416,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         
         // Reset to authentication stage on navigation
-        setStageInternal(LoadingStage.AUTHENTICATION);
+        updateStage(LoadingStage.AUTHENTICATION);
         
         // Reset stage change history
         stageChangeHistoryRef.current = [{
@@ -416,7 +425,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }];
       } else {
         console.log('LoadingContext: Skipping reset to AUTHENTICATION stage', { 
-          currentStage, 
+          currentStage: stage, 
           isStaticLoading: loadingStateRef.current.isStaticLoading,
           isDynamicLoading: loadingStateRef.current.isDynamicLoading,
           activeRequests: activeRequestsCount,
@@ -424,11 +433,11 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
       }
     }
-  }, [pathname, currentStage, resetLoading, setStageInternal]);
+  }, [pathname, stage, resetLoading, updateStage]);
 
   // Effect for auto-reset state
   useEffect(() => {
-    if (isStaticLoading || isDynamicLoading) {
+    if (loadingStateRef.current.isStaticLoading || loadingStateRef.current.isDynamicLoading) {
       // Убираем лишние логи
       if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
       autoResetTimerRef.current = setTimeout(() => {
@@ -442,11 +451,11 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => {
       if (autoResetTimerRef.current) clearTimeout(autoResetTimerRef.current);
     };
-  }, [isStaticLoading, isDynamicLoading, resetLoading]);
+  }, [loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, resetLoading]);
 
   // Effect for preventing UI lock
   useEffect(() => {
-    if (isStaticLoading || isDynamicLoading) {
+    if (loadingStateRef.current.isStaticLoading || loadingStateRef.current.isDynamicLoading) {
       // Убираем лишние логи
       if (uiLockTimerRef.current) clearTimeout(uiLockTimerRef.current);
       uiLockTimerRef.current = setTimeout(() => {
@@ -460,7 +469,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => {
       if (uiLockTimerRef.current) clearTimeout(uiLockTimerRef.current);
     };
-  }, [isStaticLoading, isDynamicLoading, resetLoading]);
+  }, [loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, resetLoading]);
 
   // Effect for tracking global spinner
   useEffect(() => {
@@ -486,9 +495,9 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return;
         }
         
-        if (hasSpinner && !isStaticLoading) {
+        if (hasSpinner && !loadingStateRef.current.isStaticLoading) {
           setStaticLoading(true);
-        } else if (!hasSpinner && isStaticLoading) {
+        } else if (!hasSpinner && loadingStateRef.current.isStaticLoading) {
           setStaticLoading(false);
         }
       }
@@ -503,12 +512,12 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         clearInterval(spinnerCheckIntervalRef.current);
       }
     };
-  }, [isStaticLoading, setStaticLoading]);
+  }, [loadingStateRef.current.isStaticLoading, setStaticLoading]);
 
   // Effect for handling stage changes
   useEffect(() => {
     // Если мы были на стадии выше AUTHENTICATION, запоминаем это
-    if (currentStage !== LoadingStage.AUTHENTICATION) {
+    if (stage !== LoadingStage.AUTHENTICATION) {
       hasBeenPastAuthenticationRef.current = true;
     }
     
@@ -516,14 +525,14 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const prevStage = stageChangeHistoryRef.current.length > 0 ? 
       stageChangeHistoryRef.current[stageChangeHistoryRef.current.length - 1].stage : 
       null;
-    const isRegression = prevStage && getStageLevel(currentStage) < getStageLevel(prevStage as LoadingStage);
+    const isRegression = prevStage && getStageLevel(stage) < getStageLevel(prevStage as LoadingStage);
     
     // Добавляем дополнительную проверку для исключения ложных срабатываний
     const isPossibleFalseRegression = stageChangeHistoryRef.current.length <= 2 || 
                                      Date.now() - lastResetRef.current < 500; // Исключаем определение регрессии сразу после сброса
     
     // Если это регрессия к AUTHENTICATION, логируем предупреждение
-    if (isRegression && currentStage === LoadingStage.AUTHENTICATION && 
+    if (isRegression && stage === LoadingStage.AUTHENTICATION && 
         stageChangeHistoryRef.current.length > 2 && !isPossibleFalseRegression) {
       // Логируем предупреждение, но уменьшаем до logWarn
       logWarn('Detected regression to AUTHENTICATION, forcing STATIC_CONTENT', {
@@ -534,20 +543,20 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // чтобы избежать циклических обновлений состояния
       setTimeout(() => {
         if (isMounted.current) {
-          setCurrentStage(LoadingStage.STATIC_CONTENT);
+          updateStage(LoadingStage.STATIC_CONTENT);
         }
       }, 0);
       return;
     }
     
     // НОВОЕ ИСПРАВЛЕНИЕ: специальная обработка для страницы событий
-    if (currentStage === LoadingStage.AUTHENTICATION && isEventsPage.current) {
+    if (stage === LoadingStage.AUTHENTICATION && isEventsPage.current) {
       // Если мы на странице событий и застряли на стадии AUTHENTICATION, 
       // устанавливаем таймер для принудительного перехода
       const eventsPageTimer = setTimeout(() => {
-        if (isMounted.current && currentStage === LoadingStage.AUTHENTICATION) {
+        if (isMounted.current && stage === LoadingStage.AUTHENTICATION) {
           logWarn('Events page stuck in AUTHENTICATION, force progressing to STATIC_CONTENT');
-          setCurrentStage(LoadingStage.STATIC_CONTENT);
+          updateStage(LoadingStage.STATIC_CONTENT);
         }
       }, 800); // Ускоряем таймаут для страницы событий
       
@@ -556,13 +565,13 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     
     // Логируем изменение стадии только для статистики (уменьшаем до logDebug)
     logDebug('Stage changed', {
-      currentStage,
-      isStaticLoading,
-      isDynamicLoading,
+      currentStage: stage,
+      isStaticLoading: loadingStateRef.current.isStaticLoading,
+      isDynamicLoading: loadingStateRef.current.isDynamicLoading,
       activeRequests: activeRequestsCount
     });
     
-  }, [currentStage, isStaticLoading, isDynamicLoading, getStageLevel]);
+  }, [stage, loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, getStageLevel]);
 
   // Effect for handling navigation
   useEffect(() => {
@@ -573,9 +582,9 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Не сбрасываем до AUTHENTICATION, если мы уже были на другой стадии
       if (hasBeenPastAuth) {
         console.log('LoadingContext: Skipping navigation reset - already been past AUTHENTICATION stage', {
-          currentStage,
-          isStaticLoading,
-          isDynamicLoading,
+          currentStage: stage,
+          isStaticLoading: loadingStateRef.current.isStaticLoading,
+          isDynamicLoading: loadingStateRef.current.isDynamicLoading,
           activeRequests: activeRequestsCount,
           stageHistory: stageChangeHistoryRef.current
         });
@@ -584,30 +593,30 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       
       // Don't reset to AUTHENTICATION if we're already past it
       // Используем строковое сравнение, чтобы избежать проблем с типизацией
-      if (currentStage !== 'authentication') {
+      if (stage !== 'authentication') {
         console.log('LoadingContext: Skipping navigation reset - already past AUTHENTICATION stage', {
-          currentStage,
-          isStaticLoading,
-          isDynamicLoading,
+          currentStage: stage,
+          isStaticLoading: loadingStateRef.current.isStaticLoading,
+          isDynamicLoading: loadingStateRef.current.isDynamicLoading,
           activeRequests: activeRequestsCount
         });
         return;
       }
 
       // Only reset if we're in AUTHENTICATION stage and no loading is in progress
-      if (!isStaticLoading && !isDynamicLoading && activeRequestsCount === 0) {
+      if (!loadingStateRef.current.isStaticLoading && !loadingStateRef.current.isDynamicLoading && activeRequestsCount === 0) {
         console.log('LoadingContext: Resetting to AUTHENTICATION stage due to navigation', {
-          currentStage,
-          isStaticLoading,
-          isDynamicLoading,
+          currentStage: stage,
+          isStaticLoading: loadingStateRef.current.isStaticLoading,
+          isDynamicLoading: loadingStateRef.current.isDynamicLoading,
           activeRequests: activeRequestsCount
         });
-        setStageInternal(LoadingStage.AUTHENTICATION);
+        updateStage(LoadingStage.AUTHENTICATION);
       } else {
         console.log('LoadingContext: Skipping navigation reset - loading in progress', {
-          currentStage,
-          isStaticLoading,
-          isDynamicLoading,
+          currentStage: stage,
+          isStaticLoading: loadingStateRef.current.isStaticLoading,
+          isDynamicLoading: loadingStateRef.current.isDynamicLoading,
           activeRequests: activeRequestsCount
         });
       }
@@ -615,31 +624,37 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     window.addEventListener('popstate', handleNavigation);
     return () => window.removeEventListener('popstate', handleNavigation);
-  }, [currentStage, isStaticLoading, isDynamicLoading, activeRequestsCount, setStageInternal]);
+  }, [stage, loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, activeRequestsCount, updateStage]);
 
-  const loadingContextValue = useMemo(
-    () => ({
-      isStaticLoading,
-      isDynamicLoading,
-      setStaticLoading,
-      setDynamicLoading,
-      resetLoading,
-      currentStage,
-      setStage: setStageInternal
-    }),
-    [
-      isStaticLoading,
-      isDynamicLoading,
-      setStaticLoading,
-      setDynamicLoading,
-      resetLoading,
-      currentStage,
-      setStageInternal
-    ]
-  );
+  const value = useMemo(() => ({
+    isStaticLoading: loadingStateRef.current.isStaticLoading,
+    isDynamicLoading: loadingStateRef.current.isDynamicLoading,
+    setStaticLoading,
+    setDynamicLoading,
+    resetLoading,
+    currentStage: stage,
+    setStage: updateStage,
+    isLoading,
+    setIsLoading,
+    progress,
+    setProgress,
+    error,
+    setError
+  }), [
+    loadingStateRef.current.isStaticLoading,
+    loadingStateRef.current.isDynamicLoading,
+    setStaticLoading,
+    setDynamicLoading,
+    resetLoading,
+    stage,
+    updateStage,
+    isLoading,
+    progress,
+    error
+  ]);
 
   return (
-    <LoadingContext.Provider value={loadingContextValue}>
+    <LoadingContext.Provider value={value}>
       {children}
     </LoadingContext.Provider>
   );

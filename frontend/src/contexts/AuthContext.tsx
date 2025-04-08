@@ -75,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failsafe)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
-      }, 5000); // 5 second failsafe
+      }, 5000);
       
       try {
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -96,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Make the auth check request
         console.log('AuthContext: Verifying authentication with token');
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/me`, {
+        const response = await fetch('/auth/me', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
@@ -179,19 +179,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const handleLoginSuccess = useCallback((token: string, user: UserData) => {
-    if (!isMounted.current) return;
+  const handleLoginSuccess = useCallback((token: string, userData: any) => {
+    console.log('AuthContext: Login success, updating state with token and user data');
     
-    console.log('AuthContext: Login successful');
-    if (typeof window !== "undefined") {
-      localStorage.setItem("token", token);
-    }
+    // Update authentication state
     setIsAuthenticated(true);
-    setIsAuthCheckedState(true);
-    setUser(user);
-    // Move to next stage after successful login
-    setStage(LoadingStage.STATIC_CONTENT);
-  }, [setStage]);
+    setUser(userData);
+    
+    // Store token and user data in localStorage
+    localStorage.setItem('token', token);
+    localStorage.setItem('userData', JSON.stringify(userData));
+    
+    // Force a re-render by updating a ref
+    hasInitialized.current = true;
+    
+    // Dispatch custom event to notify components about auth state change
+    const event = new CustomEvent('authStateChanged', {
+      detail: {
+        isAuth: true,
+        userData,
+        token
+      }
+    });
+    window.dispatchEvent(event);
+    
+    console.log('AuthContext: Authentication state updated successfully');
+  }, []);
 
   const logout = useCallback(() => {
     if (!isMounted.current) return;
@@ -223,7 +236,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setIsAuthCheckedState(true);
         setUser(null);
-        // Явно переходим к STATIC_CONTENT при отсутствии токена
         console.log('AuthContext: No token - moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
       }
@@ -232,11 +244,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     try {
       console.log('AuthContext: Verifying authentication');
-      // Set to authentication stage during check
       setStage(LoadingStage.AUTHENTICATION);
       setDynamicLoading(true);
       
-      // Set failsafe timeout to prevent hanging in authentication stage
       if (authCheckFailsafeRef.current) {
         clearTimeout(authCheckFailsafeRef.current);
       }
@@ -246,42 +256,39 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('AuthContext: Failsafe triggered - explicitly moving to STATIC_CONTENT');
           setDynamicLoading(false);
           setIsAuthCheckedState(true);
-          // Явно переходим к следующей стадии при срабатывании таймаута
           setStage(LoadingStage.STATIC_CONTENT);
         }
-      }, 5000); // 5 second failsafe
+      }, 5000);
       
-      const data = await apiFetch<UserData>("/user_edits/me", {
+      const response = await apiFetch<UserData>("/auth/me", {
         method: "GET",
         headers: { "Authorization": `Bearer ${token}` },
       });
       
-      // Clear failsafe timeout
       if (authCheckFailsafeRef.current) {
         clearTimeout(authCheckFailsafeRef.current);
         authCheckFailsafeRef.current = null;
       }
       
-      if ('aborted' in data) {
-        console.error('AuthContext: Request aborted', data.reason);
+      if ('aborted' in response) {
+        console.error('AuthContext: Request aborted', response.reason);
         console.log('AuthContext: Request aborted - explicitly moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
-        throw new Error(data.reason || "Request was aborted");
+        throw new Error(response.reason || "Request was aborted");
       }
       
-      if ('error' in data) {
-        console.error('AuthContext: API error:', data.error);
+      if ('error' in response) {
+        console.error('AuthContext: API error:', response.error);
         console.log('AuthContext: API error - explicitly moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
-        throw new Error(data.error);
+        throw new Error(typeof response.error === 'string' ? response.error : 'API Error');
       }
       
       console.log('AuthContext: Authentication verified successfully');
       setIsAuthenticated(true);
       setIsAuthCheckedState(true);
-      setUser(data);
+      setUser(response);
       setDynamicLoading(false);
-      // Переходим к следующей стадии загрузки с дополнительным логированием
       console.log('AuthContext: Authentication success - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);
       return true;
@@ -291,9 +298,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout();
         setDynamicLoading(false);
       }
-      // Still mark authentication check as complete, even on failure
       setIsAuthCheckedState(true);
-      // Переходим к следующей стадии загрузки с дополнительным логированием
       console.log('AuthContext: Auth check error - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);
       console.error('AuthContext: Error checking authentication', error);

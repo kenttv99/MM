@@ -1,6 +1,7 @@
 // frontend/src/utils/api.ts
 // Storage for cached responses
 import { LoadingStage } from "@/contexts/LoadingContext";
+import { ApiResponse } from "@/types/api";
 
 // Объявляем глобальный тип для счетчика активных запросов
 declare global {
@@ -39,11 +40,15 @@ const stageRequestCounts: Record<LoadingStage, number> = {
   [LoadingStage.STATIC_CONTENT]: 0,
   [LoadingStage.DYNAMIC_CONTENT]: 0,
   [LoadingStage.DATA_LOADING]: 0,
-  [LoadingStage.COMPLETED]: 0
+  [LoadingStage.COMPLETED]: 0,
+  [LoadingStage.INITIAL]: 0,
+  [LoadingStage.AUTH_CHECK]: 0,
+  [LoadingStage.COMPLETE]: 0,
+  [LoadingStage.ERROR]: 0
 };
 
 // Constants
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// API_BASE_URL is not needed as we use Next.js rewrites for all API calls
 
 // Добавим базовые настройки для логов
 const LOG_LEVEL = {
@@ -155,17 +160,15 @@ const cleanupCache = () => {
 // Periodic cache cleanup
 setInterval(cleanupCache, CACHE_TTL);
 
-interface ApiError {
+interface IApiError {
   error: string;
-  status?: number;
+  status: number;
 }
 
 interface ApiAborted {
   aborted: boolean;
   reason?: string;
 }
-
-type ApiResponse<T> = T | ApiError | ApiAborted;
 
 class ApiError extends Error {
   status: number;
@@ -258,21 +261,30 @@ function shouldProcessRequest(endpoint: string): boolean {
   stageRequestCounts[currentLoadingStage]++;
   
   // Authorization/authentication requests are always allowed
-  const isAuthRequest = endpoint === '/user_edits/me' || 
+  const isAuthRequest = endpoint === '/auth/me' || 
                        endpoint === '/admin/me' || 
                        endpoint.includes('/auth/') ||
                        endpoint.includes('/login') ||
-                       endpoint.includes('/token');
+                       endpoint.includes('/token') ||
+                       endpoint.includes('/register') ||
+                       endpoint.includes('/password') ||
+                       endpoint.includes('/user_edits/login') ||
+                       endpoint.includes('/user_edits/register');
   
   if (isAuthRequest) {
     return true;
   }
   
-  // Public event requests should be allowed in later stages
+  // Public event requests should be allowed in all stages
   const isPublicEventRequest = endpoint.includes('/public/events') || 
                                endpoint.includes('/events/public') ||
                                endpoint.includes('/v1/public/events');
                                
+  if (isPublicEventRequest) {
+    // Разрешаем публичные запросы к мероприятиям на любой стадии
+    return true;
+  }
+  
   // Allow requests based on current loading stage
   switch (currentLoadingStage) {
     case LoadingStage.AUTHENTICATION:
@@ -288,8 +300,7 @@ function shouldProcessRequest(endpoint: string): boolean {
       // Allow basic content and public data during static content loading
       const isStaticAllowed = isAuthRequest || 
                             endpoint.includes('/static/') || 
-                            endpoint.includes('/content/') ||
-                            isPublicEventRequest;
+                            endpoint.includes('/content/');
       // Логируем только для отладки, не для каждого запроса
       if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
         logDebug(`Request check for ${endpoint} in STATIC_CONTENT stage - ${isStaticAllowed ? 'allowed' : 'blocked'}`);
@@ -311,26 +322,6 @@ function shouldProcessRequest(endpoint: string): boolean {
   }
 }
 
-export interface APIResponse<T = any> {
-  data?: T;
-  meta?: {
-    pagination?: {
-      page: number;
-      pageSize: number;
-      pageCount: number;
-      total: number;
-    };
-  };
-  error?: {
-    status?: number;
-    name?: string;
-    message?: string;
-    details?: any;
-  };
-  aborted?: boolean;
-  reason?: string;
-}
-
 export interface APIOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
   data?: any;
@@ -340,24 +331,31 @@ export interface APIOptions {
   bypassLoadingStageCheck?: boolean;
 }
 
-export const apiFetch = async <T = any>(
+export async function apiFetch<T>(
   endpoint: string,
   options: APIOptions = {}
-): Promise<APIResponse<T>> => {
-  
+): Promise<ApiResponse<T>> {
   const { bypassLoadingStageCheck, ...fetchOptions } = options;
   
   try {
     // Check if we're in the authentication stage
-    // Но пропускаем проверку, если установлен флаг bypassLoadingStageCheck
     if (currentLoadingStage === 'authentication' && !bypassLoadingStageCheck) {
-      logWarn(`Request blocked due to loading stage (${currentLoadingStage})`);
+      // Проверяем, является ли запрос публичным запросом к мероприятиям
+      const isPublicEventRequest = endpoint.includes('/public/events') || 
+                                  endpoint.includes('/events/public') ||
+                                  endpoint.includes('/v1/public/events');
       
-      // Queue request for later if it's not set to be aborted
-      return {
-        aborted: true,
-        reason: `Request blocked due to loading_stage (${currentLoadingStage})`
-      };
+      // Если это публичный запрос к мероприятиям, разрешаем его
+      if (isPublicEventRequest) {
+        logInfo(`Allowing public event request ${endpoint} during authentication stage`);
+      } else {
+        logWarn(`Request blocked due to loading stage (${currentLoadingStage})`);
+        
+        return {
+          aborted: true,
+          reason: `Request blocked due to loading_stage (${currentLoadingStage})`
+        };
+      }
     }
     
     const requestKey = `${endpoint}-${JSON.stringify(options.data || {})}-${options.method || 'GET'}`;
@@ -367,9 +365,13 @@ export const apiFetch = async <T = any>(
     stageRequestCounts[currentLoadingStage]++;
 
     // Check if the request should be processed based on loading stage
-    if (!shouldProcessRequest(endpoint)) {
+    if (!bypassLoadingStageCheck && !shouldProcessRequest(endpoint)) {
       logWarn(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
-      return { aborted: true, reason: `loading_stage_${currentLoadingStage}` };
+      
+      return {
+        aborted: true,
+        reason: `Request blocked due to loading_stage_${currentLoadingStage}`
+      };
     }
 
     // Skip check for critical requests
@@ -378,7 +380,6 @@ export const apiFetch = async <T = any>(
     // Check cache for GET requests with higher priority during earlier loading stages
     if (fetchOptions.method === 'GET' || !fetchOptions.method) {
       const cached = responseCache[requestKey];
-      // Use cached response with higher priority during auth and static loading stages
       const shouldUseCachedResponse = cached && (
         now - cached.timestamp < CACHE_TTL || 
         currentLoadingStage === LoadingStage.AUTHENTICATION ||
@@ -387,7 +388,7 @@ export const apiFetch = async <T = any>(
       
       if (shouldUseCachedResponse) {
         logDebug(`Serving cached response for ${endpoint} during ${currentLoadingStage} stage`);
-        return cached.data as T;
+        return cached.data as ApiResponse<T>;
       }
     }
 
@@ -395,7 +396,7 @@ export const apiFetch = async <T = any>(
     const lastRequest = lastRequests[requestKey];
     if (lastRequest && now - lastRequest.timestamp < REQUEST_DEDUP_INTERVAL) {
       logDebug(`Deduplicating request for ${endpoint}`);
-      return lastRequest.promise as Promise<T>;
+      return lastRequest.promise as Promise<ApiResponse<T>>;
     }
 
     // Check lock only for non-critical requests
@@ -406,22 +407,20 @@ export const apiFetch = async <T = any>(
       // If request is blocked but we have cached data, use it with extended TTL
       if (fetchOptions.method === 'GET' || !fetchOptions.method) {
         const cached = responseCache[requestKey];
-        // During earlier stages, we're more lenient with cache TTL
         const extendedTTL = currentLoadingStage === LoadingStage.AUTHENTICATION || 
                           currentLoadingStage === LoadingStage.STATIC_CONTENT ? 
                           CACHE_TTL * 2 : CACHE_TTL;
                           
         if (cached && now - cached.timestamp < extendedTTL) {
           logDebug(`Using cached response for ${endpoint} after global lock (extended TTL during ${currentLoadingStage})`);
-          return cached.data as T;
+          return cached.data as ApiResponse<T>;
         }
       }
       
       // If request is blocked, add it to queue
       if (fetchOptions.signal && !fetchOptions.signal.aborted) {
-        return new Promise<T>((resolve, reject) => {
+        return new Promise<ApiResponse<T>>((resolve, reject) => {
           const timeoutId = setTimeout(() => {
-            // Remove request from queue on timeout
             const index = requestQueue.findIndex(req => req === queueRequest);
             if (index !== -1) {
               requestQueue.splice(index, 1);
@@ -436,12 +435,9 @@ export const apiFetch = async <T = any>(
               .catch(reject);
           };
           
-          // Add request to queue
           requestQueue.push(queueRequest);
           
-          // Try to process queue immediately if there's room for new requests
           if (activeRequestCount < MAX_CONCURRENT_REQUESTS) {
-            // If active requests are less than maximum, reset lock
             if (activeRequestCount === 0) {
               globalRequestLock = false;
               logDebug('Global lock reset due to no active requests');
@@ -469,7 +465,7 @@ export const apiFetch = async <T = any>(
     const requestPromise = (async () => {
       try {
         // Create promise for request execution
-        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        const response = await fetch(`${endpoint}`, {
           ...fetchOptions,
           signal: controller.signal,
           headers: {
@@ -537,19 +533,20 @@ export const apiFetch = async <T = any>(
           logError(`Error response for ${endpoint}: ${response.status} ${response.statusText}`);
           return errorData;
         }
-      } catch (error: any) {
-        // Clear timeout
-        clearTimeout(timeoutId);
-        
+      } catch (error: unknown) {
         // Handle network errors
         logError(`Network error for ${endpoint}:`, error);
         
         // Check for abort errors
-        if (error.name === 'AbortError') {
-          return { aborted: true, reason: 'timeout' };
+        if (error instanceof Error && error.name === 'AbortError') {
+          return { aborted: true, reason: error.message };
         }
         
-        return { error: error.message, status: 0 };
+        // Return generic error
+        return { 
+          error: error instanceof Error ? error.message : 'Unknown error', 
+          status: 0 
+        };
       } finally {
         // Decrease active requests counter
         activeRequestCount = Math.max(0, activeRequestCount - 1);
@@ -566,7 +563,12 @@ export const apiFetch = async <T = any>(
     };
     
     return requestPromise;
-  } catch (err) {
-    // ... обработка ошибок без изменений ...
+  } catch (error: unknown) {
+    // Handle any errors in the outer try-catch
+    logError(`Unexpected error in apiFetch for ${endpoint}:`, error);
+    return { 
+      error: error instanceof Error ? error.message : 'Unknown error', 
+      status: 0 
+    };
   }
 }

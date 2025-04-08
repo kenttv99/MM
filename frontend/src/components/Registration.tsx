@@ -34,7 +34,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
   const [isValid, setIsValid] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const { formValues, isLoading, handleChange: authHandleChange, handleSubmit, isSuccess, error } = useAuthForm({
+  const { formValues, isLoading, handleChange: authHandleChange, handleSubmit, isSuccess, error, userHint } = useAuthForm({
     initialValues,
     endpoint: "/auth/register",
     onSuccess: useCallback(() => {
@@ -142,6 +142,11 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               <p>{error}</p>
             </div>
           )}
+          {userHint && (
+            <div className="p-2 bg-blue-50 border-l-4 border-blue-500 text-blue-700 rounded-md text-xs">
+              <p>{userHint}</p>
+            </div>
+          )}
           <div className="text-xs text-gray-600">
             Уже есть аккаунт?{" "}
             <button
@@ -153,7 +158,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               Войти
             </button>
           </div>
-          <div className="flex flex-col sm:flex-row justify-end gap-4 pt-2">
+          <div className="flex flex-col sm:flex-row justify-end gap-4">
             <ModalButton
               variant="secondary"
               onClick={onClose}

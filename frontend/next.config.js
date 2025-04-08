@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   images: {
     domains: ['localhost'],
     remotePatterns: [
@@ -13,23 +14,34 @@ const nextConfig = {
   },
   async rewrites() {
     return [
-      {
-        source: '/v1/:path*',
-        destination: 'http://localhost:8000/v1/:path*',
-      },
+      // User server routes (port 8000)
       {
         source: '/auth/:path*',
         destination: 'http://localhost:8000/auth/:path*',
       },
       {
-        source: '/user_edits/:path*',
-        destination: 'http://localhost:8000/user_edits/:path*',
+        source: '/users/:path*',
+        destination: 'http://localhost:8000/users/:path*',
+      },
+      {
+        source: '/events/:path*',
+        destination: 'http://localhost:8000/events/:path*',
+      },
+      // Admin server routes (port 8001)
+      {
+        source: '/admin/auth/:path*',
+        destination: 'http://localhost:8001/admin/auth/:path*',
       },
       {
         source: '/admin/:path*',
-        destination: 'http://localhost:8000/admin/:path*',
+        destination: 'http://localhost:8001/admin/:path*',
       },
-    ];
+      // Legacy v1 API routes (if needed)
+      {
+        source: '/v1/:path*',
+        destination: 'http://localhost:8000/v1/:path*',
+      },
+    ]
   },
   async headers() {
     return [
@@ -62,4 +74,4 @@ const nextConfig = {
   },
 };
 
-module.exports = nextConfig; 
+module.exports = nextConfig

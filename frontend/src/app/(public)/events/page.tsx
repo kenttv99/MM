@@ -53,8 +53,7 @@ const logError = (message: string, data?: any) => {
 };
 
 const ITEMS_PER_PAGE = 6;
-// Определяем API_BASE_URL локально, если он не экспортирован из api.ts
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// API_BASE_URL is not needed as we use Next.js rewrites for all API calls
 
 interface EventsResponse {
   data: EventData[];
@@ -378,12 +377,24 @@ const EventsPage = () => {
       // Обрабатываем возможные ошибки
       if ('error' in response) {
         logError('API returned error', response.error);
-        setError(new Error(response.error?.message || 'API error'));
+        setError(new Error(typeof response.error === 'string' ? response.error : 'API error'));
         return;
       }
       
+      // Обрабатываем случай, когда запрос был отменен
       if ('aborted' in response) {
-        logInfo('Request was aborted', response.reason);
+        logWarn('Request was aborted', response.reason);
+        
+        // Если запрос был заблокирован из-за стадии загрузки, пробуем еще раз через таймаут
+        if (response.reason?.includes('loading_stage')) {
+          logInfo('Request blocked due to loading stage, retrying after timeout');
+          setTimeout(() => {
+            if (isMounted.current) {
+              fetchEvents(pageNum);
+            }
+          }, 500);
+        }
+        
         return;
       }
       
@@ -401,7 +412,7 @@ const EventsPage = () => {
       // Обрабатываем разные форматы ответа
       if (Array.isArray(response)) {
         formattedResponse = { data: response, total: response.length };
-      } else if (response.data && Array.isArray(response.data)) {
+      } else if ('data' in response && Array.isArray(response.data)) {
         formattedResponse = response as EventsResponse;
       } else if (typeof response === 'object') {
         // Пробуем извлечь данные из разных возможных свойств
@@ -756,7 +767,7 @@ const EventsPage = () => {
                         if (Array.isArray(response)) {
                           formattedResponse.data = response;
                           formattedResponse.total = response.length;
-                        } else if (response.data && Array.isArray(response.data)) {
+                        } else if ('data' in response && Array.isArray(response.data)) {
                           formattedResponse = response as EventsResponse;
                         } else if (typeof response === 'object') {
                           const data = (response as any).items || (response as any).events || (response as any).results || [];

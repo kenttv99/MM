@@ -123,3 +123,33 @@ async def change_user_password(
     user.password_hash = pwd_context.hash(data.new_password)
     await db.commit()
     return {"message": "Пароль успешно изменен"}
+
+@router.get("/me", response_model=UserResponse)
+async def get_user_profile(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
+    request: Request = None
+) -> UserResponse:
+    try:
+        token = credentials.credentials
+        current_user = await get_current_user(token, db)
+        
+        # Fix: Ensure avatar_url is properly formatted with leading slash
+        if current_user.avatar_url and not current_user.avatar_url.startswith('/'):
+            current_user.avatar_url = f"/{current_user.avatar_url}"
+            # Update in the database for consistency
+            await db.commit()
+            await db.refresh(current_user)
+            logger.info(f"Normalized avatar URL for user {current_user.email}: {current_user.avatar_url}")
+            
+        await log_user_activity(db, current_user.id, request, action="access_profile")
+        logger.info(f"User {current_user.email} accessed their profile")
+        return current_user
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error retrieving user profile: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve profile"
+        )

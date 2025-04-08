@@ -320,8 +320,8 @@ export default function EventPage() {
         
         if ('error' in response) {
           logError("Error in response", response.error);
-          setFetchError(response.error?.message || "Ошибка загрузки");
-          setHasServerError(response.error?.status ? response.error.status >= 500 : false);
+          setFetchError(typeof response.error === 'string' ? response.error : "Ошибка загрузки");
+          setHasServerError(response.status >= 500);
           return;
         }
         
@@ -456,8 +456,8 @@ export default function EventPage() {
         // Check if response contains an error
         if ('error' in response) {
           logError("Error in response", response.error);
-          setFetchError(response.error?.message || "Ошибка загрузки");
-          setHasServerError(response.error?.status ? response.error.status >= 500 : false);
+          setFetchError(typeof response.error === 'string' ? response.error : "Ошибка загрузки");
+          setHasServerError(response.status >= 500);
           return;
         }
         

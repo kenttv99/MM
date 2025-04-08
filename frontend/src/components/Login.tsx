@@ -19,6 +19,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     handleChange,
     handleSubmit,
     error,
+    userHint,
   } = useAuthForm({
     initialValues: { email: "", password: "" },
     endpoint,
@@ -55,6 +56,11 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
           {error && (
             <div className="p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
               <p>{error}</p>
+            </div>
+          )}
+          {userHint && (
+            <div className="p-2 bg-blue-50 border-l-4 border-blue-500 text-blue-700 rounded-md text-xs">
+              <p>{userHint}</p>
             </div>
           )}
           <div className="text-xs text-gray-600">

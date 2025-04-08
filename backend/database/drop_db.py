@@ -2,6 +2,9 @@
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine
 from backend.database.user_db import Base  # Импортируем Base
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from constants import DATABASE_URL
 
 # Создаем асинхронный движок

@@ -6,18 +6,13 @@ from backend.database.user_db import AsyncSession, Event, get_async_db, Registra
 from backend.config.auth import get_current_user, log_user_activity
 from sqlalchemy.future import select
 from backend.config.logging_config import logger
-from pydantic import BaseModel
-
+from backend.schemas_enums.schemas import RegistrationRequest, CancelRegistrationRequest, RegistrationResponse
 from backend.schemas_enums.enums import EventStatus, Status
 
 router = APIRouter()
 bearer_scheme = HTTPBearer()
 
-class RegistrationRequest(BaseModel):
-    event_id: int
-    user_id: int
-
-@router.post("/register")
+@router.post("/register", response_model=RegistrationResponse)
 async def register_for_event(
     data: RegistrationRequest,
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -67,4 +62,55 @@ async def register_for_event(
         event.status = EventStatus.registration_closed
     
     await db.commit()
-    return {"message": "Successfully registered"}
+    return RegistrationResponse(message="Successfully registered")
+
+@router.post("/cancel", response_model=RegistrationResponse)
+async def cancel_registration(
+    data: CancelRegistrationRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
+    request: Request = None
+):
+    token = credentials.credentials
+    current_user = await get_current_user(token, db)
+    event_id = data.event_id
+    user_id = data.user_id
+
+    # Проверка существующей регистрации
+    registration_query = await db.execute(
+        select(Registration).where(
+            Registration.user_id == user_id,
+            Registration.event_id == event_id
+        )
+    )
+    registration = registration_query.scalars().first()
+    
+    if not registration:
+        raise HTTPException(status_code=404, detail="Регистрация не найдена")
+    
+    # Получаем информацию о билете и мероприятии
+    ticket = await db.get(TicketType, registration.ticket_type_id)
+    event = await db.get(Event, event_id)
+    
+    if not ticket or not event:
+        raise HTTPException(status_code=404, detail="Билет или мероприятие не найдены")
+    
+    # Проверяем, можно ли отменить регистрацию
+    if event.status.value == "completed":
+        raise HTTPException(status_code=400, detail="Нельзя отменить регистрацию на завершенное мероприятие")
+    
+    # Уменьшаем счетчик проданных билетов
+    ticket.sold_quantity -= 1
+    
+    # Если мероприятие было закрыто из-за отсутствия мест, открываем его снова
+    if event.status.value == "registration_closed" and ticket.available_quantity > ticket.sold_quantity:
+        event.status = EventStatus.registration_open
+    
+    # Удаляем запись о регистрации
+    await db.delete(registration)
+    
+    # Логируем действие пользователя
+    await log_user_activity(db, current_user.id, request, action="cancel_registration")
+    
+    await db.commit()
+    return RegistrationResponse(message="Регистрация успешно отменена")

@@ -1,8 +1,8 @@
 # backend/schemas_enums.schemas.py
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, ForwardRef
 from pydantic import BaseModel, EmailStr
-from backend.schemas_enums.enums import EventStatus, TicketTypeEnum
+from backend.schemas_enums.enums import EventStatus, TicketTypeEnum, Status
 
 #------------------------
 # ADMINS
@@ -135,6 +135,38 @@ class EventUpdate(BaseModel):
 
     class Config:
         from_attributes = True
+
+class EventResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    start_date: datetime
+    end_date: Optional[datetime] = None
+    location: Optional[str] = None
+    image_url: Optional[str] = None
+    price: float
+    published: bool = False
+    created_at: datetime
+    updated_at: datetime
+    status: EventStatus
+
+    class Config:
+        from_attributes = True
+
+#------------------------
+# REGISTRATION
+#------------------------
+
+class RegistrationRequest(BaseModel):
+    event_id: int
+    user_id: int
+
+class CancelRegistrationRequest(BaseModel):
+    event_id: int
+    user_id: int
+
+class RegistrationResponse(BaseModel):
+    message: str
         
 #------------------------
 # Notifications
@@ -163,6 +195,20 @@ class NotificationViewResponse(NotificationViewBase):
     fingerprint: Optional[str] = None
     viewed_at: Optional[datetime] = None
     created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+#------------------------
+# TICKETS
+#------------------------
+
+class UserTicketResponse(BaseModel):
+    id: int
+    event: EventResponse
+    ticket_type: str
+    registration_date: datetime
+    status: Status
 
     class Config:
         from_attributes = True

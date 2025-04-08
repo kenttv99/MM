@@ -3,6 +3,9 @@ import asyncio
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from backend.schemas_enums.enums import EventStatus, MediaType, Status
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 from constants import DATABASE_URL
 from datetime import datetime
 from sqlalchemy.orm import (

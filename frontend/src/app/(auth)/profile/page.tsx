@@ -13,6 +13,7 @@ import ChangePasswordForm from "@/components/ChangePasswordForm";
 import { motion } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
 import { apiFetch } from "@/utils/api";
+import UserEventTickets from "@/components/UserEventTickets";
 
 const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
@@ -310,17 +311,7 @@ const ProfilePage: React.FC = () => {
         </div>
         <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои мероприятия</h3>
-          <p className="text-gray-600 text-sm mb-4 text-center">
-            У вас пока нет зарегистрированных мероприятий. Начните с поиска событий!
-          </p>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={() => router.push("/events")}
-            className="btn btn-primary w-full"
-          >
-            Найти мероприятия
-          </motion.button>
+          <UserEventTickets />
         </div>
         <ChangePasswordForm
           isOpen={isChangePasswordOpen}

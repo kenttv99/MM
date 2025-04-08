@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from authlib.jose import jwt
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY
 from backend.database.user_db import AsyncSessionLocal
+from backend.api.user_tickets_router import router as user_tickets_router
 
 app = FastAPI(
     title="User Authentication API",
@@ -43,6 +44,7 @@ app.include_router(user_auth_router, prefix="/auth", tags=["Authentication"])
 app.include_router(event_router, prefix="/v1/public/events", tags=["Events"])
 app.include_router(guests_registration_routers, prefix="/registration", tags=["Registration"])
 app.include_router(notification_router, prefix="", tags=["Notifications"])  # Подключаем новый роутер
+app.include_router(user_tickets_router, prefix="/user_edits", tags=["User Tickets"])
 
 @app.middleware("http")
 async def refresh_token_middleware(request: Request, call_next):

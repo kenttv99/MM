@@ -51,6 +51,11 @@ const nextConfig = {
         source: '/v1/:path*',
         destination: 'http://localhost:8000/v1/:path*',
       },
+      // Add notifications path
+      {
+        source: '/notifications/:path*',
+        destination: 'http://localhost:8000/notifications/:path*',
+      },
     ]
   },
   async headers() {

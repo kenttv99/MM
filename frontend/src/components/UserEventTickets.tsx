@@ -140,6 +140,15 @@ const UserEventTickets = () => {
     };
   }, []);
 
+  // Check authentication on mount
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.log("UserEventTickets: No token found on mount, redirecting to home");
+      router.push('/');
+    }
+  }, [router]);
+
   // Log stage changes
   useEffect(() => {
     console.log(`UserEventTickets: Stage changed to ${currentStage}`);
@@ -163,6 +172,7 @@ const UserEventTickets = () => {
         console.log("UserEventTickets: No token found in localStorage");
         setError("Необходима авторизация");
         setIsLoading(false);
+        router.push('/');
         return;
       }
       
@@ -179,6 +189,14 @@ const UserEventTickets = () => {
       console.log("UserEventTickets: API response received", response);
       
       if (response && !("aborted" in response)) {
+        if (response.error === 'Unauthorized' || response.status === 401) {
+          console.log("UserEventTickets: Unauthorized response detected, redirecting to home");
+          localStorage.removeItem('token');
+          localStorage.removeItem('userData');
+          router.push('/');
+          return;
+        }
+        
         setTickets(response);
         hasInitialData.current = true;
         setError(null);
@@ -189,6 +207,16 @@ const UserEventTickets = () => {
       }
     } catch (err) {
       console.error("UserEventTickets: Error fetching tickets", err);
+      
+      // Check if error is an unauthorized error
+      if (err instanceof Error && err.message.includes('401')) {
+        console.log("UserEventTickets: 401 Unauthorized error detected, redirecting to home");
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        router.push('/');
+        return;
+      }
+      
       setError(err instanceof Error ? err.message : "Ошибка загрузки билетов");
     } finally {
       setIsLoading(false);
@@ -224,6 +252,7 @@ const UserEventTickets = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
+        router.push('/');
         throw new Error('Необходима авторизация');
       }
       
@@ -245,6 +274,14 @@ const UserEventTickets = () => {
       });
       
       if (response && !("aborted" in response)) {
+        if (response.error === 'Unauthorized' || response.status === 401) {
+          console.log("UserEventTickets: Unauthorized response detected during cancel, redirecting to home");
+          localStorage.removeItem('token');
+          localStorage.removeItem('userData');
+          router.push('/');
+          return;
+        }
+        
         setCancelSuccess('Регистрация успешно отменена');
         
         // Update tickets list after successful cancellation
@@ -257,6 +294,16 @@ const UserEventTickets = () => {
       }
     } catch (err) {
       console.error('Error cancelling registration:', err);
+      
+      // Check if error is an unauthorized error
+      if (err instanceof Error && (err.message.includes('401') || err.message.includes('Unauthorized'))) {
+        console.log("UserEventTickets: 401 Unauthorized error detected during cancel, redirecting to home");
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        router.push('/');
+        return;
+      }
+      
       setCancelError(err instanceof Error ? err.message : 'Ошибка при отмене регистрации');
     } finally {
       setCancelLoading(false);
@@ -392,12 +439,20 @@ const UserEventTickets = () => {
                   
                   {/* Show cancel button for all tickets except completed ones */}
                   {ticket.status !== "completed" && (
-                    <button
+                    <div
                       onClick={() => handleCancelClick(ticket)}
-                      className="px-3 py-1 rounded-full text-xs font-medium text-red-600 hover:text-red-800 transition-colors bg-red-100"
+                      className={`px-3 py-1 rounded-full text-xs font-medium text-red-600 hover:text-red-800 transition-colors cursor-pointer`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label="Отменить регистрацию"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          handleCancelClick(ticket);
+                        }
+                      }}
                     >
                       Отменить
-                    </button>
+                    </div>
                   )}
                 </div>
               </div>

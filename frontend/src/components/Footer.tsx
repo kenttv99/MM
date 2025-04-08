@@ -88,7 +88,7 @@ const Footer = () => {
             <h3 className="text-lg font-bold mb-4">Действия</h3>
             <div className="w-full max-w-[180px] sm:max-w-[220px] md:max-w-[280px]">
               <Link
-                href="/registration"
+                href="/events"
                 className="w-full px-4 py-2 text-center bg-orange-500 text-white font-medium rounded-lg hover:bg-orange-600 transition-colors duration-300 text-xs sm:text-sm min-w-[100px] min-h-[44px] flex items-center justify-center"
               >
                 Регистрация на мероприятие

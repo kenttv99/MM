@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
@@ -166,6 +166,8 @@ const UserEventTickets = () => {
   const fetchAttempted = useRef(false);
   const retryTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTime = useRef<number>(0);
+  // Add a manual refresh counter for forcing updates
+  const refreshCounter = useRef<number>(0);
   
   // Pagination state
   const [page, setPage] = useState(1);
@@ -192,6 +194,38 @@ const UserEventTickets = () => {
     };
   }, [currentStage]);
 
+  // Listen for navigation and force refresh when the pathname changes
+  useEffect(() => {
+    console.log(`UserEventTickets: Pathname changed to ${pathname}`);
+    
+    // Check if we're on a profile-related page
+    if (pathname && (pathname.includes('/profile') || pathname.includes('/account'))) {
+      console.log('UserEventTickets: Detected navigation to profile page');
+      
+      // Force a refresh when navigating to profile page
+      refreshCounter.current += 1;
+      console.log(`UserEventTickets: Forcing refresh #${refreshCounter.current} due to navigation`);
+      
+      // Reset all loading/pagination state
+      setIsLoading(true);
+      hasInitialData.current = false;
+      isInitialLoad.current = true;
+      fetchAttempted.current = false;
+      setPage(1);
+      setHasMore(true);
+      setTickets([]);
+    }
+  }, [pathname]);
+
+  // Create a separate effect to handle the actual fetching based on refreshCounter
+  useEffect(() => {
+    // Skip initial run to prevent double fetches
+    if (refreshCounter.current > 0) {
+      console.log(`UserEventTickets: Handling refresh #${refreshCounter.current}`);
+      fetchTickets();
+    }
+  }, [refreshCounter.current]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Check authentication on mount
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -205,28 +239,6 @@ const UserEventTickets = () => {
   useEffect(() => {
     console.log(`UserEventTickets: Stage changed to ${currentStage}`);
   }, [currentStage]);
-
-  // Add effect to detect navigation changes
-  useEffect(() => {
-    console.log(`UserEventTickets: Pathname changed to ${pathname}`);
-    
-    // Check if we're on a profile-related page
-    if (pathname && (pathname.includes('/profile') || pathname.includes('/account'))) {
-      console.log('UserEventTickets: Detected navigation to profile page');
-      
-      // Check if enough time has passed since the last fetch
-      const now = Date.now();
-      if (now - lastFetchTime.current > minFetchInterval) {
-        console.log('UserEventTickets: Triggering ticket fetch due to navigation');
-        fetchAttempted.current = false;
-        setPage(1);
-        setHasMore(true);
-        fetchTickets();
-      } else {
-        console.log('UserEventTickets: Skipping fetch due to rate limiting');
-      }
-    }
-  }, [pathname]);
 
   // Add scroll event listener for infinite scrolling
   useEffect(() => {
@@ -247,6 +259,39 @@ const UserEventTickets = () => {
       container.removeEventListener('scroll', handleScroll);
     };
   }, [isLoadingMore, hasMore]);
+
+  // Force refresh method
+  const forceRefresh = useCallback(() => {
+    refreshCounter.current += 1;
+    console.log(`UserEventTickets: Manual refresh triggered #${refreshCounter.current}`);
+    
+    // Reset state but wait a bit before fetching
+    setIsLoading(true);
+    hasInitialData.current = false;
+    fetchAttempted.current = false;
+    setPage(1);
+    setHasMore(true);
+    
+    // Wait a very short time before fetching to ensure state updates have time to propagate
+    setTimeout(() => {
+      fetchTickets();
+    }, 50);
+  }, []);
+
+  // Initial fetch on mount
+  useEffect(() => {
+    console.log(`UserEventTickets: Setting up initial fetch timer`);
+    const timer = setTimeout(() => {
+      fetchTickets();
+    }, initialLoadDelay);
+
+    return () => {
+      clearTimeout(timer);
+      if (retryTimeout.current) {
+        clearTimeout(retryTimeout.current);
+      }
+    };
+  }, []);
 
   const loadMoreTickets = async () => {
     if (isLoadingMore || !hasMore) return;
@@ -310,12 +355,13 @@ const UserEventTickets = () => {
   };
 
   const fetchTickets = async () => {
+    // Don't allow fetching if we're already loading but not the initial load
     if (isLoading && !isInitialLoad.current) return;
-    if (fetchAttempted.current) return;
     
     console.log(`UserEventTickets: Fetching tickets, current stage: ${currentStage}`);
     fetchAttempted.current = true;
     lastFetchTime.current = Date.now();
+    setIsLoading(true); // Always set loading state when fetching
     
     try {
       const token = localStorage.getItem('token');
@@ -347,6 +393,9 @@ const UserEventTickets = () => {
         isArray: Array.isArray(response),
         responseKeys: Object.keys(response)
       });
+      
+      // Ensure isLoading is set to false early in the success case
+      setIsLoading(false);
       
       // Handle direct array response
       if (Array.isArray(response)) {
@@ -432,28 +481,14 @@ const UserEventTickets = () => {
     }
   };
 
-  // Initial fetch on mount
-  useEffect(() => {
-    console.log(`UserEventTickets: Setting up fetch timer`);
-    const timer = setTimeout(() => {
-      fetchTickets();
-    }, initialLoadDelay);
-
-    return () => {
-      clearTimeout(timer);
-      if (retryTimeout.current) {
-        clearTimeout(retryTimeout.current);
-      }
-    };
-  }, []);
-
   const handleCancelClick = (ticket: UserTicket) => {
     setSelectedTicket(ticket);
-    setIsModalOpen(true);
     setCancelError(undefined);
     setCancelSuccess(undefined);
+    setIsModalOpen(true);
+    console.log("UserEventTickets: Opening cancel confirmation for ticket ID:", ticket.id);
   };
-
+  
   const handleCancelConfirm = async () => {
     if (!selectedTicket || !userData) return;
     
@@ -496,12 +531,21 @@ const UserEventTickets = () => {
         
         setCancelSuccess('Регистрация успешно отменена');
         
+        // Remove the cancelled ticket from local state
+        setTickets(prevTickets => 
+          prevTickets.filter(ticket => ticket.id !== selectedTicket.id)
+        );
+        
+        console.log(`UserEventTickets: Removed cancelled ticket ID ${selectedTicket.id} from UI`);
+        
         setTimeout(() => {
           setIsModalOpen(false);
-          fetchTickets();
+          setCancelSuccess(undefined);
+          setCancelLoading(false);
         }, 1500);
       } else if ("aborted" in response && response.reason) {
         setCancelError(`Запрос отменен: ${response.reason}`);
+        setCancelLoading(false);
       }
     } catch (err) {
       console.error('Error cancelling registration:', err);
@@ -515,7 +559,6 @@ const UserEventTickets = () => {
       }
       
       setCancelError(err instanceof Error ? err.message : 'Ошибка при отмене регистрации');
-    } finally {
       setCancelLoading(false);
     }
   };
@@ -553,23 +596,19 @@ const UserEventTickets = () => {
   if (isLoading) {
     return (
       <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="animate-pulse bg-white rounded-lg p-4 shadow-sm"
-          >
-            <div className="h-5 bg-orange-100 rounded w-3/4 mb-3"></div>
-            <div className="space-y-2">
-              <div className="h-4 bg-orange-50 rounded w-1/2"></div>
-              <div className="h-4 bg-orange-50 rounded w-2/3"></div>
-              <div className="h-4 bg-orange-50 rounded w-1/3"></div>
-              <div className="h-4 bg-orange-50 rounded w-2/5"></div>
-            </div>
-            <div className="mt-3 flex justify-end">
-              <div className="h-5 bg-orange-100 rounded w-1/6"></div>
-            </div>
+        <div className="animate-pulse bg-white rounded-lg p-4 shadow-sm">
+          <div className="h-5 bg-orange-100 rounded w-3/4 mb-3"></div>
+          <div className="space-y-2">
+            <div className="h-4 bg-orange-50 rounded w-1/2"></div>
+            <div className="h-4 bg-orange-50 rounded w-2/3"></div>
+            <div className="h-4 bg-orange-50 rounded w-1/3"></div>
+            <div className="h-4 bg-orange-50 rounded w-2/5"></div>
+            <div className="h-4 bg-orange-50 rounded w-1/4"></div>
           </div>
-        ))}
+          <div className="mt-3 flex justify-end">
+            <div className="h-5 bg-orange-100 rounded w-1/6"></div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -623,8 +662,8 @@ const UserEventTickets = () => {
           {tickets.map((ticket, index) => (
             <div key={ticket.id}>
               <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
                 className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors relative"
               >
                 <div className="flex items-start justify-between relative h-full">

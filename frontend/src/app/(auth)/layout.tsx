@@ -1,6 +1,7 @@
 "use client";
 
 import Header from "@/components/Header";
+import Footer from "@/components/Footer";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
@@ -15,6 +16,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           <PageTransitionWrapper>{children}</PageTransitionWrapper>
         </main>
       </ErrorBoundary>
+      <Footer />
     </>
   );
 }

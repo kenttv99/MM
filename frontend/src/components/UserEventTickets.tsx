@@ -192,50 +192,52 @@ const UserEventTickets = () => {
   }
 
   return (
-    <div className="space-y-4">
-      {tickets.map((ticket) => (
-        <motion.div
-          key={ticket.id}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow"
-        >
-          <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <h3 className="text-lg font-semibold text-gray-800 mb-2">
-                {ticket.event.title}
-              </h3>
-              <div className="space-y-2 text-sm text-gray-600">
-                <div className="flex items-center gap-2">
-                  <FaCalendarAlt className="text-orange-500" />
-                  <span>
-                    {formatDateForDisplay(ticket.event.start_date)}
-                    {ticket.event.end_date &&
-                      ` - ${formatDateForDisplay(ticket.event.end_date)}`}
-                  </span>
-                </div>
-                {ticket.event.location && (
+    <div className="max-h-[400px] overflow-y-auto pr-2">
+      <div className="space-y-3">
+        {tickets.map((ticket) => (
+          <motion.div
+            key={ticket.id}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                  {ticket.event.title}
+                </h3>
+                <div className="space-y-2 text-sm text-gray-600">
                   <div className="flex items-center gap-2">
-                    <FaMapMarkerAlt className="text-orange-500" />
-                    <span>{ticket.event.location}</span>
+                    <FaCalendarAlt className="text-orange-500" />
+                    <span>
+                      {formatDateForDisplay(ticket.event.start_date)}
+                      {ticket.event.end_date &&
+                        ` - ${formatDateForDisplay(ticket.event.end_date)}`}
+                    </span>
                   </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <FaTicketAlt className="text-orange-500" />
-                  <span>{ticket.ticket_type}</span>
+                  {ticket.event.location && (
+                    <div className="flex items-center gap-2">
+                      <FaMapMarkerAlt className="text-orange-500" />
+                      <span>{ticket.event.location}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <FaTicketAlt className="text-orange-500" />
+                    <span>{ticket.ticket_type}</span>
+                  </div>
                 </div>
               </div>
+              <div
+                className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
+                  ticket.status
+                )}`}
+              >
+                {getStatusText(ticket.status)}
+              </div>
             </div>
-            <div
-              className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(
-                ticket.status
-              )}`}
-            >
-              {getStatusText(ticket.status)}
-            </div>
-          </div>
-        </motion.div>
-      ))}
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 };

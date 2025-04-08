@@ -3,12 +3,12 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
-from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType
+from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType, Registration
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select, delete
 from sqlalchemy.orm import selectinload
-from backend.schemas_enums.enums import EventStatus
+from backend.schemas_enums.enums import EventStatus, Status
 from datetime import datetime
 import os
 import uuid
@@ -294,6 +294,18 @@ async def update_event(
         event.created_at = processed_data["created_at_dt"]
         event.updated_at = processed_data["updated_at_dt"]
         event.status = form_data.status
+        
+        # Update ticket status to "completed" when event status is changed to "completed"
+        if form_data.status == EventStatus.completed and old_status != EventStatus.completed:
+            logger.info(f"Event {event_id} status changed to completed, updating ticket statuses")
+            # Get all registrations for this event
+            registrations_query = select(Registration).where(Registration.event_id == event_id)
+            registrations = (await db.execute(registrations_query)).scalars().all()
+            
+            # Update status for all registrations
+            for registration in registrations:
+                registration.status = Status.completed.name
+                logger.info(f"Updated registration {registration.id} status to completed")
         
         ticket_query = select(TicketType).where(TicketType.event_id == event_id)
         ticket = (await db.execute(ticket_query)).scalar_one_or_none()

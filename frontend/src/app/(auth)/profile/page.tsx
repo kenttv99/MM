@@ -124,7 +124,7 @@ const ProfilePage: React.FC = () => {
       const profileResponse = await apiFetch<UserData>("/user_edits/me", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+        data: JSON.stringify({
           fio: formState.fio,
           telegram: formState.telegram,
           whatsapp: formState.whatsapp,
@@ -135,10 +135,10 @@ const ProfilePage: React.FC = () => {
       if (selectedFile) {
         const formData = new FormData();
         formData.append("file", selectedFile);
-        updatedUser = await apiFetch<UserData>("/user_edits/upload-avatar", { method: "POST", body: formData });
+        updatedUser = await apiFetch<UserData>("/user_edits/upload-avatar", { method: "POST", data: formData });
       }
 
-      if (updatedUser && !('aborted' in updatedUser)) {
+      if (updatedUser && !('aborted' in updatedUser) && 'fio' in updatedUser) {
         const updatedData = {
           fio: updatedUser.fio || "",
           telegram: updatedUser.telegram || "",
@@ -148,7 +148,7 @@ const ProfilePage: React.FC = () => {
         };
         setFormState(updatedData);
         setInitialFormState(updatedData);
-        updateUserData(updatedUser, false);
+        updateUserData(updatedUser as UserData, false);
         setUpdateSuccess("Профиль успешно обновлен!");
         setTimeout(() => {
           setSelectedFile(null);
@@ -310,7 +310,7 @@ const ProfilePage: React.FC = () => {
           {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
         </div>
         <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои мероприятия</h3>
+          <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
           <UserEventTickets />
         </div>
         <ChangePasswordForm

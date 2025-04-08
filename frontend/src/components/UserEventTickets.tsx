@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle } from "react-icons/fa";
+import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
 import { EventData } from "@/types/events";
@@ -13,6 +13,28 @@ const formatDateForDisplay = (dateString: string): string => {
     return new Date(dateString).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
   } catch {
     return dateString;
+  }
+};
+
+// Add a function to format time
+const formatTimeForDisplay = (dateString: string): string => {
+  try {
+    return new Date(dateString).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+};
+
+// Add a function to check if dates are the same day
+const isSameDay = (date1: string, date2: string): boolean => {
+  try {
+    const d1 = new Date(date1);
+    const d2 = new Date(date2);
+    return d1.getFullYear() === d2.getFullYear() && 
+           d1.getMonth() === d2.getMonth() && 
+           d1.getDate() === d2.getDate();
+  } catch {
+    return false;
   }
 };
 
@@ -69,7 +91,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
           exit={{ opacity: 0 }}
         >
           <motion.div
-            className="bg-white rounded-lg p-5 w-full max-w-md relative"
+            className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl relative"
             variants={modalVariants}
             initial="hidden"
             animate="visible"
@@ -77,40 +99,48 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
           >
             <button
               onClick={onClose}
-              className="absolute top-3 right-3 text-gray-500 hover:text-gray-700"
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors"
+              aria-label="Закрыть"
             >
-              <FaTimesCircle size={18} />
+              <FaTimesCircle size={20} />
             </button>
-            <h2 className="text-xl font-semibold mb-3">{title}</h2>
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">{title}</h2>
             
             {error && (
-              <div className="mb-4 p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-sm">
-                <p>{error}</p>
+              <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">
+                <p className="text-sm font-medium">{error}</p>
               </div>
             )}
             
             {success && (
-              <div className="mb-4 p-2 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md text-sm">
-                <p>{success}</p>
+              <div className="mb-4 p-3 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md">
+                <p className="text-sm font-medium">{success}</p>
               </div>
             )}
             
-            <p className="mb-4 text-gray-600">{message}</p>
+            <p className="mb-6 text-gray-600">{message}</p>
             
             <div className="flex flex-col sm:flex-row justify-end gap-3">
               <button
                 onClick={onClose}
                 disabled={isLoading}
-                className="px-4 py-2 rounded-lg font-medium transition-colors duration-300 bg-gray-200 text-gray-700 hover:bg-gray-300 w-full sm:w-auto"
+                className="px-4 py-2 rounded-lg font-medium transition-colors duration-300 bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
               >
                 Отмена
               </button>
               <button
                 onClick={onConfirm}
                 disabled={isLoading || !!success}
-                className="px-4 py-2 rounded-lg font-medium transition-colors duration-300 bg-red-500 text-white hover:bg-red-600 w-full sm:w-auto"
+                className="px-4 py-2 rounded-lg font-medium transition-colors duration-300 bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto flex items-center justify-center gap-2"
               >
-                {isLoading ? "Отмена..." : "Отменить регистрацию"}
+                {isLoading ? (
+                  <>
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent" />
+                    <span>Отмена...</span>
+                  </>
+                ) : (
+                  "Подтвердить"
+                )}
               </button>
             </div>
           </motion.div>
@@ -136,6 +166,13 @@ const UserEventTickets = () => {
   const fetchAttempted = useRef(false);
   const retryTimeout = useRef<NodeJS.Timeout | null>(null);
   const lastFetchTime = useRef<number>(0);
+  
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const ticketsContainerRef = useRef<HTMLDivElement>(null);
+  const ticketsPerPage = 3;
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -182,12 +219,95 @@ const UserEventTickets = () => {
       if (now - lastFetchTime.current > minFetchInterval) {
         console.log('UserEventTickets: Triggering ticket fetch due to navigation');
         fetchAttempted.current = false;
+        setPage(1);
+        setHasMore(true);
         fetchTickets();
       } else {
         console.log('UserEventTickets: Skipping fetch due to rate limiting');
       }
     }
   }, [pathname]);
+
+  // Add scroll event listener for infinite scrolling
+  useEffect(() => {
+    const container = ticketsContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      // If we're near the bottom (within 50px) and not already loading more
+      if (scrollHeight - scrollTop - clientHeight < 50 && !isLoadingMore && hasMore) {
+        console.log('UserEventTickets: Scrolled near bottom, loading more tickets');
+        loadMoreTickets();
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [isLoadingMore, hasMore]);
+
+  const loadMoreTickets = async () => {
+    if (isLoadingMore || !hasMore) return;
+    
+    setIsLoadingMore(true);
+    const nextPage = page + 1;
+    console.log(`UserEventTickets: Loading more tickets, page ${nextPage}`);
+    
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.log("UserEventTickets: No token found in localStorage");
+        setError("Необходима авторизация");
+        setIsLoadingMore(false);
+        router.push('/');
+        return;
+      }
+      
+      const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
+        method: "GET",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        bypassLoadingStageCheck: true
+      });
+      
+      // Handle direct array response
+      if (Array.isArray(response)) {
+        const startIndex = (nextPage - 1) * ticketsPerPage;
+        const endIndex = startIndex + ticketsPerPage;
+        const newTickets = response.slice(startIndex, endIndex);
+        
+        if (newTickets.length > 0) {
+          setTickets(prev => [...prev, ...newTickets]);
+          setPage(nextPage);
+          setHasMore(endIndex < response.length);
+        } else {
+          setHasMore(false);
+        }
+      } else if (response && !("aborted" in response)) {
+        if ("data" in response && Array.isArray(response.data)) {
+          const startIndex = (nextPage - 1) * ticketsPerPage;
+          const endIndex = startIndex + ticketsPerPage;
+          const newTickets = response.data.slice(startIndex, endIndex);
+          
+          if (newTickets.length > 0) {
+            setTickets(prev => [...prev, ...newTickets]);
+            setPage(nextPage);
+            setHasMore(endIndex < response.data.length);
+          } else {
+            setHasMore(false);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("UserEventTickets: Error loading more tickets", err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
 
   const fetchTickets = async () => {
     if (isLoading && !isInitialLoad.current) return;
@@ -233,10 +353,13 @@ const UserEventTickets = () => {
         console.log("UserEventTickets: Response is a direct array, setting tickets");
         // Cast the array to UserTicket[] to satisfy TypeScript
         const ticketsArray = response as unknown as UserTicket[];
-        setTickets(ticketsArray);
+        // Only take the first page of tickets
+        const initialTickets = ticketsArray.slice(0, ticketsPerPage);
+        setTickets(initialTickets);
+        setHasMore(ticketsArray.length > ticketsPerPage);
         hasInitialData.current = true;
         setError(null);
-        console.log(`UserEventTickets: Successfully loaded ${ticketsArray.length} tickets`);
+        console.log(`UserEventTickets: Successfully loaded ${initialTickets.length} tickets out of ${ticketsArray.length} total`);
         return;
       }
       
@@ -251,22 +374,28 @@ const UserEventTickets = () => {
         
         if ("data" in response && Array.isArray(response.data)) {
           console.log("UserEventTickets: Setting tickets from response.data", response.data);
-          setTickets(response.data);
+          // Only take the first page of tickets
+          const initialTickets = response.data.slice(0, ticketsPerPage);
+          setTickets(initialTickets);
+          setHasMore(response.data.length > ticketsPerPage);
           hasInitialData.current = true;
           setError(null);
-          console.log(`UserEventTickets: Successfully loaded ${response.data.length} tickets`);
+          console.log(`UserEventTickets: Successfully loaded ${initialTickets.length} tickets out of ${response.data.length} total`);
         } else if ("data" in response && !Array.isArray(response.data)) {
           console.log("UserEventTickets: Response.data is not an array", response.data);
           // Try to convert to array if possible
           if (response.data) {
             const dataArray = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
-            setTickets(dataArray);
+            const initialTickets = dataArray.slice(0, ticketsPerPage);
+            setTickets(initialTickets);
+            setHasMore(dataArray.length > ticketsPerPage);
             hasInitialData.current = true;
             setError(null);
-            console.log(`UserEventTickets: Converted and loaded ${dataArray.length} tickets`);
+            console.log(`UserEventTickets: Converted and loaded ${initialTickets.length} tickets out of ${dataArray.length} total`);
           } else {
             console.log("UserEventTickets: Response.data is null or undefined");
             setTickets([]);
+            setHasMore(false);
             setError(null);
           }
         }
@@ -429,8 +558,16 @@ const UserEventTickets = () => {
             key={i}
             className="animate-pulse bg-white rounded-lg p-4 shadow-sm"
           >
-            <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-            <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+            <div className="h-5 bg-orange-100 rounded w-3/4 mb-3"></div>
+            <div className="space-y-2">
+              <div className="h-4 bg-orange-50 rounded w-1/2"></div>
+              <div className="h-4 bg-orange-50 rounded w-2/3"></div>
+              <div className="h-4 bg-orange-50 rounded w-1/3"></div>
+              <div className="h-4 bg-orange-50 rounded w-2/5"></div>
+            </div>
+            <div className="mt-3 flex justify-end">
+              <div className="h-5 bg-orange-100 rounded w-1/6"></div>
+            </div>
           </div>
         ))}
       </div>
@@ -474,7 +611,14 @@ const UserEventTickets = () => {
 
   return (
     <>
-      <div className="max-h-[400px] overflow-y-auto pr-2">
+      <div className="flex items-center justify-end mb-4">
+        <span className="text-sm text-gray-500">Загружено: {tickets.length}</span>
+      </div>
+      
+      <div 
+        ref={ticketsContainerRef}
+        className="max-h-[400px] overflow-y-auto pr-2"
+      >
         <div className="space-y-3">
           {tickets.map((ticket, index) => (
             <div key={ticket.id}>
@@ -493,8 +637,16 @@ const UserEventTickets = () => {
                         <FaCalendarAlt className="text-orange-500" />
                         <span>
                           {formatDateForDisplay(ticket.event.start_date)}
-                          {ticket.event.end_date &&
+                          {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
                             ` - ${formatDateForDisplay(ticket.event.end_date)}`}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <FaClock className="text-orange-500" />
+                        <span>
+                          {formatTimeForDisplay(ticket.event.start_date)}
+                          {ticket.event.end_date && 
+                            ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
                         </span>
                       </div>
                       {ticket.event.location && (
@@ -506,6 +658,10 @@ const UserEventTickets = () => {
                       <div className="flex items-center gap-2">
                         <FaTicketAlt className="text-orange-500" />
                         <span>{ticket.ticket_type}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <FaRegCalendarCheck className="text-orange-500" />
+                        <span>Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
                       </div>
                     </div>
                   </div>
@@ -539,10 +695,30 @@ const UserEventTickets = () => {
                 </div>
               </motion.div>
               {index < tickets.length - 1 && (
-                <div className="h-px bg-gray-100 my-3 mx-auto w-[70%]"></div>
+                <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
               )}
             </div>
           ))}
+          
+          {isLoadingMore && (
+            <div className="py-4 text-center">
+              <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+                <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Загрузка...</span>
+              </div>
+              <p className="mt-2 text-sm text-gray-500">Загрузка дополнительных билетов...</p>
+            </div>
+          )}
+          
+          {!isLoadingMore && hasMore && (
+            <div className="py-4 text-center">
+              <button 
+                onClick={loadMoreTickets}
+                className="text-orange-500 hover:text-orange-600 text-sm font-medium"
+              >
+                Загрузить еще
+              </button>
+            </div>
+          )}
         </div>
       </div>
       

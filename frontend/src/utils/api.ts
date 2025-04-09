@@ -3,10 +3,11 @@
 import { LoadingStage } from "@/contexts/LoadingContext";
 import { ApiResponse } from "@/types/api";
 
-// Объявляем глобальный тип для счетчика активных запросов
+// Объявляем глобальный тип для счетчика активных запросов и текущей стадии загрузки
 declare global {
   interface Window {
     __activeRequestCount?: number;
+    __loading_stage__?: LoadingStage;
   }
 }
 
@@ -47,6 +48,10 @@ const stageRequestCounts: Record<LoadingStage, number> = {
   [LoadingStage.ERROR]: 0
 };
 
+// Отслеживание последних изменений стадий для предотвращения циклов
+const stageChangeHistory: Array<{stage: LoadingStage, timestamp: number}> = [];
+const MAX_HISTORY_SIZE = 10;
+
 // Constants
 // API_BASE_URL is not needed as we use Next.js rewrites for all API calls
 
@@ -79,7 +84,7 @@ const logInfo = (message: string, data?: any) => {
 
 const logWarn = (message: string, data?: any) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
-    console.log(`API: ⚠️ ${message}`, data);
+    console.warn(`API: ⚠️ ${message}`, data);
   }
 };
 
@@ -89,9 +94,24 @@ const logError = (message: string, data?: any) => {
   }
 };
 
+// Функция для получения данных о состоянии запросов
+const getRequestStats = () => {
+  return {
+    activeRequests: activeRequestCount,
+    queueLength: requestQueue.length,
+    blockedCount: blockedRequestCount,
+    stageRequestCounts: { ...stageRequestCounts }
+  };
+};
+
 // Инициализируем слушатель изменений стадий загрузки
 export function initializeLoadingStageListener() {
   if (typeof window !== 'undefined') {
+    // Устанавливаем начальное значение глобальной переменной
+    window.__loading_stage__ = LoadingStage.AUTHENTICATION;
+    // Обновляем локальную переменную
+    currentLoadingStage = LoadingStage.AUTHENTICATION;
+    
     // Добавляем обработчик события изменения стадии загрузки
     window.addEventListener('loadingStageChange', ((event: CustomEvent) => {
       if (event.detail && event.detail.stage) {
@@ -103,48 +123,98 @@ export function initializeLoadingStageListener() {
   }
 }
 
-// Обработчик изменения стадии загрузки
+// Обрабатываем изменение стадии загрузки
 function handleStageChange(event: CustomEvent) {
   if (!event.detail || !event.detail.stage) return;
   
-  const stage = event.detail.stage;
+  const newStage = event.detail.stage;
   const prevStage = currentLoadingStage;
   
-  // Предотвращаем возврат к стадии AUTHENTICATION после перехода к другой стадии
-  // Используем строковое сравнение для надежности
-  if (prevStage !== 'authentication' && stage === 'authentication') {
-    logWarn('Preventing regression to AUTHENTICATION stage', { prevStage, newStage: stage });
+  // Проверяем текущий маршрут для принятия решения
+  const isAdminRoute = typeof window !== 'undefined' && 
+    window.location.pathname.startsWith('/admin');
+  
+  // Пропускаем множественные изменения стадий для админских маршрутов
+  if (isAdminRoute && prevStage === LoadingStage.STATIC_CONTENT && 
+      newStage === LoadingStage.AUTHENTICATION) {
+    logWarn('Ignoring stage change for admin route', {
+      prevStage,
+      newStage,
+      path: window.location.pathname
+    });
     return;
   }
   
-  currentLoadingStage = stage;
+  // Предотвращаем регрессию к AUTHENTICATION после прогресса к более высоким стадиям
+  if (newStage === LoadingStage.AUTHENTICATION && 
+      (prevStage !== LoadingStage.AUTHENTICATION && 
+       prevStage !== LoadingStage.INITIAL)) {
+    logWarn('Preventing regression to AUTHENTICATION stage', {
+      prevStage,
+      newStage: 'authentication'
+    });
+    return;
+  }
   
-  // Логируем только значимые изменения стадий
-  logDebug(`Loading stage updated to ${stage}`, {
-    prevStage,
-    requestStats: getRequestStats(),
-    activeRequests: requestQueue.length
+  // Добавляем запись в историю изменений
+  const now = Date.now();
+  stageChangeHistory.push({
+    stage: newStage,
+    timestamp: now
   });
   
-  // Если мы перешли от AUTHENTICATION к другой стадии,
-  // пробуем обработать запросы в очереди, которые могли быть заблокированы
-  if (prevStage === 'authentication' && stage !== 'authentication') {
-    logInfo('Authentication completed, checking request queue');
-    processRequestQueue();
+  // Ограничиваем размер истории
+  if (stageChangeHistory.length > MAX_HISTORY_SIZE) {
+    stageChangeHistory.shift();
   }
-}
-
-// Функция для получения статистики запросов
-function getRequestStats() {
-  return { ...stageRequestCounts };
-}
-
-// Автоматически инициализируем слушатель событий
-if (typeof window !== 'undefined') {
-  // Экспортируем счетчик активных запросов в глобальную область видимости для отладки
-  window.__activeRequestCount = 0;
   
-  initializeLoadingStageListener();
+  // Проверяем на циклы изменений одной и той же стадии
+  const recentChanges = stageChangeHistory.filter(
+    change => change.stage === newStage && now - change.timestamp < 2000
+  ).length;
+  
+  if (recentChanges > 3) {
+    logWarn('Stage change cycle detected, ignoring', {
+      stage: newStage,
+      recentChanges,
+      history: [...stageChangeHistory]
+    });
+    return;
+  }
+  
+  // Обновляем глобальное и локальное состояние стадии загрузки
+  currentLoadingStage = newStage;
+  if (typeof window !== 'undefined') {
+    window.__loading_stage__ = newStage;
+  }
+  
+  // После обновления стадии, проверяем запросы в очереди
+  checkRequestQueue();
+  
+  logInfo('Loading stage updated', {
+    prevStage,
+    newStage,
+    requestStats: getRequestStats()
+  });
+}
+
+// Проверка запросов в очереди после изменения стадии загрузки
+function checkRequestQueue() {
+  if (currentLoadingStage !== LoadingStage.AUTHENTICATION) {
+    logInfo('Authentication completed, checking request queue', {
+      queueLength: requestQueue.length
+    });
+    
+    // Запускаем до MAX_CONCURRENT_REQUESTS запросов из очереди
+    let startedCount = 0;
+    while (requestQueue.length > 0 && startedCount < MAX_CONCURRENT_REQUESTS) {
+      const request = requestQueue.shift();
+      if (request) {
+        request();
+        startedCount++;
+      }
+    }
+  }
 }
 
 // Function to clean up stale cache entries
@@ -369,7 +439,7 @@ export async function apiFetch<T>(
 
     // Check if the request should be processed based on loading stage
     if (!bypassLoadingStageCheck && !shouldProcessRequest(endpoint)) {
-      logWarn(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
+      logWarn(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage} ${bypassLoadingStageCheck}`);
       
       // Add more context to the log
       if (endpoint.includes('/user_edits/my-tickets')) {

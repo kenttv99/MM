@@ -265,23 +265,24 @@ export default function EventPage() {
   // Fetch event data with improved error handling and loading state
   useEffect(() => {
     if (!slug) {
-      logWarn("No slug provided");
-      setIsLoading(false);
-      setShowInitialSkeleton(false);
+      setHasServerError(true);
       return;
     }
+
+    // Пытаемся извлечь ID из слага (для обратной совместимости)
+    const parts = slug.split("-");
+    const lastPart = parts[parts.length - 1];
     
-    if (event && hasInitialFetchRef.current) {
-      logDebug("Event data already loaded");
-      setIsLoading(false);
-      setShowInitialSkeleton(false);
-      return;
+    let eventId: string;
+    if (lastPart && /^\d+$/.test(lastPart)) {
+      // Слаг в формате "название-id"
+      eventId = lastPart;
+    } else {
+      // Используем slug напрямую (url_slug)
+      eventId = slug;
     }
-    
-    if (fetchInProgressRef.current) {
-      logDebug("Fetch already in progress");
-      return;
-    }
+
+    let isRequestCancelled = false;
     
     // Устанавливаем таймер для гарантированного скрытия скелетона
     const skeletonTimer = setTimeout(() => {
@@ -290,18 +291,21 @@ export default function EventPage() {
         setShowInitialSkeleton(false);
       }
     }, 3000); // Максимальное время показа скелетона
-    
-    let isRequestCancelled = false;
-    
+
     const fetchEventData = async () => {
-      if (isRequestCancelled) return;
+      if (fetchInProgressRef.current) {
+        logInfo("Fetch already in progress, skipping");
+        return;
+      }
+      
+      logInfo(`Fetching event data for slug: ${slug}, eventId: ${eventId}`);
+      
+      fetchInProgressRef.current = true;
       
       try {
-        fetchInProgressRef.current = true;
         setIsLoading(true);
         setDynamicLoading(true);
         
-        const eventId = extractIdFromSlug(slug);
         const timestamp = Date.now();
         const url = `/v1/public/events/${eventId}?t=${timestamp}`;
         
@@ -371,17 +375,18 @@ export default function EventPage() {
         }
       }
     };
-    
-    // Добавляем небольшую задержку перед запуском запроса
-    const initDelay = setTimeout(() => {
-      if (!isRequestCancelled) {
-        fetchEventData();
-      }
-    }, 100);
 
+    if (!fetchInProgressRef.current && !hasInitialFetchRef.current) {
+      fetchEventData();
+    }
+    
+    if (event && hasInitialFetchRef.current) {
+      logInfo("Event data already loaded, skipping fetch");
+      return;
+    }
+    
     return () => {
       isRequestCancelled = true;
-      clearTimeout(initDelay);
       clearTimeout(skeletonTimer);
       fetchInProgressRef.current = false;
     };

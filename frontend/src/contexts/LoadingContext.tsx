@@ -144,6 +144,8 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const stageChangeHistoryRef = useRef<Array<{stage: LoadingStage, timestamp: number}>>([]);
   // New ref to track if we've been past authentication
   const hasBeenPastAuthenticationRef = useRef(false);
+  // New ref for navigation reset timer
+  const navigationResetTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Helper function to get the level of a loading stage
   const getStageLevel = useCallback((stage: LoadingStage): number => {
@@ -401,8 +403,23 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     
     isEventsPage.current = pathname?.includes('/events');
+    const isAdminRoute = pathname?.startsWith('/admin');
     
-    if (!isEventsPage.current) {
+    // Блокируем сбросы на админских маршрутах и на странице событий
+    if (isEventsPage.current || isAdminRoute) {
+      logDebug('Skipping reset on special route', { pathname, isEventsPage: isEventsPage.current, isAdminRoute });
+      return;
+    }
+    
+    // Используем debounce для предотвращения множественных сбросов при быстрой навигации
+    if (navigationResetTimerRef.current) {
+      clearTimeout(navigationResetTimerRef.current);
+    }
+    
+    // Отложенный сброс стадии при навигации
+    navigationResetTimerRef.current = setTimeout(() => {
+      if (!isMounted.current) return;
+      
       resetLoading();
       
       // Проверяем через глобальную историю стадий
@@ -410,7 +427,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       
       // Никогда не сбрасываем до AUTHENTICATION, если мы уже были на других стадиях
       if (hasBeenPastAuth) {
-        console.log('LoadingContext: Skipping reset to AUTHENTICATION stage - already been past auth', { 
+        logDebug('Skipping reset to AUTHENTICATION stage - already been past auth', { 
           currentStage: stage, 
           hasBeenPastAuth,
           stageHistory: stageChangeHistoryRef.current 
@@ -428,7 +445,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
          activeRequestsCount === 0);
       
       if (canResetToAuth) {
-        console.log('LoadingContext: Resetting to AUTHENTICATION stage on navigation', { 
+        logInfo('Resetting to AUTHENTICATION stage on navigation', { 
           currentStage: stage, 
           pathname,
           isStaticLoading: loadingStateRef.current.isStaticLoading,
@@ -445,7 +462,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           timestamp: Date.now()
         }];
       } else {
-        console.log('LoadingContext: Skipping reset to AUTHENTICATION stage', { 
+        logDebug('Skipping reset to AUTHENTICATION stage', { 
           currentStage: stage, 
           isStaticLoading: loadingStateRef.current.isStaticLoading,
           isDynamicLoading: loadingStateRef.current.isDynamicLoading,
@@ -453,7 +470,13 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           pathname 
         });
       }
-    }
+    }, 100); // Небольшая задержка для предотвращения частых сбросов
+    
+    return () => {
+      if (navigationResetTimerRef.current) {
+        clearTimeout(navigationResetTimerRef.current);
+      }
+    };
   }, [pathname, stage, resetLoading, updateStage]);
 
   // Effect for auto-reset state

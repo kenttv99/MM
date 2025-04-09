@@ -66,7 +66,7 @@ async def login_admin(admin: AdminLogin, db: AsyncSession = Depends(get_async_db
         "email": db_admin.email
     }
 
-@router.get("/me", response_model=AdminResponse)
+@router.get("/me")
 @rate_limit("access_me_admin")
 async def read_admins_me(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
@@ -74,8 +74,34 @@ async def read_admins_me(
     request: Request = None
 ):
     """Получение данных текущего администратора (защищенный эндпоинт)."""
-    token = credentials.credentials
-    current_admin = await get_current_admin(token, db)
-    await log_admin_activity(db, current_admin.id, request, action="access_me")
-    logger.info(f"Admin accessed their profile: {current_admin.email}")
-    return current_admin
+    try:
+        logger.info(f"Admin /me endpoint called with path: {request.url.path if request else 'unknown'}")
+        
+        token = credentials.credentials
+        logger.info(f"Token received: {token[:10]}...")  # Логируем только начало токена для безопасности
+        
+        current_admin = await get_current_admin(token, db)
+        logger.info(f"Admin authenticated: {current_admin.email}")
+        
+        await log_admin_activity(db, current_admin.id, request, action="access_me")
+        logger.info(f"Admin accessed their profile: {current_admin.email}")
+        
+        # Возвращаем ответ в формате, который ожидает фронтенд
+        return {
+            "success": True,
+            "data": {
+                "id": current_admin.id,
+                "fio": current_admin.fio,
+                "email": current_admin.email
+            }
+        }
+    except HTTPException as e:
+        logger.warning(f"HTTP error in read_admins_me: {e.status_code} {e.detail}")
+        raise e
+    except Exception as e:
+        logger.error(f"Unexpected error in read_admins_me: {str(e)}")
+        logger.exception("Full traceback:")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve admin profile: {str(e)}"
+        )

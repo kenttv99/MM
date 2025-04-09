@@ -83,6 +83,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
         tokenRef.current = token;
         
+        // Проверяем, находимся ли мы на админской странице
+        const isAdminRoute = typeof window !== 'undefined' && localStorage.getItem('is_admin_route') === 'true';
+        
+        // Если мы на админской странице, пропускаем проверку пользовательского токена
+        if (isAdminRoute) {
+          console.log('AuthContext: Skipping auth check on admin route');
+          setIsAuthCheckedState(true);
+          // Проверяем текущую стадию загрузки перед установкой новой
+          const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+          if (currentStage !== LoadingStage.STATIC_CONTENT) {
+            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (admin route)');
+            setStage(LoadingStage.STATIC_CONTENT);
+          } else {
+            console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+          }
+          return;
+        }
+        
+        // Если токена нет, завершаем проверку сразу
         if (!token) {
           console.log('AuthContext: No token found');
           if (isMounted.current) {
@@ -90,9 +109,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthCheckedState(true);
             setUser(null);
             hasInitialized.current = true;
-            // Переходим к следующей стадии загрузки и явно логируем переход
-            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (no token)');
-            setStage(LoadingStage.STATIC_CONTENT);
+            // Проверяем текущую стадию загрузки перед установкой новой
+            const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+            if (currentStage !== LoadingStage.STATIC_CONTENT) {
+              console.log('AuthContext: Transitioning to STATIC_CONTENT stage (no token)');
+              setStage(LoadingStage.STATIC_CONTENT);
+            } else {
+              console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+            }
           }
           return;
         }
@@ -107,8 +131,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsAuthenticated(true);
             setIsAuthCheckedState(true);
             hasInitialized.current = true;
-            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (from localStorage)');
-            setStage(LoadingStage.STATIC_CONTENT);
+            
+            // Проверяем текущую стадию загрузки перед установкой новой
+            const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+            if (currentStage !== LoadingStage.STATIC_CONTENT) {
+              console.log('AuthContext: Transitioning to STATIC_CONTENT stage (from localStorage)');
+              setStage(LoadingStage.STATIC_CONTENT);
+            } else {
+              console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+            }
             
             // Still verify with server in background
             verifyWithServer(token);
@@ -130,22 +161,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setIsAuthCheckedState(true);
         hasInitialized.current = true;
-        // Переходим к следующей стадии загрузки и явно логируем переход
-        console.log('AuthContext: Transitioning to STATIC_CONTENT stage (error)');
-        setStage(LoadingStage.STATIC_CONTENT);
-      } finally {
-        // Clear failsafe timeout
-        if (authCheckFailsafeRef.current) {
-          clearTimeout(authCheckFailsafeRef.current);
-          authCheckFailsafeRef.current = null;
-        }
         
-        if (isMounted.current) {
-          console.log('AuthContext: Finalizing authentication check');
-          setDynamicLoading(false);
-          // Переходим к следующей стадии загрузки и явно логируем переход
-          console.log('AuthContext: Ensuring transition to STATIC_CONTENT stage (final)');
+        // Проверяем текущую стадию загрузки перед установкой новой
+        const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+        if (currentStage !== LoadingStage.STATIC_CONTENT) {
+          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (error)');
           setStage(LoadingStage.STATIC_CONTENT);
+        } else {
+          console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
         }
       }
     };
@@ -353,6 +376,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await apiFetch<UserData>("/auth/me", {
         method: "GET",
         headers: { "Authorization": `Bearer ${token}` },
+        bypassLoadingStageCheck: true
       });
       
       if (authCheckFailsafeRef.current) {

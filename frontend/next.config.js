@@ -14,7 +14,30 @@ const nextConfig = {
   },
   async rewrites() {
     return [
-      // User server routes (port 8000)
+      // Admin routes (с более высоким приоритетом, должны идти первыми)
+      // Исправленные маршруты для admin_auth_router, учитывая префикс /admin 
+      {
+        source: '/admin/login',
+        destination: 'http://localhost:8001/admin/login',
+      },
+      {
+        source: '/admin/register',
+        destination: 'http://localhost:8001/admin/register',
+      },
+      {
+        source: '/admin/me',
+        destination: 'http://localhost:8001/admin/me',
+      },
+      {
+        source: '/admin/auth/:path*',
+        destination: 'http://localhost:8001/admin/auth/:path*',
+      },
+      {
+        source: '/admin/:path*',
+        destination: 'http://localhost:8001/admin/:path*',
+      },
+      
+      // User routes (с более низким приоритетом)
       {
         source: '/auth/:path*',
         destination: 'http://localhost:8000/auth/:path*',
@@ -27,34 +50,27 @@ const nextConfig = {
         source: '/events/:path*',
         destination: 'http://localhost:8000/events/:path*',
       },
-      // Fix the user_edits path to ensure it's properly routed
       {
         source: '/user_edits/:path*',
         destination: 'http://localhost:8000/user_edits/:path*',
       },
-      // Add registration path
       {
         source: '/registration/:path*',
         destination: 'http://localhost:8000/registration/:path*',
       },
-      // Admin server routes (port 8001)
-      {
-        source: '/admin/auth/:path*',
-        destination: 'http://localhost:8001/admin/auth/:path*',
-      },
-      {
-        source: '/admin/:path*',
-        destination: 'http://localhost:8001/admin/:path*',
-      },
-      // Legacy v1 API routes (if needed)
+      // Legacy v1 API routes
       {
         source: '/v1/:path*',
         destination: 'http://localhost:8000/v1/:path*',
       },
-      // Add notifications path
+      // Notifications
       {
         source: '/notifications/:path*',
         destination: 'http://localhost:8000/notifications/:path*',
+      },
+      {
+        source: '/v1/public/events/:path*',
+        destination: 'http://localhost:8000/events/:path*',
       },
     ]
   },

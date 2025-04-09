@@ -128,26 +128,50 @@ async def get_current_admin(token: str, session: AsyncSession) -> Admin:
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY)
+        # Проверка на пустой токен
+        if not token or token.strip() == "":
+            logger.warning("Empty admin token provided")
+            raise credentials_exception
+            
+        # Декодирование токена с информативными ошибками
+        try:
+            payload = jwt.decode(token, SECRET_KEY)
+        except JoseError as e:
+            logger.error(f"JWT decode error for admin token: {str(e)}")
+            raise credentials_exception
+            
+        # Проверка наличия email в токене
         email: str = payload.get("sub")
         if email is None:
+            logger.warning("Admin token missing 'sub' claim")
             raise credentials_exception
         
+        # Проверка на истекший токен
         exp = payload.get("exp")
+        if not exp:
+            logger.warning("Admin token missing 'exp' claim")
+            raise credentials_exception
+            
         current_time = datetime.utcnow().timestamp()
         if exp < current_time:
+            logger.warning(f"Admin token expired at {datetime.fromtimestamp(exp)}, current time: {datetime.utcnow()}")
             raise credentials_exception
         
+        # Поиск администратора в базе
         admin = await get_admin_by_username(session, email)
         if admin is None:
+            logger.warning(f"Admin not found for email: {email}")
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized as an admin"
             )
         
-        return admin  # Возвращаем только администратора
-    except JoseError as e:
-        logger.error(f"JWT decode error: {str(e)}")
+        return admin
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in get_current_admin: {str(e)}")
+        logger.exception("Full traceback:")
         raise credentials_exception
 
 async def log_user_activity(

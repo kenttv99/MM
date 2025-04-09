@@ -2,7 +2,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import React, { createContext, useState, useEffect, useCallback, useContext } from "react";
+import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
 import { apiFetch } from "@/utils/api";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
 
@@ -22,33 +22,36 @@ interface AdminAuthContextType {
   checkAuth: () => Promise<boolean>;
 }
 
-export const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
-
+// Константы для хранилища
 const STORAGE_KEYS = {
   ADMIN_TOKEN: "admin_token",
   ADMIN_DATA: "admin_data",
 };
 
-function decodeJwt(token: string): { exp?: number } | null {
+// Вспомогательная функция для проверки истечения срока действия токена
+const isTokenExpired = (token: string) => {
   try {
-    const base64Url = token.split('.')[1];
-    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(window.atob(base64));
-  } catch {
-    return null;
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    // Проверяем срок действия токена
+    if (payload && payload.exp) {
+      return payload.exp < Date.now() / 1000;
+    }
+    return false;
+  } catch (e) {
+    console.error('AdminAuthContext: Error checking token expiration:', e);
+    return true;
   }
-}
+};
 
-function isTokenExpired(token: string): boolean {
-  const decoded = decodeJwt(token);
-  if (!decoded || !decoded.exp) return true;
-  return decoded.exp < Math.floor(Date.now() / 1000);
-}
+// Create context with initial value
+const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
   const { setDynamicLoading, setStage } = useLoading();
   const authCheckFailsafeRef = React.useRef<NodeJS.Timeout | null>(null);
+  const isInitialized = useRef(false);
+  const isMounted = useRef(false);
 
   const getInitialAuthState = () => {
     if (typeof window === "undefined") {
@@ -164,6 +167,10 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
 
     // Set failsafe timeout to prevent hanging in auth check
+    if (authCheckFailsafeRef.current) {
+      clearTimeout(authCheckFailsafeRef.current);
+    }
+    
     authCheckFailsafeRef.current = setTimeout(() => {
       console.log('AdminAuthContext: Auth check failsafe triggered');
       setDynamicLoading(false);
@@ -174,41 +181,69 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }, 5000); // 5 second failsafe
 
     try {
-      console.log('AdminAuthContext: Making admin auth check request');
+      console.log('AdminAuthContext: Making admin auth check request to /admin/me');
       setDynamicLoading(true);
       setIsLoading(true);
       
-      const response = await apiFetch('/admin/check-auth', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`
+      try {
+        const response = await apiFetch('/admin/me', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          bypassLoadingStageCheck: true // Обязательно обходим проверку стадии загрузки
+        });
+        
+        console.log('AdminAuthContext: Response from /admin/me:', response);
+        
+        if (!response || response.error || (response as any).aborted) {
+          console.log('AdminAuthContext: Auth check failed', response);
+          setDynamicLoading(false);
+          logoutAdmin();
+          setIsAuthChecked(true);
+          setStage(LoadingStage.STATIC_CONTENT);
+          return false;
         }
-      });
+        
+        if (!(response as any).success) {
+          console.log('AdminAuthContext: Response missing success flag', response);
+          setDynamicLoading(false);
+          logoutAdmin();
+          setIsAuthChecked(true);
+          setStage(LoadingStage.STATIC_CONTENT);
+          return false;
+        }
+        
+        console.log('AdminAuthContext: Auth check successful', response);
+        const adminData = (response as any).data;
+        
+        if (!adminData) {
+          console.log('AdminAuthContext: Response missing data field', response);
+          setDynamicLoading(false);
+          logoutAdmin();
+          setIsAuthChecked(true);
+          setStage(LoadingStage.STATIC_CONTENT);
+          return false;
+        }
+        
+        const data = {
+          id: adminData.id,
+          email: adminData.email,
+          fio: adminData.fio || "Администратор"
+        };
       
-      if (!response || !response.success) {
-        console.log('AdminAuthContext: Auth check failed');
+        // Update stored data with fresh data
+        localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
+        setAdminData(data);
+        setIsAdminAuth(true);
         setDynamicLoading(false);
-        logoutAdmin();
         setIsAuthChecked(true);
         setStage(LoadingStage.STATIC_CONTENT);
-        return false;
+        return true;
+      } catch (apiError) {
+        console.error('AdminAuthContext: API error during token validation:', apiError);
+        throw apiError;
       }
-      
-      console.log('AdminAuthContext: Auth check successful');
-      const data = {
-        id: response.data.id,
-        email: response.data.email,
-        fio: response.data.fio || "Администратор"
-      };
-      
-      // Update stored data with fresh data
-      localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
-      setAdminData(data);
-      setIsAdminAuth(true);
-      setDynamicLoading(false);
-      setIsAuthChecked(true);
-      setStage(LoadingStage.STATIC_CONTENT);
-      return true;
     } catch (error) {
       console.error('AdminAuthContext: Error validating token:', error);
       setDynamicLoading(false);
@@ -228,26 +263,39 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, [logoutAdmin, setDynamicLoading, setStage]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      console.log('AdminAuthContext: Initializing auth check');
-      // Change to authentication stage before validation
+    if (typeof window === "undefined" || isInitialized.current) {
+      return;
+    }
+    
+    isInitialized.current = true;
+    isMounted.current = true;
+    
+    console.log('AdminAuthContext: Initializing auth check');
+    // Check if we need to change loading stage
+    const currentStage = (window as any).__loading_stage__;
+    
+    if (currentStage !== LoadingStage.AUTHENTICATION) {
+      // Only set authentication stage once if needed
       setStage(LoadingStage.AUTHENTICATION);
-      if (localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN)) {
-        console.log('AdminAuthContext: Token found in localStorage, validating');
-        validateToken();
-      } else {
-        console.log('AdminAuthContext: No token found in localStorage');
-        // Mark auth check complete if no token
-        setIsAuthChecked(true);
-        setStage(LoadingStage.STATIC_CONTENT);
-        setIsLoading(false);
-        if (!isAdminAuth && window.location.pathname.startsWith("/admin")) {
-          router.push("/admin-login");
-        }
+    }
+    
+    if (localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN)) {
+      console.log('AdminAuthContext: Token found in localStorage, validating');
+      validateToken();
+    } else {
+      console.log('AdminAuthContext: No token found in localStorage');
+      // Mark auth check complete if no token
+      setIsAuthChecked(true);
+      setStage(LoadingStage.STATIC_CONTENT);
+      setIsLoading(false);
+      if (!isAdminAuth && window.location.pathname.startsWith("/admin") && 
+          !window.location.pathname.includes("/admin-login")) {
+        router.push("/admin-login");
       }
     }
     
     return () => {
+      isMounted.current = false;
       // Clear failsafe timeout on unmount
       if (authCheckFailsafeRef.current) {
         clearTimeout(authCheckFailsafeRef.current);

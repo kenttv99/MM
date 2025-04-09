@@ -99,6 +99,7 @@ class EventCreate(BaseModel):
     created_at: datetime
     updated_at: datetime
     status: Optional[EventStatus] = EventStatus.draft
+    url_slug: Optional[str] = None
     ticket_type: Optional[TicketTypeCreate] = None
 
     class Config:
@@ -115,6 +116,7 @@ class EventCreateForm(BaseModel):
     created_at: str  # Изменено на str
     updated_at: str  # Изменено на str
     status: EventStatus = EventStatus.draft
+    url_slug: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -132,6 +134,7 @@ class EventUpdate(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     status: Optional[EventStatus] = None
+    url_slug: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -149,6 +152,7 @@ class EventResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     status: EventStatus
+    url_slug: Optional[str] = None
 
     class Config:
         from_attributes = True

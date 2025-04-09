@@ -36,6 +36,7 @@ export default function AdminLoginPage() {
       const data = await apiFetch<{ access_token: string; id: number; email: string; fio?: string }>("/admin/login", {
         method: "POST",
         body: JSON.stringify(formValues),
+        bypassLoadingStageCheck: true
       });
       
       if ('aborted' in data) {

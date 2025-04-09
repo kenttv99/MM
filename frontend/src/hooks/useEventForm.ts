@@ -40,6 +40,18 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     
+    // Валидация для url_slug (только латиница, цифры и дефисы)
+    if (name === 'url_slug') {
+      // Разрешены только a-z, 0-9 и дефисы
+      const validatedValue = value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      // Заменяем множественные дефисы одним
+      const cleanedValue = validatedValue.replace(/-+/g, '-');
+      // Удаляем дефисы с начала и конца
+      const finalValue = cleanedValue.replace(/^-+|-+$/g, '');
+      setFieldValue(name as keyof EventFormData, finalValue);
+      return;
+    }
+    
     if (type === "checkbox") {
       const checked = (e.target as HTMLInputElement).checked;
       setFieldValue(name as keyof EventFormData, checked);
@@ -102,6 +114,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         registrations_count: cachedData.registrations_count || 0,
         image_file: null,
         remove_image: false,
+        url_slug: cachedData.url_slug ? cachedData.url_slug.split('-').slice(0, -1).join('-') : '',
       };
       
       if (mounted.current) {
@@ -152,6 +165,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         registrations_count: eventData.registrations_count || 0,
         image_file: null,
         remove_image: false,
+        url_slug: eventData.url_slug ? eventData.url_slug.split('-').slice(0, -1).join('-') : '',
       };
       
       setFormData(mappedData);

@@ -69,6 +69,7 @@ class Event(Base):
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
     status = Column(Enum(EventStatus), default=EventStatus.draft, nullable=False)
+    url_slug = Column(String(255), unique=True)
     
     tickets = relationship("TicketType", back_populates="event")
     registrations = relationship("Registration", back_populates="event")

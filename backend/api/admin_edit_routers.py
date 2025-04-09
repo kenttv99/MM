@@ -15,6 +15,7 @@ import uuid
 from typing import Optional
 import inspect
 from pydantic import BaseModel
+import re
 
 router = APIRouter()
 bearer_scheme = HTTPBearer()
@@ -55,9 +56,26 @@ class EventFormData(BaseModel):
     ticket_type_available_quantity: str
     ticket_type_free_registration: str = "false"
     remove_image: str = "false"
+    url_slug: Optional[str] = None
     
     class Config:
         from_attributes = True
+
+def generate_slug_with_id(slug: str, event_id: int) -> str:
+    """Генерирует слаг с ID в конце."""
+    # Проверка на валидность слага (только латиница, цифры, дефис)
+    valid_slug = re.sub(r'[^a-z0-9-]', '-', slug.lower())
+    # Замена множественных дефисов одним
+    valid_slug = re.sub(r'-+', '-', valid_slug)
+    # Удаление дефисов с начала и конца
+    valid_slug = valid_slug.strip('-')
+    
+    # Если слаг пустой после очистки, используем 'event'
+    if not valid_slug:
+        valid_slug = 'event'
+    
+    # Добавляем ID в конец
+    return f"{valid_slug}-{event_id}"
 
 async def process_image(image_file: Optional[UploadFile], remove_image: bool, old_image_url: Optional[str] = None) -> Optional[str]:
     if remove_image and old_image_url:
@@ -194,6 +212,10 @@ async def create_event(
         db.add(event)
         await db.flush()
         
+        # Генерация и сохранение url_slug после получения id
+        if form_data.url_slug:
+            event.url_slug = generate_slug_with_id(form_data.url_slug, event.id)
+        
         ticket = TicketType(
             event_id=event.id,
             name=form_data.ticket_type_name,
@@ -231,6 +253,7 @@ async def create_event(
             created_at=event.created_at,
             updated_at=event.updated_at,
             status=event.status,
+            url_slug=event.url_slug,
             ticket_type=TicketTypeCreate(
                 name=ticket.name,
                 price=float(ticket.price),
@@ -295,6 +318,10 @@ async def update_event(
         event.updated_at = processed_data["updated_at_dt"]
         event.status = form_data.status
         
+        # Обновление url_slug, если он изменился
+        if form_data.url_slug and (not event.url_slug or not event.url_slug.startswith(form_data.url_slug)):
+            event.url_slug = generate_slug_with_id(form_data.url_slug, event_id)
+        
         # Update ticket status to "completed" when event status is changed to "completed"
         if form_data.status == EventStatus.completed and old_status != EventStatus.completed:
             logger.info(f"Event {event_id} status changed to completed, updating ticket statuses")
@@ -355,6 +382,7 @@ async def update_event(
             created_at=event.created_at,
             updated_at=event.updated_at,
             status=event.status,
+            url_slug=event.url_slug,
             ticket_type=TicketTypeCreate(
                 name=ticket_data.name,
                 price=float(ticket_data.price),

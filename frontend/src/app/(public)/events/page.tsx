@@ -65,7 +65,16 @@ interface FilterState {
   endDate: string;
 }
 
-const generateSlug = (title: string, id: number): string => {
+const generateSlug = (event: EventData): string => {
+  // Если есть url_slug, используем его
+  if (event.url_slug) {
+    return event.url_slug;
+  }
+  
+  // Иначе генерируем из названия (для обратной совместимости)
+  const title = event.title;
+  const id = event.id;
+  
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
     й: "y", к: "k", л: "l", м: "m", н: "n", о: "o", п: "p", р: "r", с: "s", т: "t",
@@ -180,7 +189,7 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | nu
     const isCompleted = event.status === "completed";
     return (
       <div ref={lastCardRef}>
-        <Link href={`/event/${generateSlug(event.title, event.id || 0)}`}>
+        <Link href={`/event/${generateSlug(event)}`}>
           <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 min-h-[300px] flex flex-col">
             <div className="relative h-48">
               {event.image_url ? (

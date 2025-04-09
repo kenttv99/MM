@@ -34,6 +34,11 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   
   formData.append("remove_image", String(eventData.remove_image || false));
   
+  // Добавляем url_slug, если он указан
+  if (eventData.url_slug) {
+    formData.append("url_slug", eventData.url_slug);
+  }
+  
   // Добавляем created_at и updated_at с текущей датой в формате ISO
   const now = new Date().toISOString();
   formData.append("created_at", now);

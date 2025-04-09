@@ -146,9 +146,15 @@ async def get_user_profile(
         logger.info(f"User {current_user.email} accessed their profile")
         return current_user
     except HTTPException as e:
+        # Просто пробрасываем ошибки HTTP, не обрабатывая их
+        logger.warning(f"HTTP error in get_user_profile: {e.status_code} {e.detail}")
         raise e
     except Exception as e:
-        logger.error(f"Error retrieving user profile: {str(e)}")
+        # Логируем неожиданные ошибки для отладки
+        error_msg = f"Error retrieving user profile: {str(e)}"
+        logger.error(error_msg)
+        # Трассируем стек ошибки для отладки
+        logger.exception("Full traceback:")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve profile"

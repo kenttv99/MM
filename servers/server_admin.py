@@ -14,6 +14,7 @@ from datetime import datetime, timedelta  # Добавлен импорт для
 from authlib.jose import jwt  # Добавлен импорт для jwt
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY  # Добавлен импорт для SECRET_KEY
 from fastapi.staticfiles import StaticFiles
+from fastapi.routing import APIRoute
 
 from backend.database.user_db import AsyncSessionLocal, get_async_db
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES  # Добавляем импорт
@@ -35,6 +36,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def refresh_token_middleware(request: Request, call_next):
+    # Логируем запрос для отладки
+    logger.info(f"Admin server received request: {request.method} {request.url.path}")
+    
     response = await call_next(request)
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):

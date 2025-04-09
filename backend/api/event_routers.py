@@ -10,13 +10,6 @@ from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate
 
 router = APIRouter()
 
-def extract_id_from_slug(slug: str) -> int:
-    parts = slug.split("-")
-    event_id = parts[-1]
-    if not event_id.isdigit():
-        raise HTTPException(status_code=404, detail="Invalid event slug")
-    return int(event_id)
-
 # Маршрут для получения списка мероприятий (без авторизации)
 @router.get("", response_model=List[EventCreate])
 async def get_events(
@@ -119,20 +112,24 @@ async def get_events(
         raise HTTPException(status_code=500, detail="Ошибка сервера при загрузке мероприятий")
     
     
-@router.get("/{event_id}", response_model=EventCreate)
+@router.get("/{slug_or_id}", response_model=EventCreate)
 async def get_event(
-    event_id: str,  # Изменяем тип на str, чтобы принимать как slug, так и ID
+    slug_or_id: str,
     db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ):
     try:
-        # Проверяем, является ли event_id числом или slug
-        if event_id.isdigit():
-            actual_event_id = int(event_id)
+        db_event = None
+        
+        # Если это числовой ID, ищем по ID
+        if slug_or_id.isdigit():
+            db_event = await db.get(Event, int(slug_or_id), options=[selectinload(Event.tickets)])
         else:
-            actual_event_id = extract_id_from_slug(event_id)
-
-        db_event = await db.get(Event, actual_event_id, options=[selectinload(Event.tickets)])
+            # Иначе ищем по url_slug
+            query = select(Event).where(Event.url_slug == slug_or_id).options(selectinload(Event.tickets))
+            result = await db.execute(query)
+            db_event = result.scalars().first()
+        
         if not db_event or not db_event.published:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found or not published")
         
@@ -149,7 +146,8 @@ async def get_event(
             "published": db_event.published,
             "created_at": db_event.created_at,
             "updated_at": db_event.updated_at,
-            "status": db_event.status
+            "status": db_event.status,
+            "url_slug": db_event.url_slug
         }
 
         if db_event.tickets and len(db_event.tickets) > 0:
@@ -164,14 +162,14 @@ async def get_event(
                 sold_quantity=ticket.sold_quantity
             ).model_dump()
             
-        logger.info(f"Public request for event {actual_event_id}")
+        logger.info(f"Public request for event {db_event.id}")
         return EventCreate(**event_dict)
     except HTTPException as e:
         raise e
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid event ID or slug format")
     except Exception as e:
-        logger.error(f"Error retrieving event {event_id}: {str(e)}")
+        logger.error(f"Error retrieving event {slug_or_id}: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve event: {str(e)}"

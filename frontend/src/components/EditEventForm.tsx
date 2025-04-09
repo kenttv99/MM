@@ -16,6 +16,7 @@ import SuccessDisplay from "@/components/common/SuccessDisplay";
 import Image from "next/image";
 import Switch from "@/components/common/Switch";
 import { createPortal } from "react-dom";
+import { MdLink } from "react-icons/md";
 
 interface EditEventFormProps {
   isNewEvent: boolean;
@@ -513,6 +514,28 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   placeholder="Адрес или название места"
                 />
               </div>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-gray-700 font-medium mb-2">
+                URL мероприятия (только латиница, цифры и дефисы)
+                <span className="ml-1 text-xs text-gray-500">(в адресной строке будет добавлен ID события)</span>
+              </label>
+              <div className="flex items-center">
+                <MdLink className="text-gray-400 mr-2 shrink-0" />
+                <input
+                  type="text"
+                  name="url_slug"
+                  value={formData.url_slug || ""}
+                  onChange={handleChange}
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                  placeholder="например: kirtan-mela"
+                  pattern="[a-z0-9-]+"
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Формат: {formData.url_slug ? `${formData.url_slug}-ID` : "example-123"}
+              </p>
             </div>
 
             <div className="flex flex-col md:flex-row gap-6 mb-6">

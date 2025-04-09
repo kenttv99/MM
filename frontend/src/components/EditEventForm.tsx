@@ -367,27 +367,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     e.preventDefault();
     console.log("EditEventForm: Form submission started");
     
-    // Проверяем токен администратора локально перед отправкой формы
-    const token = localStorage.getItem("admin_token");
-    if (!token) {
-      console.log("EditEventForm: No admin token found, redirecting to login");
-      localStorage.setItem('event_form_draft', JSON.stringify(formData));
-      setTimeout(() => {
-        router.push("/admin-login");
-      }, 500);
-      return;
-    }
-    
-    // Проверяем срок действия токена
-    if (!validateTokenLocally(token)) {
-      console.log("EditEventForm: Admin token validation failed, redirecting to login");
-      localStorage.setItem('event_form_draft', JSON.stringify(formData));
-      setTimeout(() => {
-        router.push("/admin-login");
-      }, 500);
-      return;
-    }
-    
     // Reset validation errors
     setValidationErrors({});
     

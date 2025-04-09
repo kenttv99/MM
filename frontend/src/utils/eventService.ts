@@ -1,5 +1,6 @@
 // frontend/src/utils/eventService.ts
 import { EventFormData, EventData, EventResponse } from '@/types/events';
+import { apiFetch } from '@/utils/api';
 
 export const prepareEventFormData = (eventData: EventFormData): FormData => {
   const formData = new FormData();
@@ -88,23 +89,10 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
   }
 
   try {
-    // Упрощенная проверка сессии без вызова ensureAdminSession
-    const payload = JSON.parse(atob(adminToken.split('.')[1]));
-    const now = Math.floor(Date.now() / 1000);
-    
-    // Дополнительное логирование для отладки
-    console.log(`eventService: Token payload:`, {
-      exp: payload.exp ? new Date(payload.exp * 1000).toISOString() : 'undefined',
-      sub: payload.sub || 'undefined',
-      now: new Date(now * 1000).toISOString(),
-      isExpired: payload.exp && payload.exp <= now
-    });
-    
-    if (payload.exp && payload.exp <= now) {
-      console.log("eventService: Admin token is expired");
-      // Токен истёк, удаляем его
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
+    // Проверка сессии на сервере вместо локальной проверки
+    const isSessionValid = await ensureAdminSession();
+    if (!isSessionValid) {
+      console.log("eventService: Admin session is invalid");
       return {
         success: false,
         message: "Сессия администратора истекла. Необходимо войти заново.",
@@ -128,28 +116,21 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
     console.log(`eventService: Current window location: ${window.location.href}`);
     console.log(`eventService: Current window origin: ${window.location.origin}`);
     
-    // Используем обычный fetch, next.config.js уже настроен на проксирование запросов
-    const response = await fetch('/admin_edits', {
-      method: "POST",
+    // При отправке формы с файлами используем обычный fetch вместо apiFetch
+    const response = await fetch('/admin_edits/', {
+      method: 'POST',
       headers: {
-        Authorization: `Bearer ${adminToken}`
+        'Authorization': `Bearer ${adminToken}`
       },
-      body: formData
+      credentials: 'include',
+      body: formData // Отправляем FormData, а не formDataDebug
     });
     
     console.log(`eventService: Create event response status: ${response.status}`);
-    console.log(`eventService: Response URL: ${response.url}`);
     
-    // Логируем заголовки ответа для отладки
-    const headers: Record<string, string> = {};
-    response.headers.forEach((value, key) => {
-      headers[key] = value;
-    });
-    console.log("eventService: Response headers:", headers);
-    
+    // Обработка ошибок
     if (response.status === 401) {
       console.log("eventService: Authentication error 401 in createEvent, clearing session");
-      // Удаляем токен только при ошибке 401 Unauthorized
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_data");
       return {
@@ -159,62 +140,48 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
       };
     }
     
-    // Для ошибки 403 Forbidden сохраняем данные сессии, но возвращаем ошибку с флагом авторизации
     if (response.status === 403) {
       console.log("eventService: Authorization error 403 in createEvent, NOT clearing session");
-      console.log("eventService: Full URL that caused 403:", response.url);
       
       // Проверяем токен еще раз для отладки
       const adminData = localStorage.getItem("admin_data");
       console.log("eventService: Admin data in localStorage:", adminData ? JSON.parse(adminData) : "missing");
       
-      // Пробуем получить текст ответа с ошибкой
-      let errorText = "";
-      try {
-        errorText = await response.text();
-        console.log("eventService: Error response body:", errorText);
-      } catch (e) {
-        console.error("eventService: Could not read error response:", e);
-      }
+      // Пробуем получить текст ошибки
+      const errorText = await response.text();
+      console.log("eventService: Error response body:", errorText);
       
       return {
         success: false,
         message: "У вас недостаточно прав для выполнения этой операции. Проверьте, что вы авторизованы как администратор.",
-        authError: true, // Указываем, что это ошибка авторизации, но не очищаем токены
+        authError: true,
       };
-    }
-
-    // Пробуем получить данные ответа, даже если статус не 200/201
-    let responseData;
-    try {
-      responseData = await response.json();
-      console.log("eventService: Response data:", responseData);
-    } catch (error) {
-      console.error("eventService: Error parsing response:", error);
-      
-      // Пробуем получить ответ как текст
-      try {
-        const textResponse = await response.text();
-        console.log("eventService: Text response:", textResponse);
-      } catch (e) {
-        console.error("eventService: Could not get text response:", e);
-      }
-      
-      responseData = { message: "Ошибка обработки ответа от сервера" };
     }
     
-    if (response.status === 201 || response.status === 200) {
-      console.log("eventService: Event created successfully");
-      return {
-        success: true,
-        event: responseData,
-        message: "Событие успешно создано",
-      };
-    } else {
-      console.warn(`eventService: Unexpected response status: ${response.status}`);
+    // Обрабатываем успешный ответ или другие ошибки
+    try {
+      const responseData = await response.json();
+      console.log("eventService: Response data:", responseData);
+      
+      if (response.status === 200 || response.status === 201) {
+        console.log("eventService: Event created successfully");
+        return {
+          success: true,
+          event: responseData,
+          message: "Событие успешно создано",
+        };
+      } else {
+        console.warn(`eventService: Unexpected response status: ${response.status}`);
+        return {
+          success: false,
+          message: responseData.message || responseData.detail || `Неизвестная ошибка при создании события (${response.status})`,
+        };
+      }
+    } catch (error) {
+      console.error("eventService: Error parsing response:", error);
       return {
         success: false,
-        message: responseData.message || `Неизвестная ошибка при создании события (${response.status})`,
+        message: "Ошибка обработки ответа от сервера",
       };
     }
   } catch (error) {
@@ -244,54 +211,54 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
   }
 };
 
-export const updateEvent = async (eventId: number | string, eventData: EventFormData): Promise<EventResponse> => {
-  console.log(`eventService: Starting updateEvent for event ID ${eventId}`);
-  const token = localStorage.getItem("admin_token");
-  if (!token) {
-    console.log("eventService: No admin token found");
-    return { 
-      success: false,
-      message: "Сессия истекла. Необходима авторизация.",
-      authError: true
-    };
-  }
+export const updateEvent = async (
+  id: string,
+  data: EventFormData,
+  token?: string
+): Promise<{ success: boolean; event?: Event; message?: string; authError?: boolean }> => {
+  console.log("eventService: Starting updateEvent", { id, data });
 
   try {
-    // Упрощенная проверка сессии без вызова ensureAdminSession
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    const now = Math.floor(Date.now() / 1000);
-    
-    if (payload.exp && payload.exp <= now) {
-      console.log("eventService: Admin token is expired");
-      // Токен истёк, удаляем его
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
+    // Проверяем сессию на сервере
+    const isSessionValid = await ensureAdminSession();
+    if (!isSessionValid) {
+      console.log("eventService: Admin session is invalid");
       return {
         success: false,
         message: "Сессия администратора истекла. Необходимо войти заново.",
         authError: true
       };
     }
-
-    console.log("eventService: Preparing form data");
-    const formData = prepareEventFormData(eventData);
-
-    console.log(`eventService: Making API request to update event ${eventId}`);
     
-    // Используем обычный fetch
-    const response = await fetch(`/admin_edits/${eventId}`, {
+    // Prepare form data
+    const formData = prepareEventFormData(data);
+
+    // Получаем токен из localStorage, если он не передан
+    const adminToken = token || localStorage.getItem("admin_token");
+    if (!adminToken) {
+      console.log("eventService: No admin token found");
+      return {
+        success: false,
+        message: "Отсутствует админ-токен. Необходимо войти в систему.",
+        authError: true
+      };
+    }
+
+    // Send PUT request to update the event (используем маршрут /admin_edits/:id)
+    const response = await fetch(`/admin_edits/${id}/`, {
       method: "PUT",
       headers: {
-        Authorization: `Bearer ${token}`
+        'Authorization': `Bearer ${adminToken}`
       },
+      credentials: 'include',
       body: formData
     });
 
     console.log(`eventService: Update response status: ${response.status}`);
     
+    // Обработка ошибок
     if (response.status === 401) {
       console.log("eventService: Authentication error 401 in updateEvent, clearing session");
-      // Удаляем токен только при ошибке 401 Unauthorized
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_data");
       return {
@@ -304,6 +271,11 @@ export const updateEvent = async (eventId: number | string, eventData: EventForm
     // Для ошибки 403 Forbidden сохраняем данные сессии, но возвращаем ошибку с флагом авторизации
     if (response.status === 403) {
       console.log("eventService: Authorization error 403 in updateEvent, NOT clearing session");
+      
+      // Пробуем получить текст ошибки
+      const errorText = await response.text();
+      console.log("eventService: Error response body:", errorText);
+      
       return {
         success: false,
         message: "У вас недостаточно прав для выполнения этой операции.",
@@ -311,35 +283,55 @@ export const updateEvent = async (eventId: number | string, eventData: EventForm
       };
     }
     
-    // Пробуем получить данные ответа, даже если статус не 200/201
-    let responseData;
+    // Обрабатываем успешный ответ или другие ошибки
     try {
-      responseData = await response.json();
+      const responseData = await response.json();
+      console.log("eventService: Response data:", responseData);
+      
+      if (response.status === 200 || response.status === 201) {
+        console.log("eventService: Event updated successfully");
+        return {
+          success: true,
+          event: responseData,
+          message: "Событие успешно обновлено",
+        };
+      } else {
+        console.warn(`eventService: Unexpected response status: ${response.status}`);
+        return {
+          success: false,
+          message: responseData.message || responseData.detail || `Неизвестная ошибка при обновлении события (${response.status})`,
+        };
+      }
     } catch (error) {
       console.error("eventService: Error parsing response:", error);
-      responseData = { message: "Ошибка обработки ответа от сервера" };
-    }
-
-    if (response.status === 200) {
-      console.log("eventService: Event updated successfully");
-      return {
-        success: true,
-        event: responseData,
-        message: "Событие успешно обновлено",
-      };
-    } else {
-      console.warn(`eventService: Unexpected response status: ${response.status}`);
       return {
         success: false,
-        message: responseData.message || `Неизвестная ошибка при обновлении события (${response.status})`,
+        message: "Ошибка обработки ответа от сервера",
       };
     }
   } catch (error) {
     console.error("eventService: Error updating event:", error);
     
+    // Определяем тип ошибки для более детального сообщения пользователю
+    let errorMessage: string;
+    
+    if (error instanceof TypeError && error.message === "Failed to fetch") {
+      errorMessage = "Ошибка подключения к серверу. Проверьте ваше интернет-соединение или обратитесь к администратору.";
+      console.error("eventService: Network connection error - Failed to fetch");
+    } else if (error instanceof DOMException && error.name === "AbortError") {
+      errorMessage = "Запрос отменен. Пожалуйста, попробуйте снова.";
+      console.error("eventService: Request was aborted");
+    } else if (error instanceof Error) {
+      errorMessage = `Ошибка при обновлении события: ${error.message}`;
+      console.error(`eventService: Error with message: ${error.message}`);
+    } else {
+      errorMessage = "Неизвестная ошибка при обновлении события.";
+      console.error("eventService: Unknown error type:", error);
+    }
+    
     return {
       success: false,
-      message: error instanceof Error ? error.message : "Ошибка сети при обновлении события. Пожалуйста, проверьте подключение.",
+      message: errorMessage,
     };
   }
 };
@@ -357,39 +349,43 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
   }
 
   try {
-    // Упрощенная проверка сессии без вызова ensureAdminSession
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    const now = Math.floor(Date.now() / 1000);
-    
-    if (payload.exp && payload.exp <= now) {
-      console.log("eventService: Admin token is expired");
-      // Токен истёк, удаляем его
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
+    // Проверка сессии на сервере
+    const isSessionValid = await ensureAdminSession();
+    if (!isSessionValid) {
+      console.log("eventService: Admin session is invalid");
       return {
         success: false,
         message: "Сессия администратора истекла. Необходимо войти заново.",
         authError: true
       };
     }
-
+    
     console.log(`eventService: Making API request to fetch event ${eventId}`);
     
-    // Используем обычный fetch
-    const response = await fetch(`/admin_edits/${eventId}`, {
+    // Проверяем порт текущего окна для отладки
+    console.log(`eventService: Current window location: ${window.location.href}`);
+    console.log(`eventService: Current window origin: ${window.location.origin}`);
+    
+    // Добавлено credentials: 'include' и проверка URL на завершающий слеш
+    const url = eventId.endsWith('/') 
+      ? `/admin_edits/${eventId}` 
+      : `/admin_edits/${eventId}/`;
+    
+    const response = await fetch(url, {
       method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      }
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      credentials: 'include'
     });
 
     console.log(`eventService: Fetch event response status: ${response.status}`);
     
+    // Обработка ошибок аутентификации
     if (response.status === 401) {
       console.log("eventService: Authentication error 401 in fetchEvent, clearing session");
-      // Удаляем токен только при ошибке 401 Unauthorized
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_data");
       return {
@@ -399,9 +395,13 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
       };
     }
     
-    // Для ошибки 403 Forbidden сохраняем данные сессии, но возвращаем ошибку с флагом авторизации
     if (response.status === 403) {
       console.log("eventService: Authorization error 403 in fetchEvent, NOT clearing session");
+      
+      // Пробуем получить текст ошибки
+      const errorText = await response.text();
+      console.log("eventService: Error response body:", errorText);
+      
       return {
         success: false,
         message: "У вас недостаточно прав для выполнения этой операции.",
@@ -416,123 +416,131 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
       };
     }
     
-    // Пробуем получить данные ответа, даже если статус не 200
-    let responseData;
+    // Обрабатываем успешный ответ или другие ошибки
     try {
-      responseData = await response.json();
+      const responseData = await response.json();
+      console.log("eventService: Response data:", responseData);
+      
+      if (response.status === 200) {
+        console.log("eventService: Event fetched successfully");
+        return {
+          success: true,
+          event: responseData,
+          message: "Событие успешно загружено",
+        };
+      } else {
+        console.warn(`eventService: Unexpected response status: ${response.status}`);
+        return {
+          success: false,
+          message: responseData.message || responseData.detail || `Неизвестная ошибка при загрузке события (${response.status})`,
+        };
+      }
     } catch (error) {
       console.error("eventService: Error parsing response:", error);
-      responseData = { message: "Ошибка обработки ответа от сервера" };
-    }
-
-    if (response.status === 200) {
-      console.log("eventService: Event fetched successfully");
-      return {
-        success: true,
-        event: responseData,
-        message: "Событие успешно загружено",
-      };
-    } else {
-      console.warn(`eventService: Unexpected response status: ${response.status}`);
       return {
         success: false,
-        message: responseData.message || `Неизвестная ошибка при загрузке события (${response.status})`,
+        message: "Ошибка обработки ответа от сервера",
       };
     }
   } catch (error) {
     console.error("eventService: Error fetching event:", error);
     
+    // Определяем тип ошибки для более детального сообщения пользователю
+    let errorMessage: string;
+    
+    if (error instanceof TypeError && error.message === "Failed to fetch") {
+      errorMessage = "Ошибка подключения к серверу. Проверьте ваше интернет-соединение или обратитесь к администратору.";
+      console.error("eventService: Network connection error - Failed to fetch");
+    } else if (error instanceof DOMException && error.name === "AbortError") {
+      errorMessage = "Запрос отменен. Пожалуйста, попробуйте снова.";
+      console.error("eventService: Request was aborted");
+    } else if (error instanceof Error) {
+      errorMessage = `Ошибка при загрузке события: ${error.message}`;
+      console.error(`eventService: Error with message: ${error.message}`);
+    } else {
+      errorMessage = "Неизвестная ошибка при загрузке события.";
+      console.error("eventService: Unknown error type:", error);
+    }
+    
     return {
       success: false,
-      message: error instanceof Error ? error.message : "Ошибка сети при загрузке события. Пожалуйста, проверьте подключение.",
+      message: errorMessage,
     };
   }
 };
 
-// Function to ensure the admin token is valid before making requests
+// Function to ensure the admin session is valid before making requests
 export const ensureAdminSession = async (): Promise<boolean> => {
   console.log("eventService: Checking admin session validity");
   
-  // Сначала проверяем токен локально
-  const adminToken = localStorage.getItem("admin_token");
-  
-  if (!adminToken) {
-    console.log("eventService: No admin token found in localStorage");
-    return false;
-  }
-  
+  // Проверяем токен на сервере
   try {
-    // Декодируем и проверяем токен локально
-    const payload = JSON.parse(atob(adminToken.split('.')[1]));
-    const now = Math.floor(Date.now() / 1000);
+    const isValid = await checkAdminSession();
+    console.log(`eventService: Server validation result: ${isValid}`);
     
-    // Проверяем срок действия токена
-    if (payload.exp && payload.exp > now) {
-      // Токен действителен
-      const expiryDate = new Date(payload.exp * 1000);
-      console.log(`eventService: Admin token is valid until ${expiryDate.toISOString()}`);
-      return true;
-    } else {
-      console.log("eventService: Admin token has expired locally");
-      // Токен истёк, удаляем его
+    if (!isValid) {
+      // Если сервер подтвердил, что сессия недействительна, удаляем токены
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_data");
-      return false;
     }
-  } catch (error) {
-    console.error("eventService: Error during local token validation:", error);
     
-    // Если локальная валидация не удалась, проверяем на сервере
-    try {
-      const isValid = await checkAdminSession();
-      console.log(`eventService: Server validation result: ${isValid}`);
-      
-      if (!isValid) {
-        // Если сервер также подтвердил, что сессия недействительна, удаляем токены
-        localStorage.removeItem("admin_token");
-        localStorage.removeItem("admin_data");
-      }
-      
-      return isValid;
-    } catch (serverError) {
-      console.error("eventService: Server validation failed:", serverError);
-      // Очищаем токены в случае ошибки
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
-      return false;
-    }
+    return isValid;
+  } catch (serverError) {
+    console.error("eventService: Server validation failed:", serverError);
+    // Очищаем токены в случае ошибки
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin_data");
+    return false;
   }
 };
 
 // Function to check admin session on the server
 export const checkAdminSession = async (): Promise<boolean> => {
-  try {
-    const token = localStorage.getItem("admin_token");
-    if (!token) return false;
+  const adminToken = localStorage.getItem("admin_token");
+  
+  if (!adminToken) {
+    console.log("eventService: No admin token found for checking");
+    return false;
+  }
 
-    // Проверка сессии через эндпоинт /admin/me
-    const response = await fetch(`/admin/me`, {
-      method: "GET", 
+  try {
+    console.log("eventService: Sending admin session check request");
+    const response = await fetch('/admin/me', {
+      method: "GET",
       headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json"
-      }
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${adminToken}`
+      },
+      credentials: 'include'
     });
 
-    if (response.ok) {
+    // Обрабатываем различные статусы ответа
+    if (response.status === 200) {
+      console.log("eventService: Admin session is valid");
+      
+      // Обновляем данные админа из ответа
+      try {
+        const data = await response.json();
+        if (data.success && data.data) {
+          localStorage.setItem("admin_data", JSON.stringify(data.data));
+          console.log("eventService: Admin data updated from session check");
+        }
+      } catch (error) {
+        console.error("eventService: Error parsing admin data:", error);
+        // Сессия всё равно валидна, даже если не удалось распарсить данные
+      }
+      
       return true;
-    }
-
-    // Если получаем 401 или 403, значит сессия истекла
-    if (response.status === 401 || response.status === 403) {
-      console.log("eventService: Session check failed with status", response.status);
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
+    } else if (response.status === 401) {
+      console.log("eventService: Admin session is invalid (401 Unauthorized)");
+      return false;
+    } else if (response.status === 403) {
+      console.log("eventService: Admin session lacks permissions (403 Forbidden)");
+      return false;
+    } else {
+      console.error(`eventService: Unexpected status code: ${response.status}`);
       return false;
     }
-
-    console.warn("eventService: Unexpected status checking admin session:", response.status);
-    return false;
   } catch (error) {
     console.error("eventService: Error checking admin session:", error);
     return false;

@@ -19,10 +19,9 @@ const nextConfig = {
     ],
   },
   async rewrites() {
-    // Для обхода CORS и SOP проблем с относительными путями
-    // Простая версия без лишних параметров
     return [
-      // Админские маршруты - сервер на порту 8001
+      // Админские маршруты - приоритет выше, чем у общих
+      // Специфические маршруты для админской аутентификации
       {
         source: '/admin/login',
         destination: 'http://localhost:8001/admin/login'
@@ -36,13 +35,28 @@ const nextConfig = {
         destination: 'http://localhost:8001/admin/me'
       },
       {
-        source: '/admin/:path*',
-        destination: 'http://localhost:8001/admin/:path*'
+        source: '/admin/refresh',
+        destination: 'http://localhost:8001/admin/refresh'
       },
       
-      // ВАЖНО: admin_edits - порт 8001
-      // Важен порядок правил от более специфичных к общим
-      // Сначала определяем конкретные пути для admin_edits
+      // Специфические маршруты для админских операций над событиями
+      // Важно: сначала URL со слешем в конце
+      {
+        source: '/admin_edits/',
+        destination: 'http://localhost:8001/admin_edits/'
+      },
+      {
+        source: '/admin_edits',
+        destination: 'http://localhost:8001/admin_edits'
+      },
+      {
+        source: '/admin_edits/:id/',
+        destination: 'http://localhost:8001/admin_edits/:id/'
+      },
+      {
+        source: '/admin_edits/:id',
+        destination: 'http://localhost:8001/admin_edits/:id'
+      },
       {
         source: '/admin_edits/users/:id',
         destination: 'http://localhost:8001/admin_edits/users/:id'
@@ -51,19 +65,24 @@ const nextConfig = {
         source: '/admin_edits/events/:id',
         destination: 'http://localhost:8001/admin_edits/events/:id'
       },
-      // Добавляем правило для обработки POST-запросов к /admin_edits без параметров
+      
+      // API маршруты для работы с событиями
       {
-        source: '/admin_edits',
-        destination: 'http://localhost:8001/admin_edits',
-        // Добавляем явное указание метода, чтобы правило применялось для всех методов
-        // включая POST, PUT, DELETE, GET
+        source: '/api/events/:id',
+        destination: 'http://localhost:8001/admin_edits/:id'
+      },
+      
+      // Общие маршруты в конце
+      {
+        source: '/admin/:path*',
+        destination: 'http://localhost:8001/admin/:path*'
       },
       {
         source: '/admin_edits/:path*',
         destination: 'http://localhost:8001/admin_edits/:path*'
       },
       
-      // Пользовательские маршруты - сервер на порту 8000
+      // Пользовательские маршруты
       {
         source: '/auth/:path*',
         destination: 'http://localhost:8000/auth/:path*'

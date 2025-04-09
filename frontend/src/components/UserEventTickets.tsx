@@ -1028,7 +1028,7 @@ export const UserEventTickets: React.FC = () => {
       ) : tickets.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full p-4 text-center">
           <div className="text-xl font-semibold mb-2">У вас пока нет билетов</div>
-          <p className="text-gray-500">После покупки, билеты на мероприятия будут отображаться здесь</p>
+          <p className="text-gray-500">После бронирования, билеты на мероприятия будут отображаться здесь</p>
         </div>
       ) : (
         <>

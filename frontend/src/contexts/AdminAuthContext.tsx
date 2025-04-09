@@ -78,15 +78,34 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const loginAdmin = useCallback((token: string, admin: AdminProfile) => {
     console.log('AdminAuthContext: Login successful, saving token and setting admin data');
+    
+    // Validate token first
+    if (!token || token === "undefined" || token === "null") {
+      console.error('AdminAuthContext: Attempted to save invalid token:', token);
+      return;
+    }
+    
+    // Set token and data in localStorage
     localStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, token);
     localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(admin));
+    
+    // Update state
     setIsAdminAuth(true);
     setAdminData(admin);
     setIsLoading(false); // Reset isLoading after successful login
     setIsAuthChecked(true); // Mark authentication check as complete
+    
     // Move to next stage after successful login
     setStage(LoadingStage.STATIC_CONTENT);
-    router.push("/admin-profile");
+    
+    // Short delay before setting COMPLETED to allow stages to settle
+    setTimeout(() => {
+      setStage(LoadingStage.COMPLETED);
+      console.log('AdminAuthContext: Set stage to COMPLETED after login');
+      
+      // Redirect to admin profile
+      router.push("/admin-profile");
+    }, 100);
   }, [router, setStage]);
 
   const logoutAdmin = useCallback(() => {
@@ -147,65 +166,54 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     };
   }, [isAdminAuth, logoutAdmin]);
 
-  const validateToken = useCallback(async () => {
+  // Проверка токена администратора
+  const validateToken = useCallback(async (): Promise<boolean> => {
+    // Получаем токен из локального хранилища
+    const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
+    
+    if (!token) {
+      console.log('AdminAuthContext: No token found during validation');
+      logoutAdmin();
+      
+      // Set to STATIC_CONTENT instead of COMPLETED for invalid tokens
+      setStage(LoadingStage.STATIC_CONTENT);
+      setIsLoading(false);
+      setIsAuthChecked(true);
+      
+      return false;
+    }
+    
+    if (isTokenExpired(token)) {
+      console.log('AdminAuthContext: Token expired');
+      logoutAdmin();
+      
+      // Set to STATIC_CONTENT instead of COMPLETED for expired tokens
+      setStage(LoadingStage.STATIC_CONTENT);
+      setIsLoading(false);
+      setIsAuthChecked(true);
+      
+      return false;
+    }
+    
     console.log('AdminAuthContext: Validating admin token');
     
-    // Сразу отключаем любые индикаторы загрузки
-    setDynamicLoading(false);
+    // Set to STATIC_CONTENT to allow static content to load while checking auth
+    setStage(LoadingStage.STATIC_CONTENT);
     
-    // Проверяем наличие токена
-    const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
-    if (!token) {
-      console.log('AdminAuthContext: No token found');
-      logoutAdmin();
-      setIsAuthChecked(true);
-      // Принудительно устанавливаем COMPLETED для скрытия спиннера
-      setStage(LoadingStage.STATIC_CONTENT);
-      
-      requestAnimationFrame(() => {
-        setStage(LoadingStage.COMPLETED);
-      });
-      
-      return false;
-    }
-
-    // Проверяем срок действия токена
-    if (isTokenExpired(token)) {
-      console.log('AdminAuthContext: Token is expired');
-      logoutAdmin();
-      setIsAuthChecked(true);
-      // Принудительно устанавливаем COMPLETED для скрытия спиннера
-      setStage(LoadingStage.STATIC_CONTENT);
-      
-      requestAnimationFrame(() => {
-        setStage(LoadingStage.COMPLETED);
-      });
-      
-      return false;
-    }
-
-    // Устанавливаем защитный таймаут
-    if (authCheckFailsafeRef.current) {
-      clearTimeout(authCheckFailsafeRef.current);
-    }
-    
-    // Запускаем защитный таймер на случай зависания запроса
+    // Включаем защитный таймер для предотвращения зависания на проверке авторизации
     authCheckFailsafeRef.current = setTimeout(() => {
-      console.log('AdminAuthContext: Auth check failsafe triggered');
-      setDynamicLoading(false);
+      console.log('AdminAuthContext: Auth check timeout, forcing completion');
       setIsLoading(false);
-      logoutAdmin();
+      setDynamicLoading(false);
       setIsAuthChecked(true);
       
-      // Гарантированно устанавливаем COMPLETED
+      // Принудительно переводим к завершающей стадии 
       setStage(LoadingStage.COMPLETED);
-    }, 3000); // 3 секунды вместо 5
+    }, 2000); // 2 секунд вместо 3
 
     try {
       // Запрос к API
       console.log('AdminAuthContext: Making admin auth check request to /admin/me');
-      
-      // Не включаем индикаторы загрузки вообще
       
       try {
         const response = await apiFetch('/admin/me', {
@@ -213,7 +221,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           headers: {
             'Authorization': `Bearer ${token}`
           },
-          bypassLoadingStageCheck: true
+          bypassLoadingStageCheck: true // Всегда обходим проверку стадии загрузки
         });
         
         console.log('AdminAuthContext: Response from /admin/me:', response);
@@ -223,7 +231,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           console.log('AdminAuthContext: Auth check failed', response);
           logoutAdmin();
           setIsAuthChecked(true);
-          setStage(LoadingStage.COMPLETED);
+          setIsLoading(false);
           return false;
         }
         
@@ -232,7 +240,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           console.log('AdminAuthContext: Response missing success flag', response);
           logoutAdmin();
           setIsAuthChecked(true);
-          setStage(LoadingStage.COMPLETED);
+          setIsLoading(false);
           return false;
         }
         
@@ -242,7 +250,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           console.log('AdminAuthContext: Response missing data field', response);
           logoutAdmin();
           setIsAuthChecked(true);
-          setStage(LoadingStage.COMPLETED);
+          setIsLoading(false);
           return false;
         }
         
@@ -263,12 +271,17 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setIsLoading(false);
         setIsAuthChecked(true);
         
-        // Устанавливаем стадию COMPLETED напрямую без промежуточных переходов
+        // Принудительно отключаем все индикаторы загрузки
+        setDynamicLoading(false);
+        
+        // Now move to COMPLETED stage since auth is valid
         setStage(LoadingStage.COMPLETED);
         
         // Устанавливаем флаг для принудительного скрытия спиннеров
         if (typeof window !== 'undefined') {
           (window as any).__admin_auth_complete__ = true;
+          // Добавляем DOM-событие для уведомления других компонентов
+          window.dispatchEvent(new CustomEvent('admin-auth-complete', { detail: { authenticated: true } }));
         }
         
         return true;
@@ -283,7 +296,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         // Устанавливаем состояние
         logoutAdmin();
         setIsAuthChecked(true);
-        setStage(LoadingStage.COMPLETED);
         
         return false;
       }
@@ -298,7 +310,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Устанавливаем состояние
       logoutAdmin();
       setIsAuthChecked(true);
-      setStage(LoadingStage.COMPLETED);
       
       return false;
     } finally {
@@ -323,23 +334,30 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isMounted.current = true;
     
     console.log('AdminAuthContext: Initializing auth check');
-    // Check if we need to change loading stage
-    const currentStage = (window as any).__loading_stage__;
     
-    if (currentStage !== LoadingStage.AUTHENTICATION) {
-      // Only set authentication stage once if needed
-      setStage(LoadingStage.AUTHENTICATION);
-    }
+    // Set AUTHENTICATION stage instead of COMPLETED
+    setStage(LoadingStage.AUTHENTICATION);
     
     if (localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN)) {
       console.log('AdminAuthContext: Token found in localStorage, validating');
+      // Log the token first few characters for debugging
+      const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
+      if (token) {
+        console.log('AdminAuthContext: Token preview:', token.substring(0, 10) + '...');
+        
+        // Check if token is expired
+        if (isTokenExpired(token)) {
+          console.log('AdminAuthContext: Token is expired, will be removed during validation');
+        }
+      }
       validateToken();
     } else {
       console.log('AdminAuthContext: No token found in localStorage');
       // Mark auth check complete if no token
       setIsAuthChecked(true);
-      setStage(LoadingStage.STATIC_CONTENT);
       setIsLoading(false);
+      // Set to STATIC_CONTENT to allow initial content to load
+      setStage(LoadingStage.STATIC_CONTENT);
       if (!isAdminAuth && window.location.pathname.startsWith("/admin") && 
           !window.location.pathname.includes("/admin-login")) {
         router.push("/admin-login");

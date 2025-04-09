@@ -8,6 +8,8 @@ import { ModalButton } from "@/components/common/AuthModal";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog, FaUser } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useRouter } from "next/navigation";
 
 // Динамическая загрузка AdminHeader без SSR
 const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
@@ -24,21 +26,83 @@ const navigateTo = (path: string, params: Record<string, string> = {}) => {
   window.location.href = url.pathname + url.search;
 };
 
+// Компонент скелетона для профиля
+const ProfileSkeleton = () => (
+  <div className="min-h-screen bg-gray-50 relative">
+    <AdminHeader />
+    <main className="container mx-auto px-4 pt-24 pb-12">
+      <div className="max-w-3xl mx-auto">
+        <div className="h-10 bg-gray-200 rounded w-1/3 mb-8 animate-pulse"></div>
+        
+        <div className="bg-white p-6 rounded-lg shadow-md mb-8 animate-pulse">
+          <div className="flex items-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-gray-200 mr-4"></div>
+            <div>
+              <div className="h-6 bg-gray-200 rounded w-40 mb-2"></div>
+              <div className="h-5 bg-gray-200 rounded w-32 flex items-center"></div>
+            </div>
+          </div>
+          
+          <div className="flex items-center mb-6">
+            <div className="h-8 bg-gray-200 rounded-full w-32"></div>
+          </div>
+          
+          <div className="space-y-4">
+            <div className="h-12 bg-gray-200 rounded"></div>
+            <div className="h-12 bg-gray-200 rounded"></div>
+            <div className="flex justify-between space-x-4">
+              <div className="h-10 bg-gray-200 rounded w-24"></div>
+            </div>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 gap-8">
+          <div className="bg-white p-6 rounded-lg shadow-md animate-pulse">
+            <div className="flex items-center mb-6">
+              <div className="w-8 h-8 rounded-full bg-gray-200 mr-2"></div>
+              <div className="h-6 bg-gray-200 rounded w-48"></div>
+            </div>
+            <div className="h-4 bg-gray-200 rounded w-full mb-3"></div>
+            <div className="h-4 bg-gray-200 rounded w-2/3 mb-6"></div>
+            <div className="h-10 bg-gray-200 rounded w-full"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+);
+
 export default function AdminProfilePage() {
   const { isAdminAuth, adminData, isLoading: authLoading, logoutAdmin } = useAdminAuth();
+  const { stage, setStage, setDynamicLoading } = useLoading();
+  const router = useRouter();
+  
   const [formValues, setFormValues] = useState<AdminData>({ email: "", fio: "", id: 0 });
   const [isEditing, setIsEditing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientReady, setClientReady] = useState(false);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
+  // Обработка инициализации и загрузки профиля
   useEffect(() => {
+    // Установка флага клиентской загрузки
     setClientReady(true);
+    
+    // Обновляем стадию загрузки (на случай, если мы в другой стадии)
+    if (stage !== LoadingStage.COMPLETED) {
+      setStage(LoadingStage.COMPLETED);
+    }
+    
+    // Если у нас есть данные админа, немедленно устанавливаем их
     if (adminData) {
       setFormValues(adminData);
+      setProfileLoaded(true);
+    } else {
+      setProfileLoaded(true); // Всё равно отмечаем как загруженное, чтобы не показывать скелетон вечно
     }
-  }, [adminData]);
+  }, [adminData, stage, setStage]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -50,6 +114,7 @@ export default function AdminProfilePage() {
     if (isSubmitting) return;
 
     setIsSubmitting(true);
+    setDynamicLoading(true);
     setFetchError(null);
 
     try {
@@ -68,6 +133,7 @@ export default function AdminProfilePage() {
           Authorization: `Bearer ${token.trim()}`,
         },
         body: JSON.stringify({ fio: formValues.fio }),
+        bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
       });
       
       if ('aborted' in data) {
@@ -88,37 +154,26 @@ export default function AdminProfilePage() {
       }
     } finally {
       setIsSubmitting(false);
+      setDynamicLoading(false);
     }
   };
 
-  // Показываем скелетон загрузки до завершения рендеринга на клиенте
+  // Показываем скелетон только при первичной загрузке
   if (!clientReady) {
-    return (
-      <div className="min-h-screen bg-gray-50 relative p-4 flex items-center justify-center">
-        <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-6 animate-pulse">
-          <div className="h-8 bg-gray-200 rounded w-3/4 mb-6"></div>
-          <div className="flex items-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-gray-200 mr-4"></div>
-            <div>
-              <div className="h-5 bg-gray-200 rounded w-40 mb-2"></div>
-              <div className="h-4 bg-gray-200 rounded w-32"></div>
-            </div>
-          </div>
-          <div className="space-y-4">
-            <div className="h-10 bg-gray-200 rounded"></div>
-            <div className="h-10 bg-gray-200 rounded"></div>
-            <div className="flex justify-between">
-              <div className="h-10 bg-gray-200 rounded w-24"></div>
-              <div className="h-10 bg-gray-200 rounded w-24"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   return (
     <div className="min-h-screen bg-gray-50 relative">
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .fade-in {
+          animation: fadeIn 0.5s ease-in-out;
+        }
+      `}</style>
       <AdminHeader />
       {authLoading && (
         <div className="absolute inset-0 bg-gray-50 flex items-center justify-center z-50">
@@ -126,8 +181,18 @@ export default function AdminProfilePage() {
         </div>
       )}
       <main className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-3xl mx-auto" style={{ visibility: authLoading ? 'hidden' : 'visible' }}>
-          {(!isAdminAuth || !adminData) ? null : (
+        <div className="max-w-3xl mx-auto fade-in" style={{ visibility: authLoading ? 'hidden' : 'visible' }}>
+          {(!isAdminAuth || !adminData) ? (
+            <div className="text-center py-8">
+              <p className="text-lg text-gray-600 mb-4">Необходима авторизация администратора</p>
+              <button 
+                onClick={() => router.push('/admin-login')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Войти
+              </button>
+            </div>
+          ) : (
             <>
               <h1 className="text-3xl font-bold mb-8 text-gray-800">Профиль администратора</h1>
               {fetchError && (
@@ -209,21 +274,6 @@ export default function AdminProfilePage() {
                     className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors w-full"
                   >
                     Перейти к мероприятиям
-                  </button>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-md">
-                  <div className="flex items-center mb-6">
-                    <FaUserCircle className="text-red-500 text-xl mr-2" />
-                    <h2 className="text-xl font-semibold text-gray-800">Выход</h2>
-                  </div>
-                  <p className="text-gray-600 mb-6">
-                    Завершите текущую сессию администратора.
-                  </p>
-                  <button
-                    onClick={logoutAdmin}
-                    className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors w-full"
-                  >
-                    Выйти
                   </button>
                 </div>
               </div>

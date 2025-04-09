@@ -33,10 +33,14 @@ export default function AdminLoginPage() {
     setIsLoading(true);
 
     try {
+      console.log('AdminLogin: Sending login request with credentials');
       const data = await apiFetch<{ access_token: string; id: number; email: string; fio?: string }>("/admin/login", {
         method: "POST",
         body: JSON.stringify(formValues),
-        bypassLoadingStageCheck: true
+        bypassLoadingStageCheck: true, // Ensure this works during authentication
+        headers: {
+          'Content-Type': 'application/json' // Ensure proper content type
+        }
       });
       
       if ('aborted' in data) {
@@ -44,6 +48,8 @@ export default function AdminLoginPage() {
       }
       
       const response = data as { access_token: string; id: number; email: string; fio?: string };
+      console.log('AdminLogin: Login successful, received token');
+      
       if (!response.access_token) {
         throw new Error("Токен отсутствует в ответе сервера");
       }
@@ -53,6 +59,8 @@ export default function AdminLoginPage() {
         email: response.email,
         fio: response.fio || "Администратор",
       };
+      
+      console.log('AdminLogin: Calling loginAdmin with token and user data');
       setIsSuccess(true);
       setIsLoading(false);
       loginAdmin(response.access_token, adminData);
@@ -74,6 +82,7 @@ export default function AdminLoginPage() {
         }
       }
       
+      console.error('AdminLogin: Error during login:', errorMessage);
       setError(errorMessage);
       setIsSuccess(false);
       setIsLoading(false);

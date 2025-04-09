@@ -192,19 +192,28 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // но не обновляем флаг isStaticLoading если мы на более высокой стадии
         if (stage === LoadingStage.AUTHENTICATION || stage === LoadingStage.INITIAL) {
           setStage(LoadingStage.STATIC_CONTENT);
+          
+          // Ускоренный переход для админских маршрутов - сразу запускаем переход к COMPLETED
+          requestAnimationFrame(() => {
+            if (isMounted.current) {
+              setStage(LoadingStage.COMPLETED);
+              loadingStateRef.current.isStaticLoading = false;
+            }
+          });
         } else if (stage === LoadingStage.STATIC_CONTENT) {
           // Если мы на STATIC_CONTENT, обновляем флаг, но добавляем таймер для автоматического перехода
           loadingStateRef.current.isStaticLoading = isLoading;
           
           if (!stageTransitionTimerRef.current) {
-            // Добавляем таймаут для автоматического перехода в следующую стадию
-            stageTransitionTimerRef.current = setTimeout(() => {
-              if (isMounted.current && stage === LoadingStage.STATIC_CONTENT) {
-                logInfo('Auto-progressing from STATIC_CONTENT for admin route');
-                setStage(LoadingStage.DYNAMIC_CONTENT);
-                loadingStateRef.current.isStaticLoading = false;
-              }
-            }, 500);
+            // Сразу запускаем переход на COMPLETED без задержки для админского маршрута
+            setStage(LoadingStage.COMPLETED);
+            loadingStateRef.current.isStaticLoading = false;
+            
+            // Очищаем существующий таймер, если есть
+            if (stageTransitionTimerRef.current) {
+              clearTimeout(stageTransitionTimerRef.current);
+              stageTransitionTimerRef.current = null;
+            }
           }
         } else {
           // На более высоких стадиях просто игнорируем флаг

@@ -1,718 +1,490 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import { useState, ChangeEvent, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import InputField from "@/components/common/InputField";
-import {
-  FaSearch, FaUsers, FaCalendarAlt, FaPlus, FaTrashAlt, FaFilter, FaTimes, FaCheck, FaInfoCircle, FaBell,
-} from "react-icons/fa";
-import AdminHeader from "@/components/AdminHeader";
+import dynamic from "next/dynamic";
+import { FaPlus } from "react-icons/fa";
+import { apiFetch } from "@/utils/api";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import "@/app/globals.css";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import { AnimatePresence, motion } from "framer-motion";
-import { EventData } from "@/types/events";
-import { User } from "@/types/index";
 
-interface CustomError extends Error {
-  status?: number;
+// Storage key constants matching AdminAuthContext
+const ADMIN_STORAGE_KEYS = {
+  ADMIN_TOKEN: "admin_token",
+  ADMIN_DATA: "admin_data",
+};
+
+// Interfaces for type safety
+interface User {
+  id: number;
+  email: string;
+  fio: string;
+  created_at?: string;
+  updated_at?: string;
+  last_active?: string;
+  telegram?: string;
+  whatsapp?: string;
+  avatar_url?: string;
 }
 
-const fetchWithAuth = async <T,>(url: string, token: string, method: string = "GET", body?: Record<string, unknown>): Promise<T | null> => {
-  if (!token) {
-    throw new Error("Токен администратора отсутствует");
-  }
+interface TicketType {
+  name: string;
+  price: number;
+  available_quantity: number;
+  sold_quantity: number;
+  free_registration: boolean;
+}
 
-  console.log("Токен перед запросом:", token); // Отладка токена
+interface Event {
+  id: number;
+  title: string;
+  description?: string;
+  start_date: string;
+  end_date?: string;
+  location?: string;
+  image_url?: string;
+  price: number;
+  published: boolean;
+  created_at: string;
+  updated_at: string;
+  status: string;
+  registrations_count: number;
+  ticket_type?: TicketType;
+  url_slug?: string;
+}
 
-  try {
-    const headers: HeadersInit = {
-      Authorization: token.startsWith("Bearer ") ? token : `Bearer ${token.trim()}`, // Убеждаемся, что префикс "Bearer" присутствует
-      Accept: "application/json",
-    };
-    if (body && method !== "GET") {
-      headers["Content-Type"] = "application/json";
-    }
+// Динамическая загрузка компонентов без SSR
+const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
+const EventsList = dynamic(() => import("@/components/admin/EventsList"), { ssr: false });
+const UsersList = dynamic(() => import("@/components/admin/UsersList"), { ssr: false });
 
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+// Компонент скелетона для пользователей
+const UsersSkeleton = () => (
+  <div className="bg-white p-6 rounded-lg shadow-md mb-8 animate-pulse">
+    <div className="flex justify-between items-center mb-4">
+      <div className="h-7 bg-gray-200 rounded w-36"></div>
+      <div className="h-9 bg-gray-200 rounded w-24"></div>
+    </div>
+    <div className="h-10 bg-gray-200 rounded w-full mb-4"></div>
+    <div className="space-y-3">
+      {[...Array(5)].map((_, i) => (
+        <div key={i} className="flex items-center justify-between p-3 border border-gray-100 rounded-lg">
+          <div className="flex items-center">
+            <div className="w-10 h-10 rounded-full bg-gray-200 mr-3"></div>
+            <div>
+              <div className="h-5 bg-gray-200 rounded w-40 mb-2"></div>
+              <div className="h-4 bg-gray-200 rounded w-32"></div>
+            </div>
+          </div>
+          <div className="flex space-x-2">
+            <div className="w-8 h-8 rounded-full bg-gray-200"></div>
+            <div className="w-8 h-8 rounded-full bg-gray-200"></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      const error: CustomError = new Error(`Ошибка ${response.status}: ${errorText || 'Неизвестная ошибка'}`);
-      error.status = response.status;
-      throw error;
-    }
-    if (method === "DELETE") return null;
-    return await response.json();
-  } catch (error) {
-    throw error;
-  }
-};
+// Компонент скелетона для мероприятий
+const EventsSkeleton = () => (
+  <div className="bg-white p-6 rounded-lg shadow-md animate-pulse">
+    <div className="flex justify-between items-center mb-4">
+      <div className="h-7 bg-gray-200 rounded w-48"></div>
+      <div className="h-9 bg-gray-200 rounded w-32"></div>
+    </div>
+    <div className="h-10 bg-gray-200 rounded w-full mb-4"></div>
+    <div className="space-y-3">
+      {[...Array(3)].map((_, i) => (
+        <div key={i} className="p-4 border border-gray-100 rounded-lg">
+          <div className="flex justify-between items-center mb-3">
+            <div className="h-6 bg-gray-200 rounded w-1/3"></div>
+            <div className="flex space-x-2">
+              <div className="w-8 h-8 rounded-full bg-gray-200"></div>
+              <div className="w-8 h-8 rounded-full bg-gray-200"></div>
+            </div>
+          </div>
+          <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
+          <div className="h-4 bg-gray-200 rounded w-2/3 mb-3"></div>
+          <div className="flex justify-between items-center">
+            <div className="h-5 bg-gray-200 rounded w-24"></div>
+            <div className="h-8 bg-gray-200 rounded w-28"></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
 
-const navigateTo = (router: ReturnType<typeof useRouter>, path: string, params: Record<string, string> = {}) => {
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  router.push(url.pathname + url.search);
-};
+// Компонент скелетона для всего дашборда
+const DashboardSkeleton = () => (
+  <div className="min-h-screen bg-gray-50">
+    <AdminHeader />
+    <main className="container mx-auto px-4 pt-24 pb-12">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex justify-between items-center mb-6">
+          <div className="h-10 bg-gray-200 rounded w-1/4"></div>
+          <div className="h-10 bg-gray-200 rounded w-36"></div>
+        </div>
+        
+        {/* Summary Cards Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-blue-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="h-5 bg-gray-200 rounded w-40 mb-2"></div>
+                <div className="h-8 bg-gray-200 rounded w-20"></div>
+              </div>
+              <div className="bg-blue-50 p-3 rounded-full">
+                <div className="h-8 w-8 bg-gray-200 rounded-full"></div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-100">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="h-5 bg-gray-200 rounded w-40 mb-2"></div>
+                <div className="h-8 bg-gray-200 rounded w-20"></div>
+              </div>
+              <div className="bg-green-50 p-3 rounded-full">
+                <div className="h-8 w-8 bg-gray-200 rounded-full"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <UsersSkeleton />
+        <EventsSkeleton />
+      </div>
+    </main>
+  </div>
+);
 
-export default function DashboardPage() {
-  const [userSearch, setUserSearch] = useState("");
-  const [eventSearch, setEventSearch] = useState("");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [users, setUsers] = useState<User[]>([]);
-  const [events, setEvents] = useState<EventData[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [eventToDelete, setEventToDelete] = useState<number | null>(null);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const initialized = useRef(false);
-  const observer = useRef<IntersectionObserver | null>(null);
-  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
+export default function Dashboard() {
   const router = useRouter();
-  const { isAdminAuth } = useAdminAuth();
+  const { stage, setStage } = useLoading();
+  const { isAdminAuth, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
+  
+  const [events, setEvents] = useState<Event[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [clientReady, setClientReady] = useState(false);
+  const [dataLoaded, setDataLoaded] = useState({
+    users: false,
+    events: false
+  });
 
-  const getAdminToken = useCallback(() => {
-    return typeof window !== 'undefined' ? localStorage.getItem("admin_token") : null;
-  }, []);
-
-  const fetchEvents = useCallback(async (search: string, pageNum: number, append: boolean = false) => {
-    if (isLoading || !isAdminAuth) return;
-    setIsLoading(true);
-
-    const token = getAdminToken();
-    if (!token) {
-      setError("Токен администратора не найден");
-      setIsLoading(false);
-      router.push("/admin-login");
-      return;
-    }
-
-    let url = `/admin_edits/events?page=${pageNum}&limit=10`;
-    const params = new URLSearchParams();
-    if (search.trim()) params.append("search", search.trim());
-    if (startDate && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) params.append("start_date", startDate);
-    if (endDate && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) params.append("end_date", endDate);
-    if (statusFilter.trim()) {
-      const statusMap: { [key: string]: string } = {
-        "Черновик": "draft",
-        "Регистрация открыта": "registration_open",
-        "Регистрация закрыта": "registration_closed",
-        "Завершено": "completed",
-      };
-      const mappedStatus = statusMap[statusFilter] || "";
-      if (mappedStatus) params.append("status", mappedStatus);
-    }
-    if (params.toString()) url += `&${params.toString()}`;
-
+  // Функция для загрузки пользователей
+  const fetchUsers = async () => {
     try {
-      const data = await fetchWithAuth<EventData[]>(url, token);
-      if (data) {
-        setHasMore(data.length === 10);
-        setEvents((prev) => (append ? [...prev, ...data] : data));
-      } else if (!append) {
-        setEvents([]);
+      // Get token with the correct key
+      const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+      
+      if (!token) {
+        throw new Error("Токен администратора не найден");
       }
-    } catch (error: unknown) {
-      const err = error as CustomError;
-      if (err.status === 401) {
-        setError("Сессия истекла. Пожалуйста, войдите снова.");
-        router.push("/admin-login"); // Редирект на логин, а не профиль
-      } else {
-        setError(err.message || "Не удалось загрузить мероприятия");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isLoading, isAdminAuth, startDate, endDate, statusFilter, getAdminToken, router]);
-
-  const fetchUsers = useCallback(async (search: string) => {
-    if (isLoading || !isAdminAuth) return;
-    setIsLoading(true);
-
-    const token = getAdminToken();
-    if (!token) {
-      setError("Токен администратора не найден");
-      setIsLoading(false);
-      router.push("/admin-login");
-      return;
-    }
-
-    const url = search.trim() ? `/admin_edits/users?search=${encodeURIComponent(search)}` : "/admin_edits/users";
-    try {
-      const data = await fetchWithAuth<User[]>(url, token);
-      setUsers(data || []);
-    } catch (error: unknown) {
-      const err = error as CustomError;
-      if (err.status === 401) {
-        setError("Сессия истекла. Пожалуйста, войдите снова.");
-        router.push("/admin-login"); // Редирект на логин
-      } else {
-        setError(err.message || "Не удалось загрузить пользователей");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isLoading, isAdminAuth, getAdminToken, router]);
-
-  const sendNotification = useCallback(async (eventId: number, eventTitle: string) => {
-    if (!isAdminAuth) return;
-    setIsLoading(true);
-    setError(null);
-
-    const token = getAdminToken();
-    if (!token) {
-      setError("Токен администратора не найден");
-      setIsLoading(false);
-      router.push("/admin-login");
-      return;
-    }
-
-    try {
-      const message = `Новое мероприятие "${eventTitle}" добавлено!`;
-      await fetchWithAuth("/notifications/send", token, "POST", { event_id: eventId, message });
-      setEvents((prev) =>
-        prev.map((event) =>
-          event.id === eventId ? { ...event, notificationSent: true } as EventData : event
-        )
-      );
-    } catch (error: unknown) {
-      const err = error as CustomError;
-      if (err.status === 401) {
-        setError("Сессия истекла. Пожалуйста, войдите снова.");
-        router.push("/admin-login"); // Редирект на логин
-      } else {
-        setError(err.message || "Не удалось отправить уведомление");
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  }, [isAdminAuth, getAdminToken, router]);
-
-  useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-
-    if (!isAdminAuth) {
-      navigateTo(router, "/admin-login");
-      return;
-    }
-
-    fetchEvents("", 1);
-    fetchUsers("");
-  }, [isAdminAuth, fetchEvents, fetchUsers, router]);
-
-  const lastEventElementRef = useCallback((node: HTMLDivElement | null) => {
-    if (!hasMore || isLoading || !isAdminAuth) return;
-    if (observer.current) observer.current.disconnect();
-
-    observer.current = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isLoading) {
-          const nextPage = page + 1;
-          setPage(nextPage);
-          fetchEvents(eventSearch, nextPage, true);
+      
+      const fetchedUsers = await apiFetch("/admin_edits/users", {
+        bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
+        headers: {
+          'Authorization': `Bearer ${token}`
         }
-      },
-      { threshold: 0.5 }
-    );
-
-    if (node) observer.current.observe(node);
-  }, [hasMore, eventSearch, page, fetchEvents, isLoading, isAdminAuth]);
-
-  const handleSearchChange = (e: ChangeEvent<HTMLInputElement>, type: "users" | "events") => {
-    const searchValue = e.target.value;
-    if (type === "users") setUserSearch(searchValue);
-    else setEventSearch(searchValue);
-
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-
-    searchTimeoutRef.current = setTimeout(() => {
-      if (type === "users") {
-        fetchUsers(searchValue);
-      } else {
-        setPage(1);
-        setEvents([]);
-        fetchEvents(searchValue, 1);
+      });
+      
+      if ('aborted' in fetchedUsers) {
+        throw new Error(fetchedUsers.reason || "Запрос пользователей был прерван");
       }
-    }, 500);
+      setUsers(fetchedUsers);
+      setDataLoaded(prev => ({ ...prev, users: true }));
+      return true;
+    } catch (err: any) {
+      console.error("Ошибка при загрузке пользователей:", err);
+      
+      // Check for 401/403 errors and redirect to login
+      if (err.status === 401 || err.status === 403) {
+        setError("Требуется авторизация администратора. Перенаправление на страницу входа...");
+        setTimeout(() => router.push("/admin-login"), 2000);
+        return false;
+      }
+      
+      setError("Не удалось загрузить пользователей");
+      setDataLoaded(prev => ({ ...prev, users: true })); // Отмечаем как загруженное даже при ошибке, чтобы убрать скелетон
+      return false;
+    }
   };
 
-  const handleEventFilterSubmit = () => {
-    setError(null);
-    setPage(1);
-    setEvents([]);
-    fetchEvents(eventSearch, 1);
-    setIsFilterOpen(false);
+  // Функция для загрузки мероприятий
+  const fetchEvents = async () => {
+    try {
+      // Get token with the correct key
+      const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+      
+      if (!token) {
+        throw new Error("Токен администратора не найден");
+      }
+      
+      const fetchedEvents = await apiFetch("/admin_edits/events", {
+        bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if ('aborted' in fetchedEvents) {
+        throw new Error(fetchedEvents.reason || "Запрос мероприятий был прерван");
+      }
+      setEvents(fetchedEvents);
+      setDataLoaded(prev => ({ ...prev, events: true }));
+      return true;
+    } catch (err: any) {
+      console.error("Ошибка при загрузке мероприятий:", err);
+      
+      // Check for 401/403 errors and redirect to login
+      if (err.status === 401 || err.status === 403) {
+        setError("Требуется авторизация администратора. Перенаправление на страницу входа...");
+        setTimeout(() => router.push("/admin-login"), 2000);
+        return false;
+      }
+      
+      setError("Не удалось загрузить мероприятия");
+      setDataLoaded(prev => ({ ...prev, events: true })); // Отмечаем как загруженное даже при ошибке, чтобы убрать скелетон
+      return false;
+    }
   };
 
-  const handleDeleteEvent = async () => {
-    if (!eventToDelete) return;
-
-    setError(null);
-    setIsLoading(true);
-
-    const token = getAdminToken();
-    if (!token) {
-      setError("Токен администратора не найден");
-      setIsLoading(false);
+  // Загрузка данных и управление стадиями загрузки
+  useEffect(() => {
+    // Установка флага клиентской загрузки
+    setClientReady(true);
+    
+    // Сразу устанавливаем стадию загрузки COMPLETED для предотвращения блокировки запросов
+    setStage(LoadingStage.COMPLETED);
+    
+    // Check if authenticated before loading data
+    if (!isAuthChecked) {
+      // Authentication is still being checked, wait
+      return;
+    }
+    
+    if (!isAdminAuth) {
+      // Not authenticated, redirect to login
+      setError("Требуется авторизация администратора");
       router.push("/admin-login");
       return;
     }
+    
+    // Немедленно запускаем загрузку данных если пользователь авторизован
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Используем Promise.all для параллельной загрузки
+        const results = await Promise.all([
+          fetchUsers(),
+          fetchEvents()
+        ]);
+        
+        // Check if any requests failed with auth errors
+        if (results.includes(false)) {
+          console.log("Some requests failed, check individual error handlers");
+        }
+        
+        // После загрузки данных (успешной или нет) скрываем индикатор загрузки
+        setIsLoading(false);
+      } catch (e) {
+        console.error("Ошибка при загрузке данных:", e);
+        setError("Не удалось загрузить данные для дашборда");
+        setIsLoading(false);
+        
+        // Отмечаем данные как загруженные, даже при ошибке
+        setDataLoaded({
+          users: true,
+          events: true
+        });
+      }
+    };
+    
+    // Запускаем загрузку при первом рендере если пользователь авторизован
+    loadData();
+  }, [setStage, isAuthChecked, isAdminAuth, router]);
 
-    try {
-      const response = await fetchWithAuth<null>(`/admin_edits/${eventToDelete}`, token, "DELETE");
-      if (response === null) {
-        setEvents((prev) => prev.filter((event) => event.id !== eventToDelete));
-        await fetchEvents(eventSearch, 1);
-      }
-    } catch (error: unknown) {
-      const err = error as CustomError;
-      if (err.status === 401) {
-        setError("Сессия истекла. Пожалуйста, войдите снова.");
-        router.push("/admin-login"); // Редирект на логин
-      } else if (err.status === 400) {
-        setError("Мероприятие можно удалить только в статусе 'черновик'");
-      } else if (err.status === 404) {
-        setError("Мероприятие не найдено");
-      } else {
-        setError(`Не удалось удалить мероприятие: ${err.message}`);
-      }
-    } finally {
-      setIsLoading(false);
-      setShowDeleteModal(false);
-      setEventToDelete(null);
-    }
+  const handleCreateEvent = () => {
+    router.push("/event-edit");
   };
+
+  // Вычисленные значения для панели статистики
+  const publishedEventsCount = events.filter(event => event.published).length;
+  const publishedEventsPercent = events.length ? Math.round((publishedEventsCount / events.length) * 100) : 0;
+  
+  const activeUsersCount = users.filter(user => 
+    user.last_active && new Date(user.last_active).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
+  ).length;
+  const activeUsersPercent = users.length ? Math.round((activeUsersCount / users.length) * 100) : 0;
+
+  // Если проверка авторизации еще не завершена, показываем скелетон
+  if (!isAuthChecked) {
+    return <DashboardSkeleton />;
+  }
+  
+  // Если пользователь не авторизован, показываем сообщение об ошибке
+  if (!isAdminAuth) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">Доступ запрещен</h1>
+          <p className="mb-6">Для доступа к этой странице требуется авторизация администратора.</p>
+          <button
+            onClick={() => router.push("/admin-login")}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors"
+          >
+            Перейти на страницу входа
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Показываем скелетон только если клиент не готов или данные не загружены
+  // Важно: dataLoaded проверяется на ИЛИ, а не на И, чтобы контент отображался по мере загрузки
+  if (!clientReady) {
+    return <DashboardSkeleton />;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <style jsx global>{`
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
         }
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-        ::-webkit-scrollbar-thumb {
-          background: rgba(107, 114, 128, 0.5);
-          border-radius: 4px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(107, 114, 128, 0.8);
+        .fade-in {
+          animation: fadeIn 0.5s ease-in-out;
         }
       `}</style>
       <AdminHeader />
-      <main className="container mx-auto px-4 sm:px-6 pt-24 pb-12">
-        <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100 mb-8">
-          <div className="flex items-center mb-4">
-            <FaInfoCircle className="text-blue-500 text-xl mr-3" />
-            <h2 className="text-xl font-semibold text-gray-800">Общая статистика</h2>
+      <main className="container mx-auto px-4 pt-24 pb-12">
+        <div className="max-w-5xl mx-auto fade-in">
+          <div className="flex justify-between items-center mb-6">
+            <h1 className="text-3xl font-bold text-gray-800">Панель управления</h1>
+            <button
+              onClick={handleCreateEvent}
+              className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg flex items-center transition-colors"
+            >
+              <FaPlus className="mr-2" /> Создать мероприятие
+            </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-            <div className="flex items-center">
-              <FaUsers className="text-blue-500 mr-2" />
-              <p className="text-base text-gray-700">
-                Всего пользователей: <span className="font-bold">{users.length}</span>
-              </p>
+          
+          {error && (
+            <div className="mb-6 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500">
+              {error}
             </div>
-            <div className="flex items-center">
-              <FaCalendarAlt className="text-blue-500 mr-2" />
-              <p className="text-base text-gray-700">
-                Всего мероприятий: <span className="font-bold">{events.length}</span>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row justify-between items-center mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 mb-4 sm:mb-0">Панель управления</h1>
-          <button
-            onClick={() => navigateTo(router, "/edit-events", { new: "true" })}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg min-h-[44px] text-base"
-          >
-            <FaPlus className="mr-2" />
-            Новое мероприятие
-          </button>
-        </div>
-
-        {error && (
-          <div className="mb-8 bg-red-50 text-red-700 p-4 rounded-lg border-l-4 border-red-500 shadow-sm text-base">
-            {error}
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
-          <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center">
-                <FaUsers className="text-blue-500 text-xl mr-3" />
-                <h2 className="text-xl font-semibold text-gray-800">Пользователи</h2>
-              </div>
-              {isLoading && <div className="text-sm text-blue-500">Загрузка...</div>}
-            </div>
-            <div className="mb-6">
-              <InputField
-                type="text"
-                value={userSearch}
-                onChange={(e) => handleSearchChange(e, "users")}
-                placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
-                icon={FaSearch}
-                name="userSearch"
-                className="w-full"
-              />
-            </div>
-            {users.length > 0 ? (
-              <>
-                <div className="md:hidden flex flex-col gap-4 max-h-[400px] overflow-y-auto">
-                  {users.map((user) => (
-                    <div key={user.id} className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200">
-                      <p className="text-base text-gray-900"><strong>ID:</strong> {user.id}</p>
-                      <p className="text-base text-gray-900"><strong>ФИО:</strong> {user.fio}</p>
-                      <p className="text-base text-gray-900"><strong>Email:</strong> {user.email}</p>
-                      <button
-                        onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
-                        className="mt-2 w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base min-h-[44px]"
-                      >
-                        Управлять
-                      </button>
+          )}
+          
+          {/* Dashboard Summary Panel */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-blue-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-medium text-gray-500">Пользователи</h3>
+                  <p className="text-3xl font-bold mt-1">{users.length || 0}</p>
+                  {dataLoaded.users && (
+                    <div className="mt-2 text-sm text-gray-500">
+                      <span className="font-medium text-blue-600">{activeUsersCount || 0}</span> активных за 30 дней 
+                      <span className="inline-block ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                        {activeUsersPercent}%
+                      </span>
                     </div>
-                  ))}
+                  )}
                 </div>
-                <div className="hidden md:block max-h-[400px] overflow-y-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ФИО</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {users.map((user) => (
-                        <tr key={user.id} className="hover:bg-gray-50 transition-colors duration-150">
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.fio}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{user.email}</td>
-                          <td className="px-4 py-2 whitespace-nowrap text-sm">
-                            <button
-                              onClick={() => navigateTo(router, "/edit-user", { user_id: user.id.toString() })}
-                              className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200"
-                            >
-                              Управлять
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                <div className="bg-blue-100 p-3 rounded-full">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                  </svg>
                 </div>
-              </>
-            ) : (
-              <p className="text-gray-500 text-center py-6 text-base">
-                {userSearch.trim() ? "Пользователи не найдены" : (isLoading ? "Загрузка пользователей..." : "Нет доступных пользователей")}
-              </p>
-            )}
-          </div>
-
-          <div className="bg-white p-4 sm:p-6 rounded-xl shadow-md border border-gray-100">
-            <div className="flex flex-col sm:flex-row justify-between items-center mb-3">
-              <div className="flex items-center mb-4 sm:mb-0">
-                <FaCalendarAlt className="text-blue-500 text-xl mr-3" />
-                <h2 className="text-xl font-semibold text-gray-800">Мероприятия</h2>
               </div>
-              <div className="flex items-center">
-                {isLoading && <div className="text-sm text-blue-500 mr-3">Загрузка...</div>}
-                <button
-                  onClick={() => setIsFilterOpen(!isFilterOpen)}
-                  className="flex items-center px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 shadow-sm min-h-[44px] text-base"
-                >
-                  <FaFilter className="mr-2" />
-                  Фильтры
-                </button>
+              {!dataLoaded.users && <div className="mt-2 h-1 w-full bg-gray-200 rounded overflow-hidden"><div className="h-full bg-blue-500 animate-pulse" style={{width: "100%"}}></div></div>}
+            </div>
+            
+            <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-500">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-medium text-gray-500">Мероприятия</h3>
+                  <p className="text-3xl font-bold mt-1">{events.length || 0}</p>
+                  {dataLoaded.events && (
+                    <div className="mt-2 text-sm text-gray-500">
+                      <span className="font-medium text-green-600">{publishedEventsCount || 0}</span> опубликовано
+                      <span className="inline-block ml-2 px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                        {publishedEventsPercent}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+                <div className="bg-green-100 p-3 rounded-full">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                </div>
+              </div>
+              {!dataLoaded.events && <div className="mt-2 h-1 w-full bg-gray-200 rounded overflow-hidden"><div className="h-full bg-green-500 animate-pulse" style={{width: "100%"}}></div></div>}
+            </div>
+          </div>
+          
+          {/* Recent Activity Panel */}
+          {dataLoaded.users && dataLoaded.events && (
+            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Общая статистика</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-gray-500 font-medium mb-1">Регистрации на мероприятия</h3>
+                  <p className="text-xl font-bold">
+                    {events.reduce((sum: number, event: any) => 
+                      sum + (event.registrations_count || 0), 0
+                    )}
+                  </p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-gray-500 font-medium mb-1">Мероприятия за месяц</h3>
+                  <p className="text-xl font-bold">
+                    {events.filter((event: any) => 
+                      event.created_at && new Date(event.created_at).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
+                    ).length}
+                  </p>
+                </div>
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h3 className="text-gray-500 font-medium mb-1">Новые пользователи за месяц</h3>
+                  <p className="text-xl font-bold">
+                    {users.filter((user: any) => 
+                      user.created_at && new Date(user.created_at).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
+                    ).length}
+                  </p>
+                </div>
               </div>
             </div>
-            <div className="mb-6">
-              <InputField
-                type="text"
-                value={eventSearch}
-                onChange={(e) => handleSearchChange(e, "events")}
-                placeholder="Поиск по названию..."
-                icon={FaSearch}
-                name="eventSearch"
-                className="w-full"
-              />
+          )}
+          
+          {!dataLoaded.users ? (
+            <UsersSkeleton />
+          ) : (
+            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
+              <UsersList users={users} />
             </div>
-
-            <AnimatePresence>
-              {isFilterOpen && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: "auto" }}
-                  exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="mb-6 p-4 bg-gray-50 rounded-lg shadow-inner border border-gray-200 w-full max-w-[300px]"
-                >
-                  <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-medium text-gray-800">Фильтры</h3>
-                    <button onClick={() => setIsFilterOpen(false)} className="text-gray-500 hover:text-gray-700">
-                      <FaTimes size={16} />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 gap-4">
-                    <InputField
-                      type="date"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      placeholder="Дата начала"
-                      icon={FaCalendarAlt}
-                      name="startDate"
-                      className="w-full"
-                    />
-                    <InputField
-                      type="date"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      placeholder="Дата окончания"
-                      icon={FaCalendarAlt}
-                      name="endDate"
-                      className="w-full"
-                    />
-                  </div>
-                  <div className="mt-4">
-                    <select
-                      value={statusFilter}
-                      onChange={(e) => setStatusFilter(e.target.value)}
-                      className="w-full p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm hover:shadow-md transition-all duration-300 text-base"
-                    >
-                      <option value="">Все статусы</option>
-                      <option value="Черновик">Черновик</option>
-                      <option value="Регистрация открыта">Регистрация открыта</option>
-                      <option value="Регистрация закрыта">Регистрация закрыта</option>
-                      <option value="Завершено">Завершено</option>
-                    </select>
-                  </div>
-                  <button
-                    onClick={handleEventFilterSubmit}
-                    className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all duration-300 shadow-md hover:shadow-lg text-base min-h-[44px]"
-                  >
-                    Применить фильтры
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {events.length > 0 ? (
-              <>
-                <div className="md:hidden flex flex-col gap-4 max-h-[400px] overflow-y-auto">
-                  {events.map((event, index) => {
-                    const availableQuantity = event.ticket_type?.available_quantity || 0;
-                    const soldQuantity = event.ticket_type?.sold_quantity || 0;
-                    const remainingQuantity = availableQuantity - soldQuantity;
-                    const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
-
-                    return (
-                      <div
-                        key={event.id ?? index}
-                        ref={index === events.length - 1 ? lastEventElementRef : null}
-                        className="bg-gray-50 p-4 rounded-lg shadow-sm border border-gray-200"
-                      >
-                        <p className="text-base text-gray-900"><strong>ID:</strong> {event.id ?? "N/A"}</p>
-                        <p className="text-base text-gray-900"><strong>Название:</strong> {event.title}</p>
-                        <p className="text-base">
-                          <strong>Статус:</strong>{" "}
-                          {event.status === "registration_open" ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
-                          ) : event.status === "registration_closed" ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
-                          ) : event.status === "completed" ? (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
-                          ) : (
-                            <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
-                          )}
-                        </p>
-                        <p className="text-base">
-                          <strong>Опубликовано:</strong>{" "}
-                          {event.published ? <FaCheck className="inline text-green-500" /> : <FaTimes className="inline text-red-500" />}
-                        </p>
-                        <div className="mt-2">
-                          <p className="text-base"><strong>Заполненность:</strong></p>
-                          <div className="w-32 bg-gray-200 rounded-full h-2.5">
-                            <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${fillPercentage}%` }}></div>
-                          </div>
-                          <p className="text-sm text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
-                        </div>
-                        <div className="mt-2 flex flex-col gap-2">
-                          <button
-                            onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
-                            className="w-full px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors text-base min-h-[44px]"
-                          >
-                            Редактировать
-                          </button>
-                          {event.status === "draft" && (
-                            <button
-                              onClick={() => {
-                                if (event.id) {
-                                  setEventToDelete(event.id);
-                                  setShowDeleteModal(true);
-                                }
-                              }}
-                              className="w-full px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-base min-h-[44px] flex items-center justify-center"
-                            >
-                              <FaTrashAlt className="mr-2 w-4 h-4" />
-                              Удалить
-                            </button>
-                          )}
-                          <button
-                            onClick={() => event.id && sendNotification(event.id, event.title)}
-                            className="w-full px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-base min-h-[44px] flex items-center justify-center"
-                            disabled={isLoading || event.notificationSent}
-                          >
-                            <FaBell className="mr-2 w-4 h-4" />
-                            {event.notificationSent ? "Отправлено" : "Отправить уведомление"}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="hidden md:block max-h-[400px] overflow-y-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50 sticky top-0">
-                      <tr>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Название</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Статус</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Опубликовано</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Заполненность</th>
-                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Действия</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {events.map((event, index) => {
-                        const availableQuantity = event.ticket_type?.available_quantity || 0;
-                        const soldQuantity = event.ticket_type?.sold_quantity || 0;
-                        const remainingQuantity = availableQuantity - soldQuantity;
-                        const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
-
-                        return (
-                          <tr
-                            key={event.id ?? index}
-                            ref={index === events.length - 1 ? lastEventElementRef : null}
-                            className="hover:bg-gray-50 transition-colors duration-150"
-                          >
-                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.id ?? "N/A"}</td>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">{event.title}</td>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm">
-                              {event.status === "registration_open" ? (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700">Регистрация открыта</span>
-                              ) : event.status === "registration_closed" ? (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700">Регистрация закрыта</span>
-                              ) : event.status === "completed" ? (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-700">Завершено</span>
-                              ) : (
-                                <span className="px-2 py-1 text-xs font-medium rounded-full bg-yellow-100 text-yellow-700">Черновик</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm text-center">
-                              {event.published ? <FaCheck className="text-green-500 mx-auto" /> : <FaTimes className="text-red-500 mx-auto" />}
-                            </td>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm">
-                              <div className="w-32 bg-gray-200 rounded-full h-2.5">
-                                <div className="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${fillPercentage}%` }}></div>
-                              </div>
-                              <p className="text-sm text-gray-600 mt-2">{soldQuantity} / {availableQuantity} (Осталось: {remainingQuantity})</p>
-                            </td>
-                            <td className="px-4 py-2 whitespace-nowrap text-sm">
-                              <div className="flex items-center space-x-4">
-                                <button
-                                  onClick={() => event.id && navigateTo(router, "/edit-events", { event_id: event.id.toString() })}
-                                  className="text-blue-500 hover:text-blue-600 font-medium transition-colors duration-200 min-h-[24px] flex items-center"
-                                >
-                                  Редактировать
-                                </button>
-                                <div className="w-6 h-6 flex items-center justify-center">
-                                  {event.status === "draft" ? (
-                                    <button
-                                      onClick={() => {
-                                        if (event.id) {
-                                          setEventToDelete(event.id);
-                                          setShowDeleteModal(true);
-                                        }
-                                      }}
-                                      className="text-red-500 hover:text-red-600 transition-colors duration-200 inline-flex items-center justify-center w-6 h-6"
-                                      title="Удалить мероприятие"
-                                    >
-                                      <FaTrashAlt className="w-4 h-4" />
-                                    </button>
-                                  ) : (
-                                    <span className="w-6 h-6" />
-                                  )}
-                                </div>
-                                <button
-                                  onClick={() => event.id && sendNotification(event.id, event.title)}
-                                  className="text-green-500 hover:text-green-600 transition-colors duration-200 inline-flex items-center justify-center w-6 h-6"
-                                  title="Отправить уведомление"
-                                  disabled={isLoading || event.notificationSent}
-                                >
-                                  <FaBell className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            ) : (
-              <p className="text-gray-500 text-center py-6 text-base">
-                {eventSearch.trim() || startDate || endDate || statusFilter ?
-                  "Мероприятия не найдены" :
-                  (isLoading ? "Загрузка мероприятий..." : "Нет доступных мероприятий")}
-              </p>
-            )}
-          </div>
+          )}
+          
+          {!dataLoaded.events ? (
+            <EventsSkeleton />
+          ) : (
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
+              <EventsList events={events} />
+            </div>
+          )}
         </div>
       </main>
-
-      {showDeleteModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 px-4">
-          <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-sm border border-gray-100">
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Подтверждение удаления</h2>
-            <p className="text-gray-600 mb-6 text-base">Вы уверены, что хотите удалить это мероприятие? Это действие нельзя отменить.</p>
-            <div className="flex flex-col sm:flex-row justify-end space-y-4 sm:space-y-0 sm:space-x-4">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setEventToDelete(null);
-                }}
-                className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all duration-200 text-base min-h-[44px]"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={handleDeleteEvent}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-200 text-base min-h-[44px]"
-              >
-                Удалить
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

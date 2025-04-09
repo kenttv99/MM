@@ -4,7 +4,6 @@ import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useUserForm } from "@/hooks/useUserForm";
-import AdminHeader from "@/components/AdminHeader";
 import { FaUser, FaEnvelope, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
@@ -47,7 +46,6 @@ const EditUserPageContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
         <h1 className="text-3xl font-bold mb-8 text-gray-800">Редактирование пользователя</h1>
         <div className="bg-white p-8 rounded-xl shadow-lg max-w-3xl mx-auto">

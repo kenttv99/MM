@@ -2,7 +2,6 @@
 
 import React, { useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
-import AdminHeader from "@/components/AdminHeader";
 import { EventFormData, TicketTypeEnum } from "@/types/events";
 import { motion } from "framer-motion";
 import {
@@ -406,7 +405,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
   return (
     <div className="min-h-screen bg-gray-100">
-      <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

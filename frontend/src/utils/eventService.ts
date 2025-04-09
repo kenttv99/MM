@@ -163,6 +163,9 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
       body: formData
     });
     
+    // Проверяем наличие обновленного токена в заголовках
+    handleTokenRefresh(createResponse);
+    
     console.log(`eventService: Create event response status: ${createResponse.status}`);
     
     // Логируем полный ответ для отладки
@@ -303,6 +306,9 @@ export const updateEvent = async (
       body: formData
     });
 
+    // Проверяем наличие обновленного токена в заголовках
+    handleTokenRefresh(response);
+
     console.log(`eventService: Update response status: ${response.status}`);
     
     // Обработка ошибок
@@ -426,6 +432,9 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
       credentials: 'same-origin'
     });
 
+    // Проверяем наличие обновленного токена в заголовках
+    handleTokenRefresh(response);
+
     console.log(`eventService: Fetch event response status: ${response.status}`);
     
     // Обработка ошибок аутентификации
@@ -548,6 +557,22 @@ export const checkAdminSession = async (): Promise<boolean> => {
     return false;
   }
 
+  // Получаем время последней проверки токена
+  const lastCheckTime = parseInt(localStorage.getItem("admin_last_check_time") || '0');
+  const now = Date.now();
+
+  // Проверяем срок истечения токена локально
+  const tokenExpiry = getTokenExpiration(adminToken);
+  const isExpiringSoon = tokenExpiry && 
+    (tokenExpiry - Math.floor(now / 1000) < 300); // Менее 5 минут до истечения
+
+  // Если токен недавно проверялся (менее 2 минут назад)
+  // и не близок к истечению срока, используем кэшированный результат
+  if (now - lastCheckTime < 120000 && !isExpiringSoon) {
+    console.log("eventService: Using cached session check result");
+    return true;
+  }
+
   try {
     console.log("eventService: Sending admin session check request");
     const response = await fetch('/admin/me', {
@@ -556,38 +581,75 @@ export const checkAdminSession = async (): Promise<boolean> => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${adminToken}`
       },
-      credentials: 'include'
+      credentials: 'same-origin' // Используем same-origin вместо include
     });
+
+    // Проверяем наличие обновленного токена в заголовках
+    handleTokenRefresh(response);
 
     // Обрабатываем различные статусы ответа
     if (response.status === 200) {
-      console.log("eventService: Admin session is valid");
-      
-      // Обновляем данные админа из ответа
-      try {
-        const data = await response.json();
-        if (data.success && data.data) {
-          localStorage.setItem("admin_data", JSON.stringify(data.data));
-          console.log("eventService: Admin data updated from session check");
-        }
-      } catch (error) {
-        console.error("eventService: Error parsing admin data:", error);
-        // Сессия всё равно валидна, даже если не удалось распарсить данные
-      }
-      
+      // Обновляем время последней проверки
+      localStorage.setItem("admin_last_check_time", now.toString());
       return true;
-    } else if (response.status === 401) {
-      console.log("eventService: Admin session is invalid (401 Unauthorized)");
-      return false;
-    } else if (response.status === 403) {
-      console.log("eventService: Admin session lacks permissions (403 Forbidden)");
+    } else if (response.status === 401 || response.status === 403) {
+      console.log(`eventService: Session invalid with status ${response.status}`);
+      // Удаляем токен и данные пользователя при ошибке авторизации
+      localStorage.removeItem("admin_token");
+      localStorage.removeItem("admin_data");
       return false;
     } else {
-      console.error(`eventService: Unexpected status code: ${response.status}`);
-      return false;
+      console.warn(`eventService: Unexpected response status: ${response.status}`);
+      // При других ошибках проверяем токен локально
+      return validateTokenLocally(adminToken);
     }
   } catch (error) {
     console.error("eventService: Error checking admin session:", error);
+    // При ошибке сети опираемся на локальную валидацию
+    return validateTokenLocally(adminToken);
+  }
+};
+
+// Вспомогательная функция для локальной валидации токена
+function validateTokenLocally(token: string): boolean {
+  try {
+    const expiry = getTokenExpiration(token);
+    if (!expiry) return false;
+    
+    const now = Math.floor(Date.now() / 1000);
+    return expiry > now;
+  } catch (error) {
+    console.error("eventService: Error validating token locally:", error);
     return false;
+  }
+}
+
+// Вспомогательная функция для получения времени истечения токена
+function getTokenExpiration(token: string): number | null {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload?.exp || null;
+  } catch (error) {
+    console.error("eventService: Error getting token expiration:", error);
+    return null;
+  }
+}
+
+// Handle token refresh from response headers
+export const handleTokenRefresh = (response: Response): void => {
+  const refreshToken = response.headers.get("X-Refresh-Token");
+  if (refreshToken) {
+    // Проверяем, изменился ли токен по сравнению с тем, что у нас уже есть
+    const currentToken = localStorage.getItem("admin_token");
+    if (currentToken !== refreshToken) {
+      console.log("handleTokenRefresh: Token changed, updating in localStorage");
+      localStorage.setItem("admin_token", refreshToken);
+      
+      // Устанавливаем время последней проверки токена
+      const now = Date.now();
+      localStorage.setItem("admin_last_check_time", now.toString());
+    } else {
+      console.log("handleTokenRefresh: Token unchanged, skipping update");
+    }
   }
 };

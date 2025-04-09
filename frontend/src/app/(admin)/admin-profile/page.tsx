@@ -2,7 +2,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import dynamic from "next/dynamic";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog, FaUser } from "react-icons/fa";
@@ -10,9 +9,6 @@ import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
 import { useRouter } from "next/navigation";
-
-// Динамическая загрузка AdminHeader без SSR
-const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
 
 interface AdminData {
   id: number;
@@ -29,7 +25,6 @@ const navigateTo = (path: string, params: Record<string, string> = {}) => {
 // Компонент скелетона для профиля
 const ProfileSkeleton = () => (
   <div className="min-h-screen bg-gray-50 relative">
-    <AdminHeader />
     <main className="container mx-auto px-4 pt-24 pb-12">
       <div className="max-w-3xl mx-auto">
         <div className="h-10 bg-gray-200 rounded w-1/3 mb-8 animate-pulse"></div>
@@ -174,7 +169,6 @@ export default function AdminProfilePage() {
           animation: fadeIn 0.5s ease-in-out;
         }
       `}</style>
-      <AdminHeader />
       {authLoading && (
         <div className="absolute inset-0 bg-gray-50 flex items-center justify-center z-50">
           <p className="text-gray-600">Загрузка...</p>
@@ -250,9 +244,9 @@ export default function AdminProfilePage() {
                     </ModalButton>
                     {isEditing && (
                       <ModalButton
-                        type="submit"
                         variant="primary"
-                        disabled={successMessage !== null || isSubmitting}
+                        type="submit"
+                        disabled={isSubmitting}
                       >
                         {isSubmitting ? "Сохранение..." : "Сохранить"}
                       </ModalButton>
@@ -270,7 +264,7 @@ export default function AdminProfilePage() {
                     Создавайте, редактируйте и управляйте мероприятиями на платформе.
                   </p>
                   <button
-                    onClick={() => navigateTo("/dashboard")}
+                    onClick={() => router.push("/dashboard")}
                     className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors w-full"
                   >
                     Перейти к мероприятиям

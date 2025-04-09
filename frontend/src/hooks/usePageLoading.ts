@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { useLoading, LoadingStage } from '@/contexts/LoadingContext';
 
 interface UsePageLoadingOptions {
@@ -10,6 +10,10 @@ interface UsePageLoadingOptions {
   onMount?: () => void;
   // Callback when component is unmounted
   onUnmount?: () => void;
+  // If true, this is an admin page (affects loading behavior)
+  isAdminPage?: boolean;
+  // If true, prevents regression to AUTHENTICATION stage
+  preventAuthRegression?: boolean;
 }
 
 /**
@@ -26,7 +30,9 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
     autoManage = true, 
     initialStage = LoadingStage.STATIC_CONTENT,
     onMount,
-    onUnmount
+    onUnmount,
+    isAdminPage = false,
+    preventAuthRegression = true
   } = options;
   
   const { 
@@ -34,27 +40,57 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
     setDynamicLoading, 
     currentStage, 
     setStage, 
-    isAuthChecked 
+    isAuthChecked,
+    resetLoading 
   } = useLoading();
+  
+  // Предотвращаем множественные вызовы
+  const isInitializedRef = useRef(false);
+  const isAdminRouteRef = useRef(false);
+
+  // Проверяем, является ли текущий маршрут админским
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      isAdminRouteRef.current = isAdminPage || !!localStorage.getItem('is_admin_route');
+    }
+  }, [isAdminPage]);
 
   // Set static content loading
   const startStaticLoading = useCallback(() => {
+    if (isAdminRouteRef.current && currentStage !== LoadingStage.AUTHENTICATION) {
+      // В админской части избегаем регрессии стадий загрузки
+      return;
+    }
+    
     setStaticLoading(true);
     setStage(LoadingStage.STATIC_CONTENT);
-  }, [setStaticLoading, setStage]);
+  }, [setStaticLoading, setStage, currentStage]);
 
   // End static content loading and start dynamic
   const endStaticStartDynamic = useCallback(() => {
     setStaticLoading(false);
     setDynamicLoading(true);
-    setStage(LoadingStage.DYNAMIC_CONTENT);
-  }, [setStaticLoading, setDynamicLoading, setStage]);
+    // Устанавливаем стадию только если текущая не выше
+    if (
+      currentStage === LoadingStage.AUTHENTICATION || 
+      currentStage === LoadingStage.STATIC_CONTENT
+    ) {
+      setStage(LoadingStage.DYNAMIC_CONTENT);
+    }
+  }, [setStaticLoading, setDynamicLoading, setStage, currentStage]);
 
   // End dynamic content loading
   const endDynamicLoading = useCallback(() => {
     setDynamicLoading(false);
-    setStage(LoadingStage.DATA_LOADING);
-  }, [setDynamicLoading, setStage]);
+    // Устанавливаем стадию только если текущая не выше
+    if (
+      currentStage === LoadingStage.AUTHENTICATION || 
+      currentStage === LoadingStage.STATIC_CONTENT ||
+      currentStage === LoadingStage.DYNAMIC_CONTENT
+    ) {
+      setStage(LoadingStage.DATA_LOADING);
+    }
+  }, [setDynamicLoading, setStage, currentStage]);
 
   // Start data loading (user action)
   const startDataLoading = useCallback(() => {
@@ -77,20 +113,62 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
   useEffect(() => {
     if (!autoManage) return;
     
+    // Избегаем повторной инициализации
+    if (isInitializedRef.current) return;
+    isInitializedRef.current = true;
+    
     // If auth isn't checked yet, don't do anything else
     if (!isAuthChecked) return;
     
-    // Set initial stage on mount
-    setStage(initialStage);
+    // Для админских страниц применяем особую логику
+    if (isAdminRouteRef.current) {
+      // Для админа сразу переходим к COMPLETED, если только
+      // не находимся в стадии AUTHENTICATION
+      if (currentStage !== LoadingStage.AUTHENTICATION) {
+        console.log('usePageLoading: Admin page - setting COMPLETED stage');
+        completeLoading();
+      }
+    } else {
+      // Для обычных страниц - стандартное поведение
+      // Set initial stage on mount
+      const stageLevel = getStageLevel(currentStage);
+      const initialLevel = getStageLevel(initialStage);
+      
+      // Только переходим к более высоким стадиям, никогда не регрессируем
+      if (preventAuthRegression && initialLevel < stageLevel) {
+        console.log(`usePageLoading: Preventing regression from ${currentStage} to ${initialStage}`);
+      } else {
+        console.log(`usePageLoading: Setting initial stage to ${initialStage}`);
+        setStage(initialStage);
+      }
+    }
     
     // Execute onMount callback if provided
     if (onMount) onMount();
     
     return () => {
-      // Reset to authentication on unmount for next page
+      // Для админских страниц не сбрасываем стадию при размонтировании
+      if (isAdminRouteRef.current) {
+        console.log('usePageLoading: Admin page unmounting - preserving stage');
+      } else if (!preventAuthRegression) {
+        // Reset to authentication on unmount for next page only if not preventing regression
+        resetLoading();
+      }
+      
       if (onUnmount) onUnmount();
     };
-  }, [autoManage, initialStage, isAuthChecked, setStage, onMount, onUnmount]);
+  }, [
+    autoManage, 
+    initialStage, 
+    isAuthChecked, 
+    setStage, 
+    onMount, 
+    onUnmount, 
+    currentStage, 
+    preventAuthRegression,
+    completeLoading,
+    resetLoading
+  ]);
 
   return {
     currentStage,
@@ -101,6 +179,25 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
     startDataLoading,
     endDataLoading,
     completeLoading,
-    setStage
+    setStage,
+    isAdminPage: isAdminRouteRef.current
   };
+}
+
+// Вспомогательная функция для определения уровня стадии
+function getStageLevel(stage: LoadingStage): number {
+  const levels: Record<LoadingStage, number> = {
+    [LoadingStage.AUTHENTICATION]: 0,
+    [LoadingStage.STATIC_CONTENT]: 1,
+    [LoadingStage.DYNAMIC_CONTENT]: 2,
+    [LoadingStage.DATA_LOADING]: 3,
+    [LoadingStage.COMPLETED]: 4,
+    // Прочие стадии для совместимости
+    [LoadingStage.INITIAL]: -1,
+    [LoadingStage.AUTH_CHECK]: 0,
+    [LoadingStage.COMPLETE]: 4,
+    [LoadingStage.ERROR]: -1
+  };
+  
+  return levels[stage] ?? -1;
 } 

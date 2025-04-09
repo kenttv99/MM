@@ -56,7 +56,6 @@ interface Event {
 }
 
 // Динамическая загрузка компонентов без SSR
-const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
 const EventsList = dynamic(() => import("@/components/admin/EventsList"), { ssr: false });
 const UsersList = dynamic(() => import("@/components/admin/UsersList"), { ssr: false });
 
@@ -121,7 +120,6 @@ const EventsSkeleton = () => (
 // Компонент скелетона для всего дашборда
 const DashboardSkeleton = () => (
   <div className="min-h-screen bg-gray-50">
-    <AdminHeader />
     <main className="container mx-auto px-4 pt-24 pb-12">
       <div className="max-w-5xl mx-auto">
         <div className="flex justify-between items-center mb-6">
@@ -413,7 +411,6 @@ export default function Dashboard() {
           animation: fadeIn 0.5s ease-in-out;
         }
       `}</style>
-      <AdminHeader />
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-5xl mx-auto fade-in">
           <div className="flex justify-between items-center mb-6">

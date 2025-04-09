@@ -11,7 +11,7 @@ import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
 import ClientErrorBoundary from "@/components/Errors/ClientErrorBoundary";
 
-// Динамическая загрузка AdminHeader без SSR
+// Динамическая загрузка AdminHeader без SSR для страницы логина
 const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
 
 export default function AdminLoginPage() {

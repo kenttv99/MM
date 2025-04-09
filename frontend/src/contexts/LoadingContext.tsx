@@ -678,6 +678,23 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Effect for handling navigation
   useEffect(() => {
     const handleNavigation = () => {
+      // Проверяем, находимся ли мы на админской странице
+      const isAdminPage = typeof window !== 'undefined' && 
+        (localStorage.getItem('is_admin_route') === 'true' || 
+         window.location.pathname.startsWith('/admin'));
+      
+      // Для админских страниц предотвращаем сброс стадии загрузки
+      if (isAdminPage) {
+        console.log('LoadingContext: Admin page detected, skipping navigation reset');
+        
+        // Для админки всегда должна быть как минимум стадия STATIC_CONTENT
+        if (stage === LoadingStage.AUTHENTICATION) {
+          console.log('LoadingContext: Admin page in AUTHENTICATION stage, forcing STATIC_CONTENT');
+          updateStage(LoadingStage.STATIC_CONTENT);
+        }
+        return;
+      }
+      
       // Проверяем через глобальную историю стадий
       const hasBeenPastAuth = stageChangeHistoryRef.current.some(entry => entry.stage !== 'authentication');
       

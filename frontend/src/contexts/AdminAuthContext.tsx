@@ -110,104 +110,108 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   }, []);
 
-  // Оптимизированная проверка аутентификации с дебаунсингом и интеллектуальным кэшированием
-  const checkAuth = useCallback(async (): Promise<boolean> => {
-    // Используем локальную валидацию
-    if (!validateTokenLocally()) {
-      console.log("AdminAuthContext: Token invalid locally");
-      setIsAuthenticated(false);
-      setAdminData(null);
-      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
-      localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-      setIsAuthChecked(true);
-      return false;
-    }
-
-    const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
-    if (!token) {
-      console.log("AdminAuthContext: No token found");
-      setIsAuthenticated(false);
-      setIsAuthChecked(true);
-      return false;
-    }
-    
-    // Определяем, нужно ли делать запрос на сервер
-    const now = Date.now();
-    const lastCheckTime = parseInt(localStorage.getItem(STORAGE_KEYS.LAST_CHECK_TIME) || '0');
-    const isTokenNearExpiry = isTokenExpiringSoon(token);
-    
-    // Пропускаем проверку, если:
-    // 1. Токен действителен локально
-    // 2. Последняя проверка была недавно (в пределах SESSION_CHECK_DEBOUNCE_MS)
-    // 3. Токен не приближается к истечению срока
-    if (
-      now - lastCheckTime < SESSION_CHECK_DEBOUNCE_MS && 
-      !isTokenNearExpiry
-    ) {
-      console.log("AdminAuthContext: Using cached validation result");
-      setIsAuthenticated(true);
-      setIsAuthChecked(true);
-      
-      // Восстанавливаем данные из кэша
-      if (!adminData) {
-        const storedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
-        if (storedData) {
-          try {
-            setAdminData(JSON.parse(storedData));
-          } catch (e) {
-            console.error("AdminAuthContext: Error parsing stored admin data");
-          }
-        }
-      }
-      
-      setLoading(false);
-      return true;
-    }
-    
-    // Если нужна проверка на сервере:
+  // Проверка auth статуса на сервере
+  const checkAuth = useCallback(async (forceCheck = false) => {
+    setLoading(true);
     try {
-      console.log("AdminAuthContext: Performing server validation");
-      
-      // Обновляем время последней проверки
-      localStorage.setItem(STORAGE_KEYS.LAST_CHECK_TIME, now.toString());
-      lastCheckTimeRef.current = now;
-      
-      // Используем серверную проверку только когда действительно необходимо
-      const isValid = await checkAdminSession();
-      
-      setIsAuthenticated(isValid);
-      
-      if (!isValid) {
+      // Проверяем есть ли токен в локальном хранилище
+      const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
+      if (!token) {
+        console.log("AdminAuth: No token in localStorage");
+        setIsAuthenticated(false);
         setAdminData(null);
         localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-      } else if (!adminData) {
-        // Восстанавливаем из хранилища, если нет в состоянии
-        const storedData = localStorage.getItem(STORAGE_KEYS.ADMIN_DATA);
-        if (storedData) {
-          try {
-            setAdminData(JSON.parse(storedData));
-          } catch (e) {
-            console.error("AdminAuthContext: Error parsing stored admin data");
-          }
+        setIsAuthChecked(true);
+        if (forceCheck) {
+          // Редирект на страницу логина
+          router.push('/admin-login');
+        }
+        return false;
+      }
+
+      // Проверяем авторизацию на сервере
+      console.log("AdminAuth: Checking auth on server");
+      const isSessionValid = await checkAdminSession();
+      
+      if (isSessionValid) {
+        console.log("AdminAuth: Session is valid");
+        setIsAuthenticated(true);
+        setIsAuthChecked(true);
+        return true;
+      } else {
+        console.log("AdminAuth: Session is invalid");
+        // Очищаем данные сессии
+        localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+        localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
+        
+        setIsAuthenticated(false);
+        setIsAuthChecked(true);
+        
+        if (forceCheck) {
+          // Редирект на страницу логина
+          router.push('/admin-login');
+        }
+        return false;
+      }
+    } catch (error) {
+      console.error("AdminAuth: Error checking auth:", error);
+      
+      // Проверяем есть ли у ошибки поле status
+      if (error instanceof Error && 'status' in error) {
+        const status = (error as any).status;
+        console.log(`AdminAuth: Auth error with status ${status}`);
+        
+        // Если ошибка авторизации (401 или 403), выполняем выход
+        if (status === 401 || status === 403) {
+          console.log("AdminAuth: Auth failed, logging out");
+          localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+          localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
+          
+          setIsAuthenticated(false);
+          setIsAuthChecked(true);
+          
+          // Редиректим на страницу логина
+          router.push('/admin-login');
+          return false;
         }
       }
       
-      setIsAuthChecked(true);
-      return isValid;
-    } catch (error) {
-      console.error("AdminAuthContext: Error checking authentication:", error);
+      // Если произошла другая ошибка, пытаемся использовать локальную валидацию
+      const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
+      if (token) {
+        // Пытаемся проверить срок действия токена локально
+        try {
+          const tokenData = JSON.parse(atob(token.split('.')[1]));
+          const expiryTime = tokenData.exp * 1000; // в миллисекундах
+          
+          if (Date.now() < expiryTime) {
+            console.log("AdminAuth: Using local token validation as fallback");
+            setIsAuthenticated(true);
+            setIsAuthChecked(true);
+            return true;
+          }
+        } catch (e) {
+          console.error("AdminAuth: Error in local token validation:", e);
+        }
+      }
       
-      // В случае ошибки используем локальную валидацию
-      const isLocallyValid = validateTokenLocally();
-      setIsAuthenticated(isLocallyValid);
+      // Если локальная валидация не удалась, очищаем данные
+      console.log("AdminAuth: Auth check failed completely, logging out");
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
+      localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
+      
+      setIsAuthenticated(false);
       setIsAuthChecked(true);
       
-      return isLocallyValid;
+      if (forceCheck) {
+        router.push('/admin-login');
+      }
+      return false;
     } finally {
       setLoading(false);
     }
-  }, [validateTokenLocally, adminData]);
+  }, [router]);
 
   const login = useCallback((token: string, userData: AdminProfile) => {
     localStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, token);

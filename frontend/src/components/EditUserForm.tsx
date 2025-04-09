@@ -9,6 +9,7 @@ import { ModalButton } from "@/components/common/AuthModal";
 import Switch from "@/components/common/Switch";
 import { UserData, fetchUser, updateUser } from "@/utils/userService";
 import { motion } from "framer-motion";
+import { useAdminAuth } from "@/contexts/AdminAuthContext";
 
 interface EditUserFormProps {
   userId: string;
@@ -69,6 +70,7 @@ const formatDate = (dateString?: string) => {
 
 const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError }) => {
   const router = useRouter();
+  const { isAuthenticated, checkAuth } = useAdminAuth();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [originalData, setOriginalData] = useState<UserData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -76,19 +78,45 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isFormModified, setIsFormModified] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const mountedRef = useRef(true);
   const loadAttempts = useRef(0);
   const maxAttempts = 3;
 
+  // Проверка валидности токена и авторизации
+  useEffect(() => {
+    if (!isAuthenticated && !isRedirecting) {
+      console.log("EditUserForm: User is not authenticated, redirecting to login page");
+      setIsRedirecting(true);
+      setTimeout(() => {
+        router.push("/admin-login");
+      }, 100);
+    }
+  }, [isAuthenticated, router, isRedirecting]);
+
   // Загрузка данных пользователя
   const loadUser = useCallback(async () => {
-    if (!userId || !mountedRef.current) return;
+    if (!userId || !mountedRef.current || isRedirecting) return;
     
     setIsFetching(true);
     setError(null);
     
     try {
       console.log(`EditUserForm: Loading user data for ID ${userId}, attempt ${loadAttempts.current + 1}`);
+      
+      // Проверяем авторизацию перед загрузкой данных
+      const isAuthValid = await checkAuth();
+      if (!isAuthValid) {
+        console.log("EditUserForm: Auth check failed before loading user data");
+        if (mountedRef.current && !isRedirecting) {
+          setIsRedirecting(true);
+          setTimeout(() => {
+            router.push("/admin-login");
+          }, 100);
+        }
+        return;
+      }
+      
       const data = await fetchUser(userId);
       
       if (mountedRef.current) {
@@ -101,6 +129,19 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
         const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки данных пользователя";
         console.error("EditUserForm: Error loading user data", errorMessage);
         setError(errorMessage);
+        
+        // Проверяем, связана ли ошибка с авторизацией (401/403)
+        if (err instanceof Error && 'status' in err && (err.status === 401 || err.status === 403)) {
+          console.log("EditUserForm: Authorization error detected, redirecting to login");
+          if (!isRedirecting) {
+            setIsRedirecting(true);
+            setError("Необходима авторизация. Перенаправление на страницу входа...");
+            setTimeout(() => {
+              router.push("/admin-login");
+            }, 1500);
+          }
+          return;
+        }
         
         // Повторяем попытку загрузки данных
         loadAttempts.current += 1;
@@ -117,11 +158,22 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
         setIsFetching(false);
       }
     }
-  }, [userId, onError]);
+  }, [userId, onError, router, isRedirecting, checkAuth]);
 
   // Загрузка данных при монтировании
   useEffect(() => {
     mountedRef.current = true;
+    
+    // Проверяем состояние авторизации перед загрузкой
+    if (!isAuthenticated && !isRedirecting) {
+      console.log("EditUserForm: Not authenticated in initial mount");
+      setIsRedirecting(true);
+      setTimeout(() => {
+        router.push("/admin-login");
+      }, 100);
+      return;
+    }
+    
     loadUser();
     
     // Устанавливаем таймаут для гарантированного скрытия скелетона через 5 секунд
@@ -138,7 +190,7 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
       mountedRef.current = false;
       clearTimeout(timeout);
     };
-  }, [loadUser]);
+  }, [loadUser, isAuthenticated, router, isRedirecting]);
 
   // Отслеживание изменений формы
   useEffect(() => {
@@ -174,13 +226,26 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
   // Обработка отправки формы
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!userData) return;
+    if (!userData || isRedirecting) return;
 
     setError(null);
     setSuccess(null);
     setIsLoading(true);
 
     try {
+      // Проверяем авторизацию перед отправкой данных
+      const isAuthValid = await checkAuth();
+      if (!isAuthValid) {
+        if (mountedRef.current && !isRedirecting) {
+          setIsRedirecting(true);
+          setError("Сессия истекла. Перенаправление на страницу входа...");
+          setTimeout(() => {
+            router.push("/admin-login");
+          }, 1500);
+        }
+        return;
+      }
+      
       console.log("EditUserForm: Submitting user data", userData);
       const result = await updateUser(userData.id, userData);
       
@@ -199,9 +264,24 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
       console.error("EditUserForm: Error updating user", errorMessage);
       setError(errorMessage);
       
+      // Проверяем, связана ли ошибка с авторизацией (401/403)
+      if (err instanceof Error && 'status' in err && (err.status === 401 || err.status === 403)) {
+        console.log("EditUserForm: Authorization error detected during update, redirecting to login");
+        if (!isRedirecting) {
+          setIsRedirecting(true);
+          setError("Необходима авторизация. Перенаправление на страницу входа...");
+          setTimeout(() => {
+            router.push("/admin-login");
+          }, 1500);
+        }
+        return;
+      }
+      
       if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   };
 

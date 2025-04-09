@@ -554,7 +554,10 @@ export const checkAdminSession = async (): Promise<boolean> => {
   
   if (!adminToken) {
     console.log("eventService: No admin token found for checking");
-    return false;
+    // Выбрасываем ошибку авторизации с кодом 401
+    const error = new Error("Не авторизован");
+    (error as any).status = 401;
+    throw error;
   }
 
   // Получаем время последней проверки токена
@@ -597,16 +600,51 @@ export const checkAdminSession = async (): Promise<boolean> => {
       // Удаляем токен и данные пользователя при ошибке авторизации
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_data");
-      return false;
+      
+      // Выбрасываем ошибку авторизации с кодом статуса
+      const error = new Error(`Ошибка авторизации: ${response.status}`);
+      (error as any).status = response.status;
+      throw error;
     } else {
       console.warn(`eventService: Unexpected response status: ${response.status}`);
+      
+      // Если статус не 2xx, выбрасываем ошибку с кодом статуса
+      if (response.status >= 400) {
+        let errorMessage = `Ошибка сервера: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          if (errorData && errorData.detail) {
+            errorMessage = errorData.detail;
+          }
+        } catch (e) {
+          // Игнорируем ошибки при попытке получить JSON
+        }
+        
+        const error = new Error(errorMessage);
+        (error as any).status = response.status;
+        throw error;
+      }
+      
       // При других ошибках проверяем токен локально
       return validateTokenLocally(adminToken);
     }
   } catch (error) {
     console.error("eventService: Error checking admin session:", error);
-    // При ошибке сети опираемся на локальную валидацию
-    return validateTokenLocally(adminToken);
+    
+    // Сохраняем статус ошибки при ее наличии
+    if (error instanceof Error && 'status' in error) {
+      throw error; // Пробрасываем ошибку дальше с сохранением статуса
+    }
+    
+    // При ошибке сети проверяем валидность токена локально
+    if (validateTokenLocally(adminToken)) {
+      return true;
+    }
+    
+    // Если локальная валидация не прошла, создаем ошибку авторизации
+    const authError = new Error("Токен недействителен");
+    (authError as any).status = 401;
+    throw authError;
   }
 };
 

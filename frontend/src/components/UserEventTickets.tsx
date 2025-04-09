@@ -424,12 +424,36 @@ export const UserEventTickets: React.FC = () => {
   useEffect(() => {
     if (!isMounted.current) return;
     
+    // Skip if no userData available yet
+    if (!userData) {
+      console.log('UserEventTickets: No user data yet, waiting...');
+      return;
+    }
+    
     // Skip initial run to prevent double fetches
     if (refreshCounter.current > 0) {
       console.log(`UserEventTickets: Handling refresh #${refreshCounter.current}`);
+      
+      // Предотвращаем дублирование запросов, проверяя время с последнего вызова
+      const now = Date.now();
+      const timeSinceLastFetch = now - lastFetchTime.current;
+      
+      if (timeSinceLastFetch < minFetchInterval && !isInitialLoad.current) {
+        console.log(`UserEventTickets: Слишком частые запросы, последний запрос был ${timeSinceLastFetch}ms назад. Пропускаем запрос #${refreshCounter.current}`);
+        return;
+      }
+      
+      // Если запрос уже идет, не запускаем новый
+      if (fetchAttempted.current) {
+        console.log(`UserEventTickets: Запрос уже выполняется, пропускаем запрос #${refreshCounter.current}`);
+        return;
+      }
+      
+      // Устанавливаем маркер последнего запроса
+      lastFetchTime.current = now;
       fetchTickets();
     }
-  }, [refreshCounter.current]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [refreshCounter.current, userData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Check authentication on mount
   useEffect(() => {
@@ -496,7 +520,7 @@ export const UserEventTickets: React.FC = () => {
     }
     
     // Предотвращаем повторные запросы при каждом ре-рендере
-    if (isInitialFetchDone.current && !isInitialLoad.current) {
+    if (isInitialFetchDone.current) {
       console.log('UserEventTickets: Initial fetch already completed, skipping');
       return;
     }
@@ -507,24 +531,24 @@ export const UserEventTickets: React.FC = () => {
       return;
     }
     
-    console.log('UserEventTickets: userData is available, triggering fetch');
+    console.log('UserEventTickets: userData is available, triggering initial fetch');
     
-    // Принудительно обновляем счетчик при изменении userData только если требуется начальная загрузка
-    if (!isInitialFetchDone.current) {
-      refreshCounter.current += 1;
-      fetchAttempted.current = true;
-      
-      // Небольшая задержка для стабильности
-      const timer = setTimeout(() => {
-        console.log(`UserEventTickets: Initial data load with userData, refresh #${refreshCounter.current}`);
-        fetchTickets();
-      }, initialLoadDelay);
-      
-      return () => {
-        clearTimeout(timer);
-        fetchAttempted.current = false;
-      };
-    }
+    // Инициируем начальную загрузку только один раз при первом получении userData
+    refreshCounter.current += 1;
+    fetchAttempted.current = true;
+    
+    // Небольшая задержка для стабильности
+    const timer = setTimeout(() => {
+      console.log(`UserEventTickets: Initial data load with userData, refresh #${refreshCounter.current}`);
+      // Не используем fetchTickets() напрямую, а увеличиваем счетчик
+      // Это запустит другой useEffect, который вызовет fetchTickets()
+      // с полной проверкой на дубликаты
+    }, initialLoadDelay);
+
+    return () => {
+      clearTimeout(timer);
+      fetchAttempted.current = false;
+    };
   }, [userData]);
 
   const loadMoreTickets = async () => {
@@ -594,17 +618,17 @@ export const UserEventTickets: React.FC = () => {
       // Фильтруем только новые билеты, которых еще нет в списке
       const newTickets = processedTickets.filter(ticket => !currentTicketIds.has(ticket.id));
       console.log(`UserEventTickets: Новых билетов для добавления: ${newTickets.length}`);
-      
-      if (newTickets.length > 0) {
+          
+          if (newTickets.length > 0) {
         // Добавляем только новые билеты в список
-        setTickets(prev => [...prev, ...newTickets]);
-        setPage(nextPage);
+            setTickets(prev => [...prev, ...newTickets]);
+            setPage(nextPage);
         
         // Если получили меньше билетов, чем запрашивали, значит больше нет
         setHasMore(newTickets.length >= ticketsPerPage);
-      } else {
+          } else {
         console.log('UserEventTickets: Больше новых билетов не найдено');
-        setHasMore(false);
+            setHasMore(false);
       }
     } catch (err) {
       console.error("UserEventTickets: Error loading more tickets", err);
@@ -627,23 +651,15 @@ export const UserEventTickets: React.FC = () => {
       return;
     }
     
-    // Проверяем, прошло ли достаточно времени с последнего запроса
-    const now = Date.now();
-    const timeSinceLastFetch = now - lastFetchTime.current;
-    if (timeSinceLastFetch < minFetchInterval && !isInitialLoad.current) {
-      console.log(`UserEventTickets: Слишком частые запросы, последний запрос был ${timeSinceLastFetch}ms назад`);
-      return;
-    }
-    
     // Если запрос уже идет, не запускаем новый
-    if (isLoading && fetchAttempted.current) {
+    if (fetchAttempted.current) {
       console.log("UserEventTickets: Запрос уже выполняется, дублирование предотвращено");
       return;
     }
     
     // Помечаем попытку запроса
     fetchAttempted.current = true;
-    lastFetchTime.current = now;
+    setIsLoading(true);
     console.log(`UserEventTickets: Начало запроса билетов, refreshCounter=${refreshCounter.current}`);
     
     try {
@@ -690,16 +706,16 @@ export const UserEventTickets: React.FC = () => {
             fetchTickets();
           }, 1000);
           
-          return;
-        }
-        
+        return;
+      }
+      
         console.log(`UserEventTickets: Запрос отменен, причина: ${response.reason}`);
         setError(`Запрос был прерван: ${response.reason}`);
         setIsLoading(false);
         isInitialLoad.current = false;
-        return;
-      }
-      
+          return;
+        }
+        
       console.log('UserEventTickets: Билеты получены', response);
       
       // Получаем данные в зависимости от формата ответа
@@ -729,9 +745,9 @@ export const UserEventTickets: React.FC = () => {
         isInitialFetchDone.current = true;
         setIsLoading(false);
         isInitialLoad.current = false;
-        return;
-      }
-      
+          return;
+        }
+        
       console.log(`UserEventTickets: Получено ${ticketsData.length} билетов`);
       
       // Фильтруем активные билеты через одну функцию, которая:
@@ -793,7 +809,7 @@ export const UserEventTickets: React.FC = () => {
         setCancelLoading(false);
         setTimeout(() => {
           setIsModalOpen(false);
-          router.push('/');
+        router.push('/');
         }, 1500);
         return;
       }
@@ -830,7 +846,7 @@ export const UserEventTickets: React.FC = () => {
           
           setTimeout(() => {
             setIsModalOpen(false);
-            router.push('/');
+          router.push('/');
           }, 1500);
           return;
         }
@@ -853,8 +869,8 @@ export const UserEventTickets: React.FC = () => {
       }
       
       // Успешная отмена
-      setCancelSuccess('Регистрация успешно отменена');
-      
+        setCancelSuccess('Регистрация успешно отменена');
+        
       // Обновляем состояние билетов
       setTickets(prev => {
         // Если отмена действительно удаляет билет с сервера, удаляем из списка
@@ -871,11 +887,11 @@ export const UserEventTickets: React.FC = () => {
       });
       
       // Закрываем модальное окно после небольшой задержки
-      setTimeout(() => {
-        setIsModalOpen(false);
-        setCancelSuccess(undefined);
-        setCancelLoading(false);
-      }, 1500);
+        setTimeout(() => {
+          setIsModalOpen(false);
+          setCancelSuccess(undefined);
+          setCancelLoading(false);
+        }, 1500);
     } catch (err) {
       console.error('Error cancelling registration:', err);
       
@@ -896,7 +912,7 @@ export const UserEventTickets: React.FC = () => {
         
         setTimeout(() => {
           setIsModalOpen(false);
-          router.push('/');
+        router.push('/');
         }, 1500);
         return;
       }
@@ -1002,12 +1018,12 @@ export const UserEventTickets: React.FC = () => {
     );
   }
 
-  return (
+    return (
     <div className="h-full overflow-auto" ref={ticketsContainerRef}>
       {isLoading && tickets.length === 0 ? (
         <div className="p-2">
           <TicketSkeleton />
-        </div>
+      </div>
       ) : tickets.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full p-4 text-center">
           <div className="text-xl font-semibold mb-2">У вас пока нет билетов</div>
@@ -1019,8 +1035,8 @@ export const UserEventTickets: React.FC = () => {
             <span className="text-sm text-gray-500 truncate bg-white px-2 py-1 rounded shadow-sm">
               Загружено: {tickets.length}
             </span>
-          </div>
-          
+      </div>
+      
           <div className="space-y-4">
             {(() => {
               // Создаем Map для однократной дедупликации билетов
@@ -1053,125 +1069,125 @@ export const UserEventTickets: React.FC = () => {
 
                 return (
                   <div key={`ticket-${ticket.id}`}>
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
+              >
+                {/* Top section: Title and Status */}
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    {ticket.event.title}
+                  </h3>
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
+                        ticket.status
+                      )}`}
                     >
-                      {/* Top section: Title and Status */}
-                      <div className="flex justify-between items-center mb-2">
-                        <h3 className="text-lg font-semibold text-gray-800">
-                          {ticket.event.title}
-                        </h3>
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
-                              ticket.status
-                            )}`}
-                          >
-                            {getStatusText(ticket.status)}
-                          </div>
-                          {ticket.status !== "completed" && (
-                            <button 
-                              onClick={() => handleCancelClick(ticket)}
-                              className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
-                            >
-                              Отменить
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="flex h-full">
-                        {/* Вертикальный номер билета */}
-                        <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
-                          <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
-                            {/* Левая колонка - заголовок */}
-                            <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
-                              <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
-                                НОМЕР БИЛЕТА
-                              </p>
-                            </div>
-                            
-                            {/* Правая колонка - номер */}
-                            <div className="flex-1 flex items-center justify-center pl-1">
-                              <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
-                                #{ticket.ticket_number || ticket.id.toString()}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Основное содержимое */}
-                        <div className="flex-1 ml-3">
-                          {/* Информация о событии */}
-                          <div className="space-y-2">
-                            <div className="flex items-start gap-2 text-sm text-gray-600">
-                              <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                              <span className="break-words">
-                                {formatDateForDisplay(ticket.event.start_date)}
-                                {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
-                                  ` - ${formatDateForDisplay(ticket.event.end_date)}`}
-                              </span>
-                            </div>
-                            <div className="flex items-start gap-2 text-sm text-gray-600">
-                              <FaClock className="text-orange-500 flex-shrink-0 mt-1" />
-                              <span className="break-words">
-                                {formatTimeForDisplay(ticket.event.start_date)}
-                                {ticket.event.end_date && 
-                                  ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
-                              </span>
-                            </div>
-                            {ticket.event.location && (
-                              <div className="flex items-start gap-2 text-sm text-gray-600">
-                                <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                                <span className="break-words">{ticket.event.location}</span>
-                              </div>
-                            )}
-                            <div className="flex items-start gap-2 text-sm text-gray-600">
-                              <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                              <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
-                            </div>
-                            
-                            {/* Последний элемент информации */}
-                            <div className="flex items-start gap-2 text-sm text-gray-600">
-                              <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
-                              <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </motion.div>
-                    {index < sortedTickets.length - 1 && (
-                      <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
+                      {getStatusText(ticket.status)}
+                    </div>
+                    {ticket.status !== "completed" && (
+                      <button 
+                        onClick={() => handleCancelClick(ticket)}
+                        className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
+                      >
+                        Отменить
+                      </button>
                     )}
                   </div>
+                </div>
+                
+                <div className="flex h-full">
+                  {/* Вертикальный номер билета */}
+                  <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
+                    <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
+                      {/* Левая колонка - заголовок */}
+                      <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
+                        <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
+                          НОМЕР БИЛЕТА
+                        </p>
+                      </div>
+                      
+                      {/* Правая колонка - номер */}
+                      <div className="flex-1 flex items-center justify-center pl-1">
+                        <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
+                                #{ticket.id.toString()}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Основное содержимое */}
+                  <div className="flex-1 ml-3">
+                    {/* Информация о событии */}
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">
+                          {formatDateForDisplay(ticket.event.start_date)}
+                          {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
+                            ` - ${formatDateForDisplay(ticket.event.end_date)}`}
+                        </span>
+                      </div>
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaClock className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">
+                          {formatTimeForDisplay(ticket.event.start_date)}
+                          {ticket.event.end_date && 
+                            ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
+                        </span>
+                      </div>
+                      {ticket.event.location && (
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                          <span className="break-words">{ticket.event.location}</span>
+                        </div>
+                      )}
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
+                      </div>
+                      
+                      {/* Последний элемент информации */}
+                      <div className="flex items-start gap-2 text-sm text-gray-600">
+                        <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
+                        <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+                    {index < sortedTickets.length - 1 && (
+                <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
+              )}
+            </div>
                 );
               });
             })()}
-            
-            {isLoadingMore && (
-              <div className="py-4 text-center">
-                <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
-                  <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Загрузка...</span>
-                </div>
-                <p className="mt-2 text-sm text-gray-500">Загрузка дополнительных билетов...</p>
-              </div>
-            )}
-          </div>
           
-          {/* Confirmation Modal */}
-          <ConfirmModal
-            isOpen={isModalOpen}
-            onClose={() => setIsModalOpen(false)}
-            onConfirm={handleCancelConfirm}
-            title="Отмена регистрации"
-            message={selectedTicket ? `Вы уверены, что хотите отменить регистрацию на мероприятие "${selectedTicket.event.title}"?` : ''}
-            isLoading={cancelLoading}
-            error={cancelError}
-            success={cancelSuccess}
-          />
-        </>
+          {isLoadingMore && (
+            <div className="py-4 text-center">
+              <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+                <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Загрузка...</span>
+              </div>
+              <p className="mt-2 text-sm text-gray-500">Загрузка дополнительных билетов...</p>
+            </div>
+          )}
+      </div>
+      
+      {/* Confirmation Modal */}
+      <ConfirmModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onConfirm={handleCancelConfirm}
+        title="Отмена регистрации"
+        message={selectedTicket ? `Вы уверены, что хотите отменить регистрацию на мероприятие "${selectedTicket.event.title}"?` : ''}
+        isLoading={cancelLoading}
+        error={cancelError}
+        success={cancelSuccess}
+      />
+    </>
       )}
     </div>
   );

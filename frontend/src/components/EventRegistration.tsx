@@ -114,6 +114,16 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             bypassLoadingStageCheck: true
           });
 
+          // Проверяем на ошибку 401
+          if (response && 'status' in response && response.status === 401) {
+            console.log('EventRegistration: Получена ошибка 401, сбрасываем авторизацию');
+            // Сбрасываем авторизацию как при выходе из системы
+            localStorage.removeItem('token');
+            localStorage.removeItem('userData');
+            // Не делаем перенаправление на главную страницу
+            return;
+          }
+
           let tickets: UserTicket[] = [];
           
           // Обработка различных форматов ответа
@@ -141,6 +151,19 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           }
         } catch (err) {
           console.error('Error checking user ticket:', err);
+          
+          // Проверяем на ошибку 401 в исключении
+          if (err instanceof Error && (
+            err.message.includes('401') || 
+            err.message.includes('Unauthorized') || 
+            err.message.toLowerCase().includes('авториз')
+          )) {
+            console.log('EventRegistration: Получена ошибка 401 в исключении, сбрасываем авторизацию');
+            // Сбрасываем авторизацию как при выходе из системы
+            localStorage.removeItem('token');
+            localStorage.removeItem('userData');
+            // Не делаем перенаправление на главную страницу
+          }
         } finally {
           setIsCheckingTicket(false);
         }

@@ -1812,3 +1812,9 @@ cancellation_count
 cancellation_count
   Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
     For further information visit https://errors.pydantic.dev/2.11/v/int_type
+2025-04-09 13:43:23,736 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 13:43:24,835 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 13:43:46,227 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 13:43:46,561 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 13:50:21,756 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 13:50:22,069 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

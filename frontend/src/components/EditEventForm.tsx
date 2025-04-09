@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useEffect, useCallback} from "react";
+import React, { useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
 import AdminHeader from "@/components/AdminHeader";
 import { EventFormData, TicketTypeEnum } from "@/types/events";
@@ -30,7 +30,20 @@ interface EditEventFormProps {
   setFieldValue: (name: keyof EventFormData, value: unknown) => void;
   isLoading: boolean;
   isPageLoading: boolean;
+  setImagePreview: (url: string | null) => void;
 }
+
+// Вспомогательная функция для проверки токена локально
+const validateTokenLocally = (token: string): boolean => {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    const now = Math.floor(Date.now() / 1000);
+    return payload && payload.exp && payload.exp > now;
+  } catch (e) {
+    console.error("Error validating token locally:", e);
+    return false;
+  }
+};
 
 const EditEventForm: React.FC<EditEventFormProps> = ({
   isNewEvent,
@@ -44,6 +57,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   setFieldValue,
   isLoading,
   isPageLoading,
+  setImagePreview,
 }) => {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -53,6 +67,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [historyIndex, setHistoryIndex] = useState<number>(0);
   const [isHeadingDropdownOpen, setIsHeadingDropdownOpen] = useState(false);
   const [selectedHeadingLevel, setSelectedHeadingLevel] = useState<number>(2);
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
+  const [ticketTypes, setTicketTypes] = useState<any[]>([]);
+  
+  // Refs для отслеживания состояния компонента
+  const isMountedRef = useRef(true);
+  const isVerifyingRef = useRef(false);
 
   // const handleNumberFocus = (e: React.FocusEvent<HTMLInputElement>) => {
   //   if (e.target.value === "0") {
@@ -166,12 +188,28 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
   const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0] || null;
-    if (file) handleFileChange(file);
+    if (file) {
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setImageError("Изображение слишком большое. Максимальный размер 5MB.");
+        return;
+      }
+      
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        setImageError("Пожалуйста, загрузите изображение.");
+        return;
+      }
+      
+      setImageError(null);
+      handleFileChange(file);
+    }
   };
 
   const handleRemoveImage = () => {
     handleFileChange(null, true);
     if (fileInputRef.current) fileInputRef.current.value = "";
+    setImageError(null);
   };
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -219,6 +257,170 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const remainingQuantity = availableQuantity - soldQuantity;
   const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
+  // Add restoration of saved form data
+  useEffect(() => {
+    // Check if we have saved form data from a previous session
+    const savedFormData = localStorage.getItem('event_form_draft');
+    if (savedFormData && isNewEvent) {
+      try {
+        const parsedData = JSON.parse(savedFormData);
+        
+        // Check if the data is valid by looking for required fields
+        if (parsedData.title && parsedData.start_date) {
+          // Restore form data
+          for (const key in parsedData) {
+            if (Object.prototype.hasOwnProperty.call(parsedData, key)) {
+              setFieldValue(key as keyof EventFormData, parsedData[key]);
+            }
+          }
+          
+          // If there was an image preview, restore it
+          if (parsedData.image_url) {
+            setImagePreview(parsedData.image_url);
+          }
+          
+          // Show notification to user
+          setSuccess("Форма восстановлена из сохраненного черновика");
+        }
+      } catch (e) {
+        console.error("Error restoring form data:", e);
+      }
+    }
+  }, [isNewEvent, setFieldValue]);
+
+  // Session checking effect that avoids state updates during render
+  useEffect(() => {
+    // Используем refs, объявленные на уровне компонента
+    let sessionCheckInterval: NodeJS.Timeout;
+    
+    // Function to verify admin session
+    const verifySession = async () => {
+      // Prevent concurrent verification attempts
+      if (!isMountedRef.current || isVerifyingRef.current) return;
+      isVerifyingRef.current = true;
+      
+      try {
+        // Вместо вызова checkAdminSession напрямую, проверяем токен локально
+        const token = localStorage.getItem("admin_token");
+        let isActive = false;
+        
+        if (token) {
+          isActive = validateTokenLocally(token);
+          console.log(`EditEventForm: Session validation result: ${isActive}`);
+        }
+        
+        // Only proceed if component is still mounted
+        if (!isMountedRef.current) return;
+        
+        // Handle session expiration
+        if (!isActive) {
+          // Save form data before redirecting
+          localStorage.setItem('event_form_draft', JSON.stringify(formData));
+          
+          // Redirect with delay to allow rendering to complete
+          setTimeout(() => {
+            router.push("/admin-login");
+          }, 1500);
+        }
+      } catch (e) {
+        console.error("Error checking session:", e);
+      } finally {
+        // Reset verification flag only if component is still mounted
+        if (isMountedRef.current) {
+          isVerifyingRef.current = false;
+        }
+      }
+    };
+    
+    // Schedule initial verification with delay to avoid render-time state updates
+    const initialCheckTimeout = setTimeout(() => {
+      if (isMountedRef.current) {
+        verifySession();
+      }
+    }, 3000);
+    
+    // Set up interval for periodic checks with more delay
+    const intervalSetupTimeout = setTimeout(() => {
+      if (isMountedRef.current) {
+        sessionCheckInterval = setInterval(verifySession, 5 * 60 * 1000);
+      }
+    }, 6000);
+    
+    // Cleanup function
+    return () => {
+      isMountedRef.current = false;
+      clearTimeout(initialCheckTimeout);
+      clearTimeout(intervalSetupTimeout);
+      clearInterval(sessionCheckInterval);
+    };
+  }, [router, formData]);
+
+  // Эффект для обработки размонтирования компонента
+  useEffect(() => {
+    return () => {
+      // Устанавливаем флаг, что компонент размонтирован
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    console.log("EditEventForm: Form submission started");
+    
+    // Проверяем токен администратора локально перед отправкой формы
+    const token = localStorage.getItem("admin_token");
+    if (!token) {
+      console.log("EditEventForm: No admin token found, redirecting to login");
+      localStorage.setItem('event_form_draft', JSON.stringify(formData));
+      setTimeout(() => {
+        router.push("/admin-login");
+      }, 500);
+      return;
+    }
+    
+    // Проверяем срок действия токена
+    if (!validateTokenLocally(token)) {
+      console.log("EditEventForm: Admin token validation failed, redirecting to login");
+      localStorage.setItem('event_form_draft', JSON.stringify(formData));
+      setTimeout(() => {
+        router.push("/admin-login");
+      }, 500);
+      return;
+    }
+    
+    // Reset validation errors
+    setValidationErrors({});
+    
+    if (imageError) {
+      console.log("EditEventForm: Preventing form submission due to image error");
+      return;
+    }
+    
+    // Проверка валидности полей перед отправкой
+    let hasErrors = false;
+    const errors: Record<string, string> = {};
+    
+    if (formData.start_date && !formData.start_time) {
+      console.log("EditEventForm: Validation error - start time is required");
+      errors.start_time = "Требуется указать время начала";
+      hasErrors = true;
+    }
+    
+    if (formData.title.trim() === "") {
+      console.log("EditEventForm: Validation error - title is required");
+      errors.title = "Название мероприятия обязательно";
+      hasErrors = true;
+    }
+    
+    if (hasErrors) {
+      setValidationErrors(errors);
+      return;
+    }
+    
+    console.log("EditEventForm: Form validation passed, submitting");
+    handleSubmit(e);
+  };
+
   if (isLoading) {
     return <div className="text-center py-10">Загрузка данных мероприятия...</div>;
   }
@@ -257,7 +459,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                     <FaTicketAlt className="text-blue-500 mr-2" />
                     <h3 className="text-lg font-medium">Билеты</h3>
                   </div>
-                  <p className="text-2xl font-bold text-blue-600">{soldQuantity} / {availableQuantity}</p>
+                  <div className="space-y-4">
+                    {ticketTypeError && (
+                      <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
+                        {ticketTypeError}
+                      </div>
+                    )}
+                    <p className="text-2xl font-bold text-blue-600">{soldQuantity} / {availableQuantity}</p>
+                  </div>
                   <p className="text-sm text-gray-600">Продано билетов</p>
                   <div className="w-full mt-2">
                     <div className="relative pt-1">
@@ -293,7 +502,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
+          <form onSubmit={onSubmit} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Название мероприятия*</label>
               <input
@@ -518,7 +727,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">
-                URL мероприятия (только латиница, цифры и дефисы)
+                URL мероприятия (только латинские буквы a-z, цифры 0-9 и тире "-")
                 <span className="ml-1 text-xs text-gray-500">(в адресной строке будет добавлен ID события)</span>
               </label>
               <div className="flex items-center">
@@ -529,12 +738,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   value={formData.url_slug || ""}
                   onChange={handleChange}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-                  placeholder="например: kirtan-mela"
-                  pattern="[a-z0-9-]+"
+                  placeholder="например: kirtan-mela-2023"
                 />
               </div>
               <p className="mt-1 text-xs text-gray-500">
-                Формат: {formData.url_slug ? `${formData.url_slug}-ID` : "example-123"}
+                Формат: {formData.url_slug ? `${formData.url_slug}-${new Date(formData.start_date).getFullYear()}-ID` : "kirtan-mela-2023-ID"} (год и ID добавляются автоматически)
               </p>
             </div>
 
@@ -544,25 +752,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                 <div className="flex items-center">
                   <FaMoneyBillWave className="text-gray-400 mr-2 shrink-0 w-5 h-5" />
                   <input
-        id="price"
-        type="number"
-        name="price"
-        value={formData.price}
-        onChange={handleChange}
-        min="0"
-        step="0.01"
-        className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-      />
-                </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <label className="block text-gray-700 font-medium mb-2">Бесплатная регистрация</label>
-                <div className="flex items-center mt-2">
-                  <Switch
-                    name="ticket_type_free_registration"
-                    checked={formData.ticket_type_free_registration}
+                    id="price"
+                    type="number"
+                    name="price"
+                    value={formData.price}
                     onChange={handleChange}
-                    label="Да"
+                    min="0"
+                    step="0.01"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
                   />
                 </div>
               </div>
@@ -593,13 +790,13 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
               <div className="flex-1 min-w-0">
                 <label className="block text-gray-700 font-medium mb-2">Количество мест</label>
                 <input
-      type="number"
-      name="ticket_type_available_quantity"
-      value={formData.ticket_type_available_quantity}
-      onChange={handleChange}
-      min="0"
-      className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-    />
+                  type="number"
+                  name="ticket_type_available_quantity"
+                  value={formData.ticket_type_available_quantity}
+                  onChange={handleChange}
+                  min="0"
+                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
+                />
               </div>
             </div>
 
@@ -618,6 +815,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                         width={128}
                         height={128}
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          // If image fails to load, remove it and show error
+                          handleRemoveImage();
+                          setImageError("Ошибка загрузки изображения. Пожалуйста, выберите другой файл.");
+                        }}
                       />
                       <button
                         type="button"
@@ -652,6 +854,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                       Выбрать изображение
                     </button>
                   </p>
+                  {imageError && (
+                    <p className="text-red-500 text-sm mt-1">{imageError}</p>
+                  )}
                 </div>
               </div>
             </div>

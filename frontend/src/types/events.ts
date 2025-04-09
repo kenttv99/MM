@@ -27,6 +27,13 @@ export interface EventData {
   url_slug?: string;
 }
 
+export interface EventResponse {
+  success: boolean;
+  message: string;
+  event?: EventData;
+  authError?: boolean;
+}
+
 export interface EventFormData {
   id?: number;  // Добавлено
   title: string;
@@ -43,7 +50,6 @@ export interface EventFormData {
   status: EventStatus;
   ticket_type_name: string;
   ticket_type_available_quantity: number;
-  ticket_type_free_registration: boolean;
   ticket_type_sold_quantity?: number;
   registrations_count?: number;  // Добавлено
   remove_image?: boolean;

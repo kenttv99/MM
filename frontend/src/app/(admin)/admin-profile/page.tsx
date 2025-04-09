@@ -73,7 +73,7 @@ const ProfileSkeleton = () => (
 );
 
 export default function AdminProfilePage() {
-  const { isAdminAuth, adminData, isLoading: authLoading, logoutAdmin } = useAdminAuth();
+  const { isAuthenticated, adminData, isLoading: authLoading, logout } = useAdminAuth();
   const { stage, setStage, setDynamicLoading } = useLoading();
   const router = useRouter();
   
@@ -121,7 +121,7 @@ export default function AdminProfilePage() {
       const token = localStorage.getItem("admin_token");
       if (!token) {
         setFetchError("Токен отсутствует. Пожалуйста, войдите снова.");
-        logoutAdmin();
+        logout();
         return;
       }
 
@@ -150,7 +150,7 @@ export default function AdminProfilePage() {
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Не удалось обновить профиль");
       if (err instanceof Error && "status" in err && err.status === 401) {
-        logoutAdmin();
+        logout();
       }
     } finally {
       setIsSubmitting(false);
@@ -182,7 +182,7 @@ export default function AdminProfilePage() {
       )}
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-3xl mx-auto fade-in" style={{ visibility: authLoading ? 'hidden' : 'visible' }}>
-          {(!isAdminAuth || !adminData) ? (
+          {(!isAuthenticated || !adminData) ? (
             <div className="text-center py-8">
               <p className="text-lg text-gray-600 mb-4">Необходима авторизация администратора</p>
               <button 

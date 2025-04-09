@@ -13,7 +13,7 @@ const EditUserPageContent: React.FC = () => {
   const searchParams = useSearchParams();
   const userId = searchParams.get("user_id");
   const router = useRouter();
-  const { isAdminAuth } = useAdminAuth();
+  const { isAuthenticated } = useAdminAuth();
   const initialized = useRef(false);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -25,16 +25,25 @@ const EditUserPageContent: React.FC = () => {
   });
 
   useEffect(() => {
-    if (initialized.current || !userId || !isAdminAuth) return;
+    if (initialized.current) return;
     initialized.current = true;
 
-    if (!isAdminAuth) {
+    if (!isAuthenticated) {
+      router.push("/admin-login");
+    }
+  }, [isAuthenticated, router]);
+
+  useEffect(() => {
+    if (initialized.current || !userId || !isAuthenticated) return;
+    initialized.current = true;
+
+    if (!isAuthenticated) {
       router.push("/admin-login");
       return;
     }
 
     loadUser(userId);
-  }, [userId, isAdminAuth, loadUser, router]);
+  }, [userId, isAuthenticated, loadUser, router]);
 
   return (
     <div className="min-h-screen bg-gray-50">

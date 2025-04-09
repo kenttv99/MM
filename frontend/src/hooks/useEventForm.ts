@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { EventFormData, EventData } from '@/types/events';
-import { createEvent, updateEvent, fetchEvent } from '@/utils/eventService';
+import { createEvent, updateEvent, fetchEvent, ensureAdminSession } from '@/utils/eventService';
 
 const eventCache: Record<string, EventData> = {};
 
@@ -42,13 +42,15 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     
     // Валидация для url_slug (только латиница, цифры и дефисы)
     if (name === 'url_slug') {
-      // Разрешены только a-z, 0-9 и дефисы
-      const validatedValue = value.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      // Фильтруем входную строку, оставляя только разрешенные символы
+      const filteredValue = value.toLowerCase().split('').filter(char => {
+        return /[a-z0-9\-]/.test(char);
+      }).join('');
+      
       // Заменяем множественные дефисы одним
-      const cleanedValue = validatedValue.replace(/-+/g, '-');
-      // Удаляем дефисы с начала и конца
-      const finalValue = cleanedValue.replace(/^-+|-+$/g, '');
-      setFieldValue(name as keyof EventFormData, finalValue);
+      const processedValue = filteredValue.replace(/\-{2,}/g, '-');
+      
+      setFieldValue(name as keyof EventFormData, processedValue);
       return;
     }
     
@@ -109,12 +111,11 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         end_time: endDate?.toTimeString().slice(0, 5) || "",
         ticket_type_name: cachedData.ticket_type?.name || "standart",
         ticket_type_available_quantity: cachedData.ticket_type?.available_quantity || 0,
-        ticket_type_free_registration: cachedData.ticket_type?.free_registration || false,
         ticket_type_sold_quantity: cachedData.ticket_type?.sold_quantity || 0,
         registrations_count: cachedData.registrations_count || 0,
         image_file: null,
         remove_image: false,
-        url_slug: cachedData.url_slug ? cachedData.url_slug.split('-').slice(0, -1).join('-') : '',
+        url_slug: cachedData.url_slug ? cachedData.url_slug.split('-').slice(0, -2).join('-') : '',
       };
       
       if (mounted.current) {
@@ -144,12 +145,33 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     controller.current = new AbortController();
     
     try {
+      // Check admin session validity before loading
+      const isSessionValid = await ensureAdminSession();
+      if (!isSessionValid) {
+        throw new Error("Сессия администратора истекла. Выполняется перенаправление на страницу входа...");
+      }
+      
       console.log(`Fetching event with ID: ${eventId}`);
-      const eventData = await fetchEvent(eventId);
-      eventCache[eventId] = eventData;
+      const response = await fetchEvent(eventId);
+      
+      if (!response.success) {
+        console.error(`Error fetching event: ${response.message}`);
+        if (response.authError) {
+          throw new Error("Сессия администратора истекла. Выполняется перенаправление на страницу входа...");
+        } else {
+          throw new Error(response.message);
+        }
+      }
+      
+      if (!response.event) {
+        throw new Error("Событие не найдено");
+      }
+      
+      eventCache[eventId] = response.event;
       
       if (!mounted.current) return;
       
+      const eventData = response.event;
       const startDate = new Date(eventData.start_date);
       const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
       const mappedData: EventFormData = {
@@ -160,12 +182,11 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         end_time: endDate?.toTimeString().slice(0, 5) || "",
         ticket_type_name: eventData.ticket_type?.name || "standart",
         ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
-        ticket_type_free_registration: eventData.ticket_type?.free_registration || false,
         ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
         registrations_count: eventData.registrations_count || 0,
         image_file: null,
         remove_image: false,
-        url_slug: eventData.url_slug ? eventData.url_slug.split('-').slice(0, -1).join('-') : '',
+        url_slug: eventData.url_slug ? eventData.url_slug.split('-').slice(0, -2).join('-') : '',
       };
       
       setFormData(mappedData);
@@ -198,56 +219,155 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, [onError]);
 
-  const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
     e.preventDefault();
-    
-    if (!mounted.current) return;
-    
-    setError(null);
-    setSuccess(null);
+    if (isLoading) return;
+
     setIsLoading(true);
-    
-    if (controller.current) {
-      controller.current.abort();
-    }
-    
-    controller.current = new AbortController();
-    
+    setError('');
+    setSuccess('');
+
     try {
-      const result = formData.id
-        ? await updateEvent(formData.id, formData)
-        : await createEvent(formData);
+      console.log('useEventForm: Starting form submission');
       
-      if (result && result.id) {
-        eventCache[result.id.toString()] = result;
+      // Проверяем токен напрямую вместо вызова ensureAdminSession
+      const token = localStorage.getItem("admin_token");
+      let isValidSession = false;
+      
+      if (token) {
+        try {
+          // Проверяем токен локально
+          const payload = JSON.parse(atob(token.split('.')[1]));
+          const now = Math.floor(Date.now() / 1000);
+          isValidSession = payload && payload.exp && payload.exp > now;
+          console.log(`useEventForm: Token validation: expires ${new Date(payload.exp * 1000).toISOString()}, now ${new Date(now * 1000).toISOString()}`);
+        } catch (e) {
+          console.error('useEventForm: Error validating token locally:', e);
+          isValidSession = false;
+        }
+      }
+      
+      if (!isValidSession) {
+        console.log('useEventForm: Admin session is invalid');
+        setError('Сессия истекла. Перенаправление на страницу входа...');
+        
+        // Store form data for recovery
+        localStorage.setItem('event_form_draft', JSON.stringify(formData));
+        
+        setTimeout(() => {
+          window.location.href = "/admin-login";
+        }, 1500);
+        
+        setIsLoading(false);
+        return;
+      }
+      
+      console.log('useEventForm: Admin session is valid, proceeding with submission');
+      
+      // Store form data in localStorage in case we need to restore it after login
+      localStorage.setItem('event_form_draft', JSON.stringify(formData));
+      
+      // Clean up the URL slug before submission by removing leading/trailing hyphens
+      const cleanedFormData = { ...formData };
+      if (cleanedFormData.url_slug) {
+        cleanedFormData.url_slug = cleanedFormData.url_slug.replace(/^\-|\-$/g, '');
+      }
+      
+      console.log(`useEventForm: Submitting ${formData.id ? 'update' : 'create'} request`);
+      console.log('useEventForm: FormData keys:', Object.keys(cleanedFormData));
+      
+      const result = formData.id
+        ? await updateEvent(formData.id, cleanedFormData)
+        : await createEvent(cleanedFormData);
+      
+      // Handle structured error responses
+      if (!result.success) {
+        console.log('useEventForm: Received error response:', result);
+        
+        if (result.authError) {
+          // Проверяем сообщение об ошибке 403 Forbidden (недостаточно прав)
+          const isForbiddenError = result.message && (
+            result.message.includes('недостаточно прав') || 
+            result.message.includes('не авторизованы') ||
+            result.message.includes('нет доступа')
+          );
+          
+          if (isForbiddenError) {
+            // Показываем ошибку о недостатке прав, но не делаем редирект
+            console.log('useEventForm: Forbidden error (403), no redirect needed');
+            setError(result.message);
+            
+            // Сохраняем черновик формы на случай повторной попытки
+            localStorage.setItem('event_form_draft', JSON.stringify(formData));
+            console.log('useEventForm: Form draft saved for later retry');
+            
+            setIsLoading(false);
+            return;
+          }
+          
+          // Проверяем текущий токен, чтобы выяснить статус авторизации
+          const token = localStorage.getItem("admin_token");
+          if (token) {
+            try {
+              const payload = JSON.parse(atob(token.split('.')[1]));
+              console.log('useEventForm: Current token sub:', payload.sub);
+              console.log('useEventForm: Current token exp:', new Date(payload.exp * 1000).toISOString());
+            } catch (e) {
+              console.error('useEventForm: Could not parse current token:', e);
+            }
+          } else {
+            console.log('useEventForm: No token found on auth error');
+          }
+          
+          // Другая ошибка авторизации - сохраняем данные формы и делаем редирект
+          setError(`${result.message} Перенаправление на страницу входа...`);
+          
+          // Wait a moment to show the error message
+          setTimeout(() => {
+            console.log('useEventForm: Redirecting to login due to auth error');
+            window.location.href = "/admin-login";
+          }, 2000);
+          
+          setIsLoading(false);
+          return;
+        } else {
+          // Regular error - just show the message
+          setError(result.message);
+          setIsLoading(false);
+          return;
+        }
+      }
+      
+      // Success case
+      console.log('useEventForm: Submission successful');
+      if (result.event && result.event.id) {
+        eventCache[result.event.id.toString()] = result.event;
+        // Clear the draft on success
+        localStorage.removeItem('event_form_draft');
       }
       
       if (mounted.current) {
         setSuccess(formData.id ? "Мероприятие успешно обновлено" : "Мероприятие успешно создано");
       }
       
-      if (onSuccess) onSuccess(result);
+      if (onSuccess && result.event) onSuccess(result.event);
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        console.log("Request aborted");
-        return;
-      }
+      console.error('useEventForm: Unhandled error during submission:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Произошла неизвестная ошибка';
       
-      const errorMessage = err instanceof Error ? err.message : "Неизвестная ошибка";
-      
+      // Only show error message if component is still mounted
       if (mounted.current) {
         setError(errorMessage);
       }
       
       if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
     } finally {
+      // Only update loading state if component is still mounted
       if (mounted.current) {
         setIsLoading(false);
       }
-      
-      controller.current = null;
     }
-  }, [formData, onSuccess, onError]);
+  }, [formData, isLoading, onSuccess, onError]);
 
   const resetForm = useCallback(() => {
     if (!mounted.current) return;
@@ -271,5 +391,6 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     resetForm,
     loadEvent,
     setFieldValue,
+    setImagePreview,
   };
 };

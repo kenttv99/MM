@@ -28,10 +28,11 @@ app = FastAPI(
 # Настройка CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],  # В режиме разработки разрешаем любой origin
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Refresh-Token", "Content-Type", "Authorization"],
 )
 
 @app.middleware("http")

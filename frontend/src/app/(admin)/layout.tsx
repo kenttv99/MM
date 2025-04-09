@@ -14,7 +14,7 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
   const isLoginPage = pathname === "/admin-login";
   const { setDynamicLoading, setStage } = useLoading();
-  const { isAdminAuth, isAuthChecked } = useAdminAuth();
+  const { isAuthenticated, isAuthChecked } = useAdminAuth();
   const [adminLoaded, setAdminLoaded] = useState(false);
 
   // Эффект для отслеживания состояния аутентификации
@@ -29,17 +29,17 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
       }
       
       // Если пользователь авторизован, устанавливаем стадию COMPLETED
-      if (isAdminAuth) {
+      if (isAuthenticated) {
         setStage(LoadingStage.COMPLETED);
         setDynamicLoading(false);
       } 
       // Если пользователь не авторизован, но мы находимся на странице, требующей авторизацию
-      else if (!isAdminAuth && pathname !== "/admin-login") {
+      else if (!isAuthenticated && pathname !== "/admin-login") {
         // Устанавливаем STATIC_CONTENT, чтобы разрешить базовую загрузку
         setStage(LoadingStage.STATIC_CONTENT);
       }
     }
-  }, [isAuthChecked, isAdminAuth, isLoginPage, pathname, setDynamicLoading, setStage]);
+  }, [isAuthChecked, isAuthenticated, isLoginPage, pathname, setDynamicLoading, setStage]);
 
   // Упрощаем обработку административных маршрутов
   useEffect(() => {

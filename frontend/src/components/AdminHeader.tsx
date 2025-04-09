@@ -12,7 +12,7 @@ const Link = dynamic(() => import('next/link'), { ssr: false });
 const AdminHeader: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { adminData, logoutAdmin, isAdminAuth } = useAdminAuth();
+  const { adminData, logout, isAuthenticated, loading, validateTokenLocally } = useAdminAuth();
   const [isMounted, setIsMounted] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
@@ -24,19 +24,19 @@ const AdminHeader: React.FC = () => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
     
-    // Проверяем хранилище напрямую, чтобы избежать задержек обновления контекста
-    const adminToken = localStorage.getItem("admin_token");
+    // Используем локальную валидацию токена вместо прямой проверки
+    const isValidToken = validateTokenLocally();
     const isAdminPage = window.location.pathname.startsWith('/admin');
     
     // Устанавливаем флаг, который используется в AuthContext для пропуска проверок
-    if (isAdminPage && adminToken) {
+    if (isAdminPage && isValidToken) {
       localStorage.setItem('is_admin_route', 'true');
     }
     
     return () => {
       window.removeEventListener("scroll", handleScroll);
     };
-  }, []);
+  }, [validateTokenLocally]);
 
   const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
 
@@ -45,8 +45,13 @@ const AdminHeader: React.FC = () => {
     { href: "/dashboard", label: "Панель управления", icon: FaTachometerAlt },
   ];
 
-  // Предотвращаем рендеринг на сервере
-  if (!isClient) {
+  // Обходим ошибки гидратации, используя прямые проверки локального хранилища
+  // и новую функцию validateTokenLocally
+  const hasValidToken = isClient && validateTokenLocally();
+  const showAuthView = isClient && (!hasValidToken || !isAuthenticated);
+
+  // Показываем упрощенный заголовок во время загрузки
+  if (loading) {
     return (
       <header
         className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 bg-white/90 py-4`}
@@ -60,10 +65,6 @@ const AdminHeader: React.FC = () => {
       </header>
     );
   }
-
-  // Обходим ошибки гидратации, используя прямые проверки локального хранилища
-  const hasAdminToken = typeof window !== 'undefined' && !!localStorage.getItem("admin_token");
-  const showAuthView = isClient && (!hasAdminToken || !isAdminAuth);
 
   if (showAuthView) {
     return (
@@ -166,7 +167,7 @@ const AdminHeader: React.FC = () => {
               
               <button
                 onClick={() => {
-                  logoutAdmin();
+                  logout();
                   setIsMobileMenuOpen(false);
                 }}
                 className="mt-4 px-6 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all duration-300 flex items-center"
@@ -218,7 +219,7 @@ const AdminHeader: React.FC = () => {
                 </div>
                 <div className="p-2">
                   <button
-                    onClick={logoutAdmin}
+                    onClick={logout}
                     className="w-full flex items-center px-3 py-2 text-sm text-left text-gray-700 hover:bg-red-50 hover:text-red-600 rounded"
                   >
                     <FaSignOutAlt className="mr-2" />
@@ -253,7 +254,7 @@ const AdminHeader: React.FC = () => {
           </Link>
 
           <button
-            onClick={logoutAdmin}
+            onClick={logout}
             className="p-2 hover:bg-red-50 rounded-lg"
             aria-label="Выйти"
           >

@@ -54,15 +54,14 @@ class EventFormData(BaseModel):
     status: str = "draft"
     ticket_type_name: str = "standart"
     ticket_type_available_quantity: str
-    ticket_type_free_registration: str = "false"
     remove_image: str = "false"
     url_slug: Optional[str] = None
     
     class Config:
         from_attributes = True
 
-def generate_slug_with_id(slug: str, event_id: int) -> str:
-    """Генерирует слаг с ID в конце."""
+def generate_slug_with_id(slug: str, event_id: int, start_date: datetime) -> str:
+    """Генерирует слаг с годом и ID в конце."""
     # Проверка на валидность слага (только латиница, цифры, дефис)
     valid_slug = re.sub(r'[^a-z0-9-]', '-', slug.lower())
     # Замена множественных дефисов одним
@@ -74,8 +73,11 @@ def generate_slug_with_id(slug: str, event_id: int) -> str:
     if not valid_slug:
         valid_slug = 'event'
     
-    # Добавляем ID в конец
-    return f"{valid_slug}-{event_id}"
+    # Получаем год из даты начала мероприятия
+    event_year = start_date.year
+    
+    # Добавляем год и ID в конец
+    return f"{valid_slug}-{event_year}-{event_id}"
 
 async def process_image(image_file: Optional[UploadFile], remove_image: bool, old_image_url: Optional[str] = None) -> Optional[str]:
     if remove_image and old_image_url:
@@ -111,7 +113,6 @@ async def prepare_event_data(form_data: EventFormData):
         if available_quantity <= 0:
             raise HTTPException(status_code=422, detail="Количество мест должно быть больше 0")
             
-        free_registration = form_data.ticket_type_free_registration.lower() == "true"
         remove_image = form_data.remove_image.lower() == "true"
         
         start_date_dt = make_naive(datetime.fromisoformat(form_data.start_date.replace("Z", "+00:00")))
@@ -125,7 +126,6 @@ async def prepare_event_data(form_data: EventFormData):
         return {
             "price_float": price_float,
             "available_quantity": available_quantity,
-            "free_registration": free_registration,
             "remove_image": remove_image,
             "start_date_dt": start_date_dt,
             "end_date_dt": end_date_dt,
@@ -214,14 +214,14 @@ async def create_event(
         
         # Генерация и сохранение url_slug после получения id
         if form_data.url_slug:
-            event.url_slug = generate_slug_with_id(form_data.url_slug, event.id)
+            event.url_slug = generate_slug_with_id(form_data.url_slug, event.id, processed_data["start_date_dt"])
         
         ticket = TicketType(
             event_id=event.id,
             name=form_data.ticket_type_name,
             price=processed_data["price_float"],
             available_quantity=processed_data["available_quantity"],
-            free_registration=processed_data["free_registration"],
+            free_registration=False,
             sold_quantity=0
         )
         db.add(ticket)
@@ -258,7 +258,6 @@ async def create_event(
                 name=ticket.name,
                 price=float(ticket.price),
                 available_quantity=ticket.available_quantity,
-                free_registration=ticket.free_registration,
                 sold_quantity=ticket.sold_quantity
             )
         )
@@ -320,7 +319,7 @@ async def update_event(
         
         # Обновление url_slug, если он изменился
         if form_data.url_slug and (not event.url_slug or not event.url_slug.startswith(form_data.url_slug)):
-            event.url_slug = generate_slug_with_id(form_data.url_slug, event_id)
+            event.url_slug = generate_slug_with_id(form_data.url_slug, event_id, processed_data["start_date_dt"])
         
         # Update ticket status to "completed" when event status is changed to "completed"
         if form_data.status == EventStatus.completed and old_status != EventStatus.completed:
@@ -341,14 +340,14 @@ async def update_event(
             ticket.name = form_data.ticket_type_name
             ticket.price = processed_data["price_float"]
             ticket.available_quantity = processed_data["available_quantity"]
-            ticket.free_registration = processed_data["free_registration"]
+            ticket.free_registration = False
         else:
             ticket = TicketType(
                 event_id=event_id,
                 name=form_data.ticket_type_name,
                 price=processed_data["price_float"],
                 available_quantity=processed_data["available_quantity"],
-                free_registration=processed_data["free_registration"],
+                free_registration=False,
                 sold_quantity=0,
             )
             db.add(ticket)
@@ -387,7 +386,6 @@ async def update_event(
                 name=ticket_data.name,
                 price=float(ticket_data.price),
                 available_quantity=ticket_data.available_quantity,
-                free_registration=ticket_data.free_registration,
                 sold_quantity=ticket_data.sold_quantity
             ) if ticket_data else None,
         )
@@ -481,7 +479,6 @@ async def get_admin_events(
                     "name": ticket.name,
                     "price": float(ticket.price),
                     "available_quantity": ticket.available_quantity,
-                    "free_registration": ticket.free_registration,
                     "sold_quantity": ticket.sold_quantity
                 }
             event_responses.append(EventCreate(**event_dict))
@@ -714,8 +711,7 @@ async def get_admin_event(
                 "name": ticket.name,
                 "price": float(ticket.price),
                 "available_quantity": ticket.available_quantity,
-                "sold_quantity": ticket.sold_quantity,
-                "free_registration": ticket.free_registration
+                "sold_quantity": ticket.sold_quantity
             }
 
         logger.info(f"Admin {current_admin.email} accessed event {event_id}")

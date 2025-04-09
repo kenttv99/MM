@@ -166,7 +166,7 @@ const DashboardSkeleton = () => (
 export default function Dashboard() {
   const router = useRouter();
   const { stage, setStage } = useLoading();
-  const { isAdminAuth, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
+  const { isAuthenticated, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
   
   const [events, setEvents] = useState<Event[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -181,14 +181,17 @@ export default function Dashboard() {
   // Функция для загрузки пользователей
   const fetchUsers = async () => {
     try {
+      console.log('Dashboard: Starting fetchUsers');
       // Get token with the correct key
       const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
       
       if (!token) {
+        console.log('Dashboard: No admin token found');
         throw new Error("Токен администратора не найден");
       }
       
-      const fetchedUsers = await apiFetch("/admin_edits/users", {
+      console.log('Dashboard: Sending request to fetch users');
+      const fetchedUsers = await apiFetch<any[]>("/admin_edits/users", {
         bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
         headers: {
           'Authorization': `Bearer ${token}`
@@ -196,13 +199,21 @@ export default function Dashboard() {
       });
       
       if ('aborted' in fetchedUsers) {
+        console.log('Dashboard: Users request was aborted:', fetchedUsers.reason);
         throw new Error(fetchedUsers.reason || "Запрос пользователей был прерван");
       }
-      setUsers(fetchedUsers);
+      
+      if ('error' in fetchedUsers) {
+        console.error('Dashboard: Error response from users API:', fetchedUsers);
+        throw new Error(fetchedUsers.error || "Ошибка при загрузке пользователей");
+      }
+      
+      console.log(`Dashboard: Users fetched successfully, count: ${fetchedUsers.length}`);
+      setUsers(fetchedUsers as User[]);
       setDataLoaded(prev => ({ ...prev, users: true }));
       return true;
     } catch (err: any) {
-      console.error("Ошибка при загрузке пользователей:", err);
+      console.error("Dashboard: Error fetching users:", err);
       
       // Check for 401/403 errors and redirect to login
       if (err.status === 401 || err.status === 403) {
@@ -220,14 +231,17 @@ export default function Dashboard() {
   // Функция для загрузки мероприятий
   const fetchEvents = async () => {
     try {
+      console.log('Dashboard: Starting fetchEvents');
       // Get token with the correct key
       const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
       
       if (!token) {
+        console.log('Dashboard: No admin token found');
         throw new Error("Токен администратора не найден");
       }
       
-      const fetchedEvents = await apiFetch("/admin_edits/events", {
+      console.log('Dashboard: Sending request to fetch events');
+      const fetchedEvents = await apiFetch<any[]>("/admin_edits/events", {
         bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
         headers: {
           'Authorization': `Bearer ${token}`
@@ -235,13 +249,21 @@ export default function Dashboard() {
       });
       
       if ('aborted' in fetchedEvents) {
+        console.log('Dashboard: Events request was aborted:', fetchedEvents.reason);
         throw new Error(fetchedEvents.reason || "Запрос мероприятий был прерван");
       }
-      setEvents(fetchedEvents);
+      
+      if ('error' in fetchedEvents) {
+        console.error('Dashboard: Error response from events API:', fetchedEvents);
+        throw new Error(fetchedEvents.error || "Ошибка при загрузке мероприятий");
+      }
+      
+      console.log(`Dashboard: Events fetched successfully, count: ${fetchedEvents.length}`);
+      setEvents(fetchedEvents as Event[]);
       setDataLoaded(prev => ({ ...prev, events: true }));
       return true;
     } catch (err: any) {
-      console.error("Ошибка при загрузке мероприятий:", err);
+      console.error("Dashboard: Error fetching events:", err);
       
       // Check for 401/403 errors and redirect to login
       if (err.status === 401 || err.status === 403) {
@@ -260,29 +282,53 @@ export default function Dashboard() {
   useEffect(() => {
     // Установка флага клиентской загрузки
     setClientReady(true);
+    console.log('Dashboard: Client ready set to true');
     
     // Сразу устанавливаем стадию загрузки COMPLETED для предотвращения блокировки запросов
     setStage(LoadingStage.COMPLETED);
+    console.log('Dashboard: Setting stage to COMPLETED, current stage =', stage);
     
-    // Check if authenticated before loading data
+    // Логируем состояние аутентификации
+    console.log('Dashboard: Current authentication state:', {
+      isAuthChecked,
+      isAuthenticated,
+      ADMIN_TOKEN: localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN) ? 'exists' : 'missing'
+    });
+    
+    // Если проверка аутентификации еще не завершена, добавляем таймаут для повторной проверки
     if (!isAuthChecked) {
-      // Authentication is still being checked, wait
-      return;
+      console.log('Dashboard: Authentication check not completed yet, setting timeout to check again');
+      const checkAgain = setTimeout(() => {
+        console.log('Dashboard: Re-checking authentication after timeout');
+        if (isAuthChecked) {
+          console.log('Dashboard: Auth check completed during timeout, isAuthenticated =', isAuthenticated);
+          // Нет необходимости делать что-то особенное, эффект будет вызван снова
+        } else {
+          console.log('Dashboard: Auth check still pending after timeout');
+        }
+      }, 500);
+      
+      return () => clearTimeout(checkAgain);
     }
     
-    if (!isAdminAuth) {
+    console.log('Dashboard: Auth check completed, isAuthenticated =', isAuthenticated);
+    
+    if (!isAuthenticated) {
       // Not authenticated, redirect to login
+      console.log('Dashboard: User not authenticated, redirecting to login');
       setError("Требуется авторизация администратора");
       router.push("/admin-login");
       return;
     }
     
     // Немедленно запускаем загрузку данных если пользователь авторизован
+    console.log('Dashboard: User authenticated, starting data load');
     const loadData = async () => {
       try {
         setIsLoading(true);
         
         // Используем Promise.all для параллельной загрузки
+        console.log('Dashboard: Fetching users and events in parallel');
         const results = await Promise.all([
           fetchUsers(),
           fetchEvents()
@@ -290,7 +336,9 @@ export default function Dashboard() {
         
         // Check if any requests failed with auth errors
         if (results.includes(false)) {
-          console.log("Some requests failed, check individual error handlers");
+          console.log("Dashboard: Some requests failed, check individual error handlers");
+        } else {
+          console.log("Dashboard: All data fetched successfully");
         }
         
         // После загрузки данных (успешной или нет) скрываем индикатор загрузки
@@ -310,10 +358,10 @@ export default function Dashboard() {
     
     // Запускаем загрузку при первом рендере если пользователь авторизован
     loadData();
-  }, [setStage, isAuthChecked, isAdminAuth, router]);
+  }, [setStage, isAuthChecked, isAuthenticated, router]);
 
   const handleCreateEvent = () => {
-    router.push("/event-edit");
+    router.push("/edit-events");
   };
 
   // Вычисленные значения для панели статистики
@@ -331,7 +379,7 @@ export default function Dashboard() {
   }
   
   // Если пользователь не авторизован, показываем сообщение об ошибке
-  if (!isAdminAuth) {
+  if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md">

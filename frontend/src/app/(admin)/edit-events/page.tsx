@@ -17,7 +17,7 @@ function EditEventsPageContent() {
   const initialEventId = eventIdParam;
 
   const router = useRouter();
-  const { isAdminAuth } = useAdminAuth();
+  const { isAuthenticated } = useAdminAuth();
   const initialized = useRef(false);
 
   const initialValues = useMemo<EventFormData>(() => ({
@@ -31,7 +31,6 @@ function EditEventsPageContent() {
     price: 0,
     ticket_type_name: "standart",
     ticket_type_available_quantity: 0,
-    ticket_type_free_registration: false,
     published: false,
     status: "draft",
     created_at: new Date().toISOString(),
@@ -50,6 +49,7 @@ function EditEventsPageContent() {
     handleSubmit,
     loadEvent,
     setFieldValue,
+    setImagePreview,
     isLoading
   } = useEventForm({
     initialValues,
@@ -61,7 +61,7 @@ function EditEventsPageContent() {
     if (initialized.current) return;
     initialized.current = true;
 
-    if (!isAdminAuth) {
+    if (!isAuthenticated) {
       router.push("/admin-login");
       return;
     }
@@ -69,7 +69,7 @@ function EditEventsPageContent() {
     if (!isNewEvent && initialEventId) {
       loadEvent(initialEventId);
     }
-  }, [isAdminAuth, isNewEvent, initialEventId, loadEvent, router]);
+  }, [isAuthenticated, isNewEvent, initialEventId, loadEvent, router]);
 
   return (
     <EditEventForm
@@ -82,6 +82,7 @@ function EditEventsPageContent() {
       handleFileChange={handleFileChange}
       handleSubmit={handleSubmit}
       setFieldValue={setFieldValue}
+      setImagePreview={setImagePreview}
       isLoading={isLoading}
       isPageLoading={false}
     />

@@ -3,6 +3,7 @@
 
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
 import { FaEnvelope, FaLock } from "react-icons/fa";
@@ -14,7 +15,8 @@ import ClientErrorBoundary from "@/components/Errors/ClientErrorBoundary";
 const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
 
 export default function AdminLoginPage() {
-  const { loginAdmin } = useAdminAuth();
+  const router = useRouter();
+  const { login } = useAdminAuth();
   const [formValues, setFormValues] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +36,13 @@ export default function AdminLoginPage() {
 
     try {
       console.log('AdminLogin: Sending login request with credentials');
+      
+      // Debug authentication state before login
+      console.log('AdminLogin: Current auth state before login:', {
+        isLoggedIn: localStorage.getItem('admin_token') ? true : false,
+        adminData: localStorage.getItem('admin_data') ? true : false
+      });
+      
       const data = await apiFetch<{ access_token: string; id: number; email: string; fio?: string }>("/admin/login", {
         method: "POST",
         body: JSON.stringify(formValues),
@@ -45,6 +54,10 @@ export default function AdminLoginPage() {
       
       if ('aborted' in data) {
         throw new Error(data.reason || "Запрос был прерван");
+      }
+      
+      if ('error' in data) {
+        throw new Error(data.error || "Ошибка авторизации");
       }
       
       const response = data as { access_token: string; id: number; email: string; fio?: string };
@@ -60,10 +73,21 @@ export default function AdminLoginPage() {
         fio: response.fio || "Администратор",
       };
       
-      console.log('AdminLogin: Calling loginAdmin with token and user data');
+      console.log('AdminLogin: Calling login with token and user data');
       setIsSuccess(true);
       setIsLoading(false);
-      loginAdmin(response.access_token, adminData);
+      login(response.access_token, adminData);
+      
+      // Add automatic redirect after successful login
+      console.log('AdminLogin: Redirecting to admin profile page');
+      setTimeout(() => {
+        // Clear any existing errors in the console to make debugging easier
+        console.clear();
+        console.log('AdminLogin: Starting navigation to admin profile');
+        
+        // Use router for the navigation
+        router.push('/admin-profile');
+      }, 1000);
     } catch (err) {
       let errorMessage = "Произошла ошибка";
       

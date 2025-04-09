@@ -285,22 +285,23 @@ const TicketItem: React.FC<TicketItemProps> = ({ ticket, userData, onCancelClick
       
       <div className="flex">
         {/* Ticket number section */}
-        {ticket.ticket_number && (
-          <div className="flex-shrink-0 w-[90px] flex items-center justify-center mr-3">
-            <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
-              <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
-                <div className="vertical-text text-orange-700 font-mono text-sm tracking-wider transform -rotate-90 whitespace-nowrap">
-                  {ticket.ticket_number.slice(0, ticket.ticket_number.length / 2)}
-                </div>
-              </div>
-              <div className="flex-1 flex items-center justify-center pl-1">
-                <div className="vertical-text text-orange-500 font-mono text-sm tracking-wider transform -rotate-90 whitespace-nowrap">
-                  {ticket.ticket_number.slice(ticket.ticket_number.length / 2)}
-                </div>
-              </div>
+        <div className="flex-shrink-0 flex items-center justify-center mr-3">
+          <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-3 px-5 shadow-sm flex flex-row items-center">
+            {/* Левая часть - заголовок */}
+            <div className="flex items-center justify-center pr-3 border-r border-orange-200">
+              <p className="text-xs text-gray-500 uppercase font-medium">
+                НОМЕР БИЛЕТА
+              </p>
+            </div>
+            
+            {/* Правая часть - номер */}
+            <div className="flex items-center justify-center pl-3">
+              <p className="text-xl font-bold text-orange-600">
+                #{ticket.ticket_number || ticket.id}
+              </p>
             </div>
           </div>
-        )}
+        </div>
         
         {/* Main ticket info */}
         <div className="flex-1">
@@ -1112,7 +1113,7 @@ export const UserEventTickets: React.FC = () => {
                       {/* Правая колонка - номер */}
                       <div className="flex-1 flex items-center justify-center pl-1">
                         <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
-                                #{ticket.id.toString()}
+                                #{ticket.ticket_number || ticket.id}
                         </p>
                       </div>
                     </div>

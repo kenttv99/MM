@@ -52,7 +52,8 @@ async def get_user_tickets(
                 ticket_type=registration.ticket_type.name,
                 registration_date=registration.submission_time,
                 status=registration.status,
-                cancellation_count=0 if not hasattr(registration, 'cancellation_count') or registration.cancellation_count is None else registration.cancellation_count
+                cancellation_count=0 if not hasattr(registration, 'cancellation_count') or registration.cancellation_count is None else registration.cancellation_count,
+                ticket_number=registration.ticket_number
             )
             for registration in registrations
         ]

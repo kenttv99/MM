@@ -6,6 +6,9 @@ import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
 import { EventData } from "@/types/events";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
+import { MdCalendarToday, MdLocationOn, MdConfirmationNumber } from "react-icons/md";
 
 // Define the date formatting function directly
 const formatDateForDisplay = (dateString: string): string => {
@@ -56,6 +59,7 @@ interface UserTicket {
   registration_date: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
   cancellation_count?: number;
+  ticket_number?: string;
 }
 
 interface ConfirmModalProps {
@@ -166,56 +170,184 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
 // Компонент для отображения скелетона загрузки билета
 const TicketSkeleton = () => (
-  <div className="bg-white rounded-lg p-4 animate-pulse">
-    {/* Top section: Title and Status */}
-    <div className="flex justify-between items-center mb-2">
-      <div className="h-5 bg-orange-200 rounded w-1/3"></div>
-      <div className="h-4 bg-orange-100 rounded-full w-1/6"></div>
-    </div>
-    
-    <div className="flex h-full">
-      {/* Вертикальный номер билета */}
-      <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
-        <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
-          <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
-            <div className="h-20 w-3 bg-orange-100 rounded"></div>
-          </div>
-          <div className="flex-1 flex items-center justify-center pl-1">
-            <div className="h-20 w-3 bg-orange-200 rounded"></div>
-          </div>
-        </div>
+  <>
+    <style jsx global>{`
+      @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+      .animate-shimmer {
+        animation: shimmer 1.5s infinite;
+      }
+    `}</style>
+    <div className="bg-white rounded-lg p-4 shadow-sm border border-orange-50">
+      {/* Top section: Title and Status */}
+      <div className="flex justify-between items-center mb-2">
+        <div className="h-5 bg-gradient-to-r from-orange-200 via-orange-50 to-orange-100 rounded w-1/3 animate-shimmer bg-[length:200%_100%]"></div>
+        <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded-full w-1/6 animate-shimmer bg-[length:200%_100%]"></div>
       </div>
       
-      {/* Основное содержимое */}
-      <div className="flex-1 ml-3">
-        <div className="space-y-3">
-          <div className="flex items-start gap-2">
-            <div className="h-4 w-4 bg-orange-300 rounded-full mt-1"></div>
-            <div className="h-4 bg-orange-100 rounded w-3/4"></div>
+      <div className="flex h-full">
+        {/* Вертикальный номер билета */}
+        <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
+          <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
+            <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
+              <div className="h-20 w-3 bg-gradient-to-b from-orange-100 via-orange-50 to-orange-100 rounded animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
+            <div className="flex-1 flex items-center justify-center pl-1">
+              <div className="h-20 w-3 bg-gradient-to-b from-orange-200 via-orange-100 to-orange-200 rounded animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
           </div>
-          <div className="flex items-start gap-2">
-            <div className="h-4 w-4 bg-orange-300 rounded-full mt-1"></div>
-            <div className="h-4 bg-orange-100 rounded w-1/2"></div>
-          </div>
-          <div className="flex items-start gap-2">
-            <div className="h-4 w-4 bg-orange-300 rounded-full mt-1"></div>
-            <div className="h-4 bg-orange-100 rounded w-2/3"></div>
-          </div>
-          <div className="flex items-start gap-2">
-            <div className="h-4 w-4 bg-orange-300 rounded-full mt-1"></div>
-            <div className="h-4 bg-orange-100 rounded w-3/5"></div>
-          </div>
-          <div className="flex items-start gap-2">
-            <div className="h-4 w-4 bg-orange-300 rounded-full mt-1"></div>
-            <div className="h-4 bg-orange-100 rounded w-4/5"></div>
+        </div>
+        
+        {/* Основное содержимое */}
+        <div className="flex-1 ml-3">
+          <div className="space-y-3">
+            <div className="flex items-start gap-2">
+              <div className="h-4 w-4 bg-gradient-to-r from-orange-300 via-orange-200 to-orange-300 rounded-full mt-1 animate-shimmer bg-[length:200%_100%]"></div>
+              <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-3/4 animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="h-4 w-4 bg-gradient-to-r from-orange-300 via-orange-200 to-orange-300 rounded-full mt-1 animate-shimmer bg-[length:200%_100%]"></div>
+              <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-1/2 animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="h-4 w-4 bg-gradient-to-r from-orange-300 via-orange-200 to-orange-300 rounded-full mt-1 animate-shimmer bg-[length:200%_100%]"></div>
+              <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-2/3 animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="h-4 w-4 bg-gradient-to-r from-orange-300 via-orange-200 to-orange-300 rounded-full mt-1 animate-shimmer bg-[length:200%_100%]"></div>
+              <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-3/5 animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div className="h-4 w-4 bg-gradient-to-r from-orange-300 via-orange-200 to-orange-300 rounded-full mt-1 animate-shimmer bg-[length:200%_100%]"></div>
+              <div className="h-4 bg-gradient-to-r from-orange-100 via-orange-50 to-orange-100 rounded w-4/5 animate-shimmer bg-[length:200%_100%]"></div>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </div>
+  </>
 );
 
-const UserEventTickets = () => {
+interface TicketItemProps {
+  ticket: UserTicket;
+  userData: any;
+  onCancelClick: (ticket: UserTicket) => void;
+}
+
+// Helper functions (moved outside components to be accessible everywhere)
+const getStatusColor = (status: UserTicket["status"]) => {
+  switch (status) {
+    case "confirmed":
+      return "bg-green-100 text-green-800";
+    case "cancelled":
+      return "bg-red-100 text-red-800";
+    case "completed":
+      return "bg-gray-100 text-gray-800";
+    case "pending":
+      return "bg-yellow-100 text-yellow-800";
+    default:
+      return "bg-green-100 text-green-800";
+  }
+};
+
+const getStatusText = (status: UserTicket["status"]) => {
+  switch (status) {
+    case "confirmed":
+      return "Подтвержден";
+    case "cancelled":
+      return "Отменен";
+    case "completed":
+      return "Завершен";
+    case "pending":
+      return "Ожидает подтверждения";
+    default:
+      return "Подтвержден";
+  }
+};
+
+const TicketItem: React.FC<TicketItemProps> = ({ ticket, userData, onCancelClick }) => {
+  const startDate = formatDateForDisplay(ticket.event.start_date);
+  const startTime = formatTimeForDisplay(ticket.event.start_date);
+  const endTime = ticket.event.end_date ? formatTimeForDisplay(ticket.event.end_date) : '';
+  const showCancelButton = ticket.status !== "cancelled" && ticket.status !== "completed";
+  const ticketTypeDisplay = getTicketTypeInRussian(ticket.ticket_type);
+  
+  return (
+    <div className="bg-white rounded-lg shadow-md p-4 transition-all duration-300 hover:shadow-lg relative">
+      <div className="flex justify-between items-center mb-3">
+        <h3 className="text-lg font-medium text-gray-800 truncate">{ticket.event.title}</h3>
+        <span className={`text-xs font-medium px-2 py-1 rounded-full ${getStatusColor(ticket.status)}`}>
+          {getStatusText(ticket.status)}
+        </span>
+      </div>
+      
+      <div className="flex">
+        {/* Ticket number section */}
+        {ticket.ticket_number && (
+          <div className="flex-shrink-0 w-[90px] flex items-center justify-center mr-3">
+            <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
+              <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
+                <div className="vertical-text text-orange-700 font-mono text-sm tracking-wider transform -rotate-90 whitespace-nowrap">
+                  {ticket.ticket_number.slice(0, ticket.ticket_number.length / 2)}
+                </div>
+              </div>
+              <div className="flex-1 flex items-center justify-center pl-1">
+                <div className="vertical-text text-orange-500 font-mono text-sm tracking-wider transform -rotate-90 whitespace-nowrap">
+                  {ticket.ticket_number.slice(ticket.ticket_number.length / 2)}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Main ticket info */}
+        <div className="flex-1">
+          <div className="space-y-2">
+            <div className="flex items-start gap-2">
+              <FaTicketAlt className="text-orange-500 mt-1 flex-shrink-0" />
+              <span className="text-sm text-gray-700">Тип билета: <span className="font-medium">{ticketTypeDisplay}</span></span>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaCalendarAlt className="text-orange-500 mt-1 flex-shrink-0" />
+              <span className="text-sm text-gray-700">{startDate}</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <FaClock className="text-orange-500 mt-1 flex-shrink-0" />
+              <span className="text-sm text-gray-700">{startTime}{endTime ? ` - ${endTime}` : ''}</span>
+            </div>
+            {ticket.event.location && (
+              <div className="flex items-start gap-2">
+                <FaMapMarkerAlt className="text-orange-500 mt-1 flex-shrink-0" />
+                <span className="text-sm text-gray-700 break-words">{ticket.event.location}</span>
+              </div>
+            )}
+            <div className="flex items-start gap-2">
+              <FaRegCalendarCheck className="text-orange-500 mt-1 flex-shrink-0" />
+              <span className="text-sm text-gray-500">
+                Зарегистрирован: {formatDateForDisplay(ticket.registration_date)}
+              </span>
+            </div>
+          </div>
+          
+          {showCancelButton && (
+            <div className="mt-4">
+              <button
+                onClick={() => onCancelClick(ticket)}
+                className="text-sm text-red-600 hover:text-red-800 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50 rounded px-2 py-1"
+              >
+                Отменить регистрацию
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const UserEventTickets: React.FC = () => {
   const [tickets, setTickets] = useState<UserTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -789,36 +921,6 @@ const UserEventTickets = () => {
     }
   };
 
-  const getStatusColor = (status: UserTicket["status"]) => {
-    switch (status) {
-      case "confirmed":
-        return "bg-green-100 text-green-800";
-      case "cancelled":
-        return "bg-red-100 text-red-800";
-      case "completed":
-        return "bg-gray-100 text-gray-800";
-      case "pending":
-        return "bg-yellow-100 text-yellow-800";
-      default:
-        return "bg-green-100 text-green-800";
-    }
-  };
-
-  const getStatusText = (status: UserTicket["status"]) => {
-    switch (status) {
-      case "confirmed":
-        return "Подтвержден";
-      case "cancelled":
-        return "Отменен";
-      case "completed":
-        return "Завершен";
-      case "pending":
-        return "Ожидает подтверждения";
-      default:
-        return "Подтвержден";
-    }
-  };
-
   // Комплексная функция для обработки билетов:
   // 1. Удаление дубликатов
   // 2. Фильтрация по статусу
@@ -903,7 +1005,7 @@ const UserEventTickets = () => {
   return (
     <div className="h-full overflow-auto" ref={ticketsContainerRef}>
       {isLoading && tickets.length === 0 ? (
-        <div className="space-y-4 p-2">
+        <div className="p-2">
           <TicketSkeleton />
         </div>
       ) : tickets.length === 0 ? (
@@ -938,9 +1040,6 @@ const UserEventTickets = () => {
               // Сортируем по статусу и дате
               const sortedTickets = sortByStatusAndDate(activeTickets);
               
-              // Обновляем глобально счетчик для отладки
-              // console.log(`Отображение ${sortedTickets.length} уникальных билетов`);
-
               // Рендерим только уникальные билеты
               return sortedTickets.map((ticket, index) => {
                 // Определяем максимальное количество отмен (по умолчанию 3)
@@ -997,7 +1096,7 @@ const UserEventTickets = () => {
                             {/* Правая колонка - номер */}
                             <div className="flex-1 flex items-center justify-center pl-1">
                               <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
-                                #{ticket.id.toString().padStart(4, '0')}
+                                #{ticket.ticket_number || ticket.id.toString()}
                               </p>
                             </div>
                           </div>

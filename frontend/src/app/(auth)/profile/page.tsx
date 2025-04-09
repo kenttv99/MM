@@ -19,6 +19,11 @@ const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
   const router = useRouter();
 
+  // Создаем мемоизированный компонент с билетами заранее
+  const userTicketsComponent = React.useMemo(() => (
+    userData ? <UserEventTickets key={`tickets-${userData?.id || 'guest'}`} /> : null
+  ), [userData?.id]);
+
   const [formState, setFormState] = useState<FormState>({
     fio: "",
     telegram: "",
@@ -311,12 +316,12 @@ const ProfilePage: React.FC = () => {
         </div>
         <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-          <UserEventTickets />
+          {userTicketsComponent}
         </div>
-        <ChangePasswordForm
+        {isChangePasswordOpen && <ChangePasswordForm
           isOpen={isChangePasswordOpen}
           onClose={() => setIsChangePasswordOpen(false)}
-        />
+        />}
       </div>
     </div>
   );

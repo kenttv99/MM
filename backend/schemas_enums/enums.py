@@ -9,6 +9,7 @@ class Status(Enum):
     pending = 'pending'
     approved = 'approved'
     rejected = 'rejected'
+    cancelled = 'cancelled'
 
 class Role(Enum):
     user = 'user'

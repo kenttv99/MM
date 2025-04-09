@@ -65,14 +65,12 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, title, error, su
             <ClientErrorBoundary>
               {error && (
                 <div className="mb-4 p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
-                  <p className="font-medium">Ошибка</p>
-                  <p>{error}</p>
+                  <p className="whitespace-pre-wrap break-words">{error}</p>
                 </div>
               )}
               {success && (
                 <div className="mb-4 p-2 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md text-xs">
-                  <p className="font-medium">Успешно</p>
-                  <p>{success}</p>
+                  <p className="whitespace-pre-wrap break-words">{success}</p>
                 </div>
               )}
               {children}

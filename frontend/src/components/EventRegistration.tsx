@@ -82,7 +82,52 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Error response:', errorText);
-        throw new Error(`Ошибка при бронировании: ${response.status} - ${errorText}`);
+        
+        // Обработка конкретных типов ошибок для более дружелюбных сообщений
+        try {
+          let errorData;
+          
+          // Проверяем, является ли текст JSON-объектом
+          if (errorText.startsWith('{') && errorText.endsWith('}')) {
+            errorData = JSON.parse(errorText);
+          } else {
+            // Ищем внутри текста JSON-объект
+            const jsonMatch = errorText.match(/{.*}/s);
+            if (jsonMatch) {
+              errorData = JSON.parse(jsonMatch[0]);
+            }
+          }
+          
+          if (errorData && errorData.detail) {
+            // Обработка конкретных сообщений об ошибках
+            if (errorData.detail.includes("Превышен лимит отмен регистраций")) {
+              throw new Error("Вы уже отменяли регистрацию на это мероприятие 3 раза. Дальнейшая регистрация недоступна.");
+            } else if (errorData.detail.includes("Вы уже зарегистрированы")) {
+              throw new Error("Вы уже зарегистрированы на это мероприятие.");
+            } else if (errorData.detail.includes("Билеты на это мероприятие распроданы")) {
+              throw new Error("К сожалению, все билеты на это мероприятие уже распроданы.");
+            } else if (errorData.detail.includes("Регистрация на это мероприятие недоступна")) {
+              throw new Error("Регистрация на это мероприятие в данный момент недоступна.");
+            } else {
+              throw new Error(errorData.detail);
+            }
+          } else {
+            // Если не удалось найти detail в JSON или это не JSON
+            throw new Error(`Ошибка при бронировании: ${response.status === 400 ? 'Невозможно забронировать билет' : response.statusText}`);
+          }
+        } catch (parseError) {
+          // Если это ошибка парсинга, значит текст ответа не валидный JSON
+          console.error('Parse error:', parseError);
+          
+          // Пробуем найти понятное сообщение об ошибке в тексте
+          if (errorText.includes("Превышен лимит отмен регистраций")) {
+            throw new Error("Вы уже отменяли регистрацию на это мероприятие 3 раза. Дальнейшая регистрация недоступна.");
+          } else if (errorText.includes("Вы уже зарегистрированы")) {
+            throw new Error("Вы уже зарегистрированы на это мероприятие.");
+          } else {
+            throw new Error(`Ошибка при бронировании: ${response.status === 400 ? 'Невозможно забронировать билет' : response.statusText}`);
+          }
+        }
       }
 
       const data = await response.json();

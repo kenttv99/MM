@@ -39,13 +39,20 @@ async def get_user_tickets(
         await log_user_activity(db, current_user.id, request, action="view_tickets")
         logger.info(f"User {current_user.email} viewed their tickets")
         
+        # Обновим записи с NULL cancellation_count до возврата данных
+        for reg in registrations:
+            if not hasattr(reg, 'cancellation_count') or reg.cancellation_count is None:
+                reg.cancellation_count = 0
+                await db.commit()
+
         return [
             UserTicketResponse(
                 id=registration.id,
                 event=registration.event,
                 ticket_type=registration.ticket_type.name,
                 registration_date=registration.submission_time,
-                status=registration.status
+                status=registration.status,
+                cancellation_count=0 if not hasattr(registration, 'cancellation_count') or registration.cancellation_count is None else registration.cancellation_count
             )
             for registration in registrations
         ]

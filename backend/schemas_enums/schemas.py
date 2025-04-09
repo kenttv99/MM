@@ -209,6 +209,7 @@ class UserTicketResponse(BaseModel):
     ticket_type: str
     registration_date: datetime
     status: Status
+    cancellation_count: int = 0
 
     class Config:
         from_attributes = True

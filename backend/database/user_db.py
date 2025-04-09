@@ -100,6 +100,7 @@ class Registration(Base):
     amount_paid = Column(DECIMAL(20, 8))
     status = Column(Enum(Status), default=Status.pending.name)
     submission_time = Column(TIMESTAMP, default=datetime.utcnow)
+    cancellation_count = Column(Integer, default=0, nullable=False)
     
     user = relationship("User", back_populates="registrations")
     event = relationship("Event", back_populates="registrations")

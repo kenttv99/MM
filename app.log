@@ -1785,3 +1785,30 @@ ConnectionResetError: [WinError 10054] Удаленный хост принудительно разорвал сущ
 2025-04-08 20:56:05,913 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-08 21:00:31,983 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-08 21:00:32,221 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 01:48:15,058 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 01:48:15,301 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 01:48:15,537 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-09 01:48:37,057 - root - ERROR - Error fetching user tickets: 1 validation error for UserTicketResponse
+cancellation_count
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.11/v/int_type
+2025-04-09 01:48:58,194 - root - ERROR - Error fetching user tickets: 1 validation error for UserTicketResponse
+cancellation_count
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.11/v/int_type
+2025-04-09 01:51:19,158 - root - ERROR - Error fetching user tickets: 1 validation error for UserTicketResponse
+cancellation_count
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.11/v/int_type
+2025-04-09 01:51:53,638 - root - ERROR - Error fetching user tickets: 1 validation error for UserTicketResponse
+cancellation_count
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.11/v/int_type
+2025-04-09 01:51:53,732 - root - ERROR - Error fetching user tickets: 1 validation error for UserTicketResponse
+cancellation_count
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.11/v/int_type
+2025-04-09 01:51:53,770 - root - ERROR - Error fetching user tickets: 1 validation error for UserTicketResponse
+cancellation_count
+  Input should be a valid integer [type=int_type, input_value=None, input_type=NoneType]
+    For further information visit https://errors.pydantic.dev/2.11/v/int_type

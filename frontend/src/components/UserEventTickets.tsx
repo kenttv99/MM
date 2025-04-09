@@ -55,6 +55,7 @@ interface UserTicket {
   ticket_type: string;
   registration_date: string;
   status: "pending" | "confirmed" | "cancelled" | "completed";
+  cancellation_count?: number;
 }
 
 interface ConfirmModalProps {
@@ -70,6 +71,8 @@ interface ConfirmModalProps {
 
 interface APIResponse<T> {
   data?: T;
+  items?: T;
+  tickets?: T;
   error?: string;
   status?: number;
   aborted?: boolean;
@@ -161,6 +164,21 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
   );
 };
 
+// Компонент для отображения скелетона загрузки билета
+const TicketSkeleton = () => (
+  <div className="bg-white rounded-lg p-4 shadow animate-pulse">
+    <div className="flex justify-between items-center mb-4">
+      <div className="h-4 bg-gray-200 rounded w-1/3"></div>
+      <div className="h-4 bg-gray-200 rounded w-1/4"></div>
+    </div>
+    <div className="space-y-2">
+      <div className="h-3 bg-gray-200 rounded w-3/4"></div>
+      <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+      <div className="h-3 bg-gray-200 rounded w-2/3"></div>
+    </div>
+  </div>
+);
+
 const UserEventTickets = () => {
   const [tickets, setTickets] = useState<UserTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -185,7 +203,11 @@ const UserEventTickets = () => {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const ticketsContainerRef = useRef<HTMLDivElement>(null);
-  const ticketsPerPage = 3;
+  const ticketsPerPage = 5; // Увеличиваем число билетов на страницу до 5
+  
+  // Для предотвращения дублирования запросов в режиме разработки
+  const isMounted = useRef(false);
+  const isInitialFetchDone = useRef(false);
   
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -197,8 +219,11 @@ const UserEventTickets = () => {
   // Add logging for component lifecycle
   useEffect(() => {
     console.log(`UserEventTickets: Component mounted, current stage: ${currentStage}`);
+    isMounted.current = true;
+    
     return () => {
       console.log("UserEventTickets: Component unmounted");
+      isMounted.current = false;
       if (retryTimeout.current) {
         clearTimeout(retryTimeout.current);
       }
@@ -207,17 +232,15 @@ const UserEventTickets = () => {
 
   // Listen for navigation and force refresh when the pathname changes
   useEffect(() => {
+    if (!isMounted.current) return;
+    
     console.log(`UserEventTickets: Pathname changed to ${pathname}`);
     
     // Check if we're on a profile-related page
     if (pathname && (pathname.includes('/profile') || pathname.includes('/account'))) {
       console.log('UserEventTickets: Detected navigation to profile page');
       
-      // Force a refresh when navigating to profile page
-      refreshCounter.current += 1;
-      console.log(`UserEventTickets: Forcing refresh #${refreshCounter.current} due to navigation`);
-      
-      // Reset all loading/pagination state
+      // Сбрасываем состояние загрузки
       setIsLoading(true);
       hasInitialData.current = false;
       isInitialLoad.current = true;
@@ -225,11 +248,14 @@ const UserEventTickets = () => {
       setPage(1);
       setHasMore(true);
       setTickets([]);
+      isInitialFetchDone.current = false;
     }
   }, [pathname]);
 
   // Create a separate effect to handle the actual fetching based on refreshCounter
   useEffect(() => {
+    if (!isMounted.current) return;
+    
     // Skip initial run to prevent double fetches
     if (refreshCounter.current > 0) {
       console.log(`UserEventTickets: Handling refresh #${refreshCounter.current}`);
@@ -258,8 +284,8 @@ const UserEventTickets = () => {
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      // If we're near the bottom (within 50px) and not already loading more
-      if (scrollHeight - scrollTop - clientHeight < 50 && !isLoadingMore && hasMore) {
+      // Проверяем, находимся ли мы ближе к концу контейнера (в пределах 100px)
+      if (scrollHeight - scrollTop - clientHeight < 100 && !isLoadingMore && hasMore) {
         console.log('UserEventTickets: Scrolled near bottom, loading more tickets');
         loadMoreTickets();
       }
@@ -289,20 +315,49 @@ const UserEventTickets = () => {
     }, 50);
   }, []);
 
-  // Initial fetch on mount
+  // Effect to fetch tickets when the component mounts or when userData changes
   useEffect(() => {
-    console.log(`UserEventTickets: Setting up initial fetch timer`);
-    const timer = setTimeout(() => {
-      fetchTickets();
-    }, initialLoadDelay);
-
-    return () => {
-      clearTimeout(timer);
-      if (retryTimeout.current) {
-        clearTimeout(retryTimeout.current);
-      }
-    };
-  }, []);
+    // Предотвращаем запросы, если компонент не смонтирован
+    if (!isMounted.current) return;
+    
+    // Проверяем, есть ли данные userData
+    if (!userData) {
+      console.log('UserEventTickets: No user data yet, waiting...');
+      // Если userData еще не загружен, выходим и ждем следующего рендера
+      return;
+    }
+    
+    // Предотвращаем повторные запросы при каждом ре-рендере
+    if (isInitialFetchDone.current && !isInitialLoad.current) {
+      console.log('UserEventTickets: Initial fetch already completed, skipping');
+      return;
+    }
+    
+    // Если начальная загрузка уже запланирована, не создаем дублирующие таймеры
+    if (fetchAttempted.current) {
+      console.log('UserEventTickets: Fetch already scheduled or in progress');
+      return;
+    }
+    
+    console.log('UserEventTickets: userData is available, triggering fetch');
+    
+    // Принудительно обновляем счетчик при изменении userData только если требуется начальная загрузка
+    if (!isInitialFetchDone.current) {
+      refreshCounter.current += 1;
+      fetchAttempted.current = true;
+      
+      // Небольшая задержка для стабильности
+      const timer = setTimeout(() => {
+        console.log(`UserEventTickets: Initial data load with userData, refresh #${refreshCounter.current}`);
+        fetchTickets();
+      }, initialLoadDelay);
+      
+      return () => {
+        clearTimeout(timer);
+        fetchAttempted.current = false;
+      };
+    }
+  }, [userData]);
 
   const loadMoreTickets = async () => {
     if (isLoadingMore || !hasMore) return;
@@ -321,42 +376,67 @@ const UserEventTickets = () => {
         return;
       }
       
+      // Сохраняем текущие ID билетов перед запросом
+      const currentTicketIds = new Set(tickets.map(ticket => ticket.id));
+      console.log(`UserEventTickets: Текущее количество билетов: ${currentTicketIds.size}`);
+      
       const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
         method: "GET",
         headers: { 
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        bypassLoadingStageCheck: true
+        bypassLoadingStageCheck: true,
+        params: {
+          _nocache: Date.now(), // Добавляем параметры для предотвращения кэширования
+          _refresh: refreshCounter.current,
+          page: nextPage,
+          per_page: ticketsPerPage
+        }
       });
       
-      // Handle direct array response
+      console.log('UserEventTickets: Loaded more tickets response:', response);
+      
+      // Получаем данные в зависимости от формата ответа
+      let ticketsData: UserTicket[] = [];
+      
       if (Array.isArray(response)) {
-        const startIndex = (nextPage - 1) * ticketsPerPage;
-        const endIndex = startIndex + ticketsPerPage;
-        const newTickets = response.slice(startIndex, endIndex);
-        
-        if (newTickets.length > 0) {
-          setTickets(prev => [...prev, ...newTickets]);
-          setPage(nextPage);
-          setHasMore(endIndex < response.length);
-        } else {
-          setHasMore(false);
-        }
+        // Если ответ - это прямой массив
+        console.log("UserEventTickets: Ответ в формате прямого массива");
+        ticketsData = response;
       } else if (response && !("aborted" in response)) {
-        if ("data" in response && Array.isArray(response.data)) {
-          const startIndex = (nextPage - 1) * ticketsPerPage;
-          const endIndex = startIndex + ticketsPerPage;
-          const newTickets = response.data.slice(startIndex, endIndex);
-          
-          if (newTickets.length > 0) {
-            setTickets(prev => [...prev, ...newTickets]);
-            setPage(nextPage);
-            setHasMore(endIndex < response.data.length);
-          } else {
-            setHasMore(false);
-          }
+        if ("data" in response && response.data) {
+          // Если ответ в формате {data: [...]}
+          console.log("UserEventTickets: Ответ в формате {data: [...]}");
+          ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
+        } else if ("items" in response && response.items) {
+          // Если ответ в формате {items: [...]}
+          console.log("UserEventTickets: Ответ в формате {items: [...]}");
+          ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
+        } else if ("tickets" in response && response.tickets) {
+          // Если ответ в формате {tickets: [...]}
+          console.log("UserEventTickets: Ответ в формате {tickets: [...]}");
+          ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
         }
+      }
+      
+      // Обрабатываем билеты, используя новую функцию processTickets
+      const processedTickets = processTickets(ticketsData);
+      
+      // Фильтруем только новые билеты, которых еще нет в списке
+      const newTickets = processedTickets.filter(ticket => !currentTicketIds.has(ticket.id));
+      console.log(`UserEventTickets: Новых билетов для добавления: ${newTickets.length}`);
+      
+      if (newTickets.length > 0) {
+        // Добавляем только новые билеты в список
+        setTickets(prev => [...prev, ...newTickets]);
+        setPage(nextPage);
+        
+        // Если получили меньше билетов, чем запрашивали, значит больше нет
+        setHasMore(newTickets.length >= ticketsPerPage);
+      } else {
+        console.log('UserEventTickets: Больше новых билетов не найдено');
+        setHasMore(false);
       }
     } catch (err) {
       console.error("UserEventTickets: Error loading more tickets", err);
@@ -366,131 +446,162 @@ const UserEventTickets = () => {
   };
 
   const fetchTickets = async () => {
-    // Don't allow fetching if we're already loading but not the initial load
-    if (isLoading && !isInitialLoad.current) return;
+    // Предотвращаем запрос, если компонент не смонтирован
+    if (!isMounted.current) {
+      console.log("UserEventTickets: Компонент не смонтирован, запрос отменен");
+      return;
+    }
     
-    console.log(`UserEventTickets: Fetching tickets, current stage: ${currentStage}`);
+    // Предотвращаем дублирование начального запроса в режиме разработки
+    if (isInitialFetchDone.current && isInitialLoad.current) {
+      console.log("UserEventTickets: Предотвращение дублирования начального запроса");
+      isInitialLoad.current = false;
+      return;
+    }
+    
+    // Проверяем, прошло ли достаточно времени с последнего запроса
+    const now = Date.now();
+    const timeSinceLastFetch = now - lastFetchTime.current;
+    if (timeSinceLastFetch < minFetchInterval && !isInitialLoad.current) {
+      console.log(`UserEventTickets: Слишком частые запросы, последний запрос был ${timeSinceLastFetch}ms назад`);
+      return;
+    }
+    
+    // Если запрос уже идет, не запускаем новый
+    if (isLoading && fetchAttempted.current) {
+      console.log("UserEventTickets: Запрос уже выполняется, дублирование предотвращено");
+      return;
+    }
+    
+    // Помечаем попытку запроса
     fetchAttempted.current = true;
-    lastFetchTime.current = Date.now();
-    setIsLoading(true); // Always set loading state when fetching
+    lastFetchTime.current = now;
+    console.log(`UserEventTickets: Начало запроса билетов, refreshCounter=${refreshCounter.current}`);
     
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.log("UserEventTickets: No token found in localStorage");
+        console.log("UserEventTickets: Токен не найден");
         setError("Необходима авторизация");
         setIsLoading(false);
         router.push('/');
         return;
       }
       
-      console.log("UserEventTickets: Making API request to /user_edits/my-tickets");
-      const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
-        method: "GET",
+      console.log('UserEventTickets: Выполняется запрос билетов');
+      
+      // Добавляем уникальный идентификатор для кэширования
+      const cacheKey = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
+      const response = await apiFetch<APIResponse<UserTicket[]>>('/user_edits/my-tickets', {
+        method: 'GET',
         headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
         },
-        bypassLoadingStageCheck: true
-      });
-
-      console.log("UserEventTickets: API response received", response);
-      
-      // Add more detailed logging for response structure
-      console.log("UserEventTickets: Response type check", {
-        hasData: "data" in response,
-        hasError: "error" in response,
-        hasAborted: "aborted" in response,
-        isArray: Array.isArray(response),
-        responseKeys: Object.keys(response)
-      });
-      
-      // Ensure isLoading is set to false early in the success case
-      setIsLoading(false);
-      
-      // Handle direct array response
-      if (Array.isArray(response)) {
-        console.log("UserEventTickets: Response is a direct array, setting tickets");
-        // Cast the array to UserTicket[] to satisfy TypeScript
-        const ticketsArray = response as unknown as UserTicket[];
-        // Only take the first page of tickets
-        const initialTickets = ticketsArray.slice(0, ticketsPerPage);
-        setTickets(initialTickets);
-        setHasMore(ticketsArray.length > ticketsPerPage);
-        hasInitialData.current = true;
-        setError(null);
-        console.log(`UserEventTickets: Successfully loaded ${initialTickets.length} tickets out of ${ticketsArray.length} total`);
-        return;
-      }
-      
-      if (response && !("aborted" in response)) {
-        if ("error" in response && response.status === 401) {
-          console.log("UserEventTickets: Unauthorized response detected, redirecting to home");
-          localStorage.removeItem('token');
-          localStorage.removeItem('userData');
-          router.push('/');
-          return;
+        bypassLoadingStageCheck: true,
+        params: {
+          _nocache: cacheKey, // Гарантированно уникальный ключ для избежания кэширования
+          page: 1,
+          per_page: ticketsPerPage
         }
-        
-        if ("data" in response && Array.isArray(response.data)) {
-          console.log("UserEventTickets: Setting tickets from response.data", response.data);
-          // Only take the first page of tickets
-          const initialTickets = response.data.slice(0, ticketsPerPage);
-          setTickets(initialTickets);
-          setHasMore(response.data.length > ticketsPerPage);
-          hasInitialData.current = true;
-          setError(null);
-          console.log(`UserEventTickets: Successfully loaded ${initialTickets.length} tickets out of ${response.data.length} total`);
-        } else if ("data" in response && !Array.isArray(response.data)) {
-          console.log("UserEventTickets: Response.data is not an array", response.data);
-          // Try to convert to array if possible
-          if (response.data) {
-            const dataArray = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
-            const initialTickets = dataArray.slice(0, ticketsPerPage);
-            setTickets(initialTickets);
-            setHasMore(dataArray.length > ticketsPerPage);
-            hasInitialData.current = true;
-            setError(null);
-            console.log(`UserEventTickets: Converted and loaded ${initialTickets.length} tickets out of ${dataArray.length} total`);
-          } else {
-            console.log("UserEventTickets: Response.data is null or undefined");
-            setTickets([]);
-            setHasMore(false);
-            setError(null);
+      });
+      
+      if (response && "aborted" in response) {
+        if (response.reason === "loading-stage-mismatch") {
+          // Если запрос был отменен из-за несоответствия стадии загрузки, планируем повторную попытку
+          console.log("UserEventTickets: Запрос отменен из-за несоответствия стадии загрузки");
+          
+          if (retryTimeout.current) {
+            clearTimeout(retryTimeout.current);
           }
-        }
-      } else if ("aborted" in response && response.reason) {
-        console.log(`UserEventTickets: Request aborted: ${response.reason}`);
-        
-        // If request was aborted due to loading stage, retry after a delay
-        if (response.reason.includes('loading_stage')) {
-          console.log('UserEventTickets: Request blocked due to loading stage, retrying after delay');
+          
           retryTimeout.current = setTimeout(() => {
-            fetchAttempted.current = false;
+            console.log("UserEventTickets: Повторная попытка запроса");
+            refreshCounter.current += 1;
             fetchTickets();
-          }, 500);
+          }, 1000);
+          
           return;
         }
         
-        setError(`Запрос отменен: ${response.reason}`);
-      }
-    } catch (err) {
-      console.error("UserEventTickets: Error fetching tickets", err);
-      
-      if (err instanceof Error && err.message.includes('401')) {
-        console.log("UserEventTickets: 401 Unauthorized error detected, redirecting to home");
-        localStorage.removeItem('token');
-        localStorage.removeItem('userData');
-        router.push('/');
+        console.log(`UserEventTickets: Запрос отменен, причина: ${response.reason}`);
+        setError(`Запрос был прерван: ${response.reason}`);
+        setIsLoading(false);
+        isInitialLoad.current = false;
         return;
       }
       
-      setError(err instanceof Error ? err.message : "Ошибка загрузки билетов");
-    } finally {
+      console.log('UserEventTickets: Билеты получены', response);
+      
+      // Получаем данные в зависимости от формата ответа
+      let ticketsData: UserTicket[] = [];
+      
+      if (Array.isArray(response)) {
+        console.log("UserEventTickets: Ответ в формате прямого массива");
+        ticketsData = response;
+      } else if (response && !("aborted" in response)) {
+        if ("data" in response && response.data) {
+          console.log("UserEventTickets: Ответ в формате {data: [...]}");
+          ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
+        } else if ("items" in response && response.items) {
+          console.log("UserEventTickets: Ответ в формате {items: [...]}");
+          ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
+        } else if ("tickets" in response && response.tickets) {
+          console.log("UserEventTickets: Ответ в формате {tickets: [...]}");
+          ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
+        }
+      }
+      
+      if (!ticketsData || ticketsData.length === 0) {
+        console.log('UserEventTickets: Билеты не найдены или пустой ответ');
+        setTickets([]);
+        setError(null);
+        hasInitialData.current = true;
+        isInitialFetchDone.current = true;
+        setIsLoading(false);
+        isInitialLoad.current = false;
+        return;
+      }
+      
+      console.log(`UserEventTickets: Получено ${ticketsData.length} билетов`);
+      
+      // Фильтруем активные билеты через одну функцию, которая:
+      // 1. Удаляет дубликаты
+      // 2. Применяет фильтрацию по статусу
+      // 3. Сортирует по статусу и дате
+      const processedTickets = processTickets(ticketsData);
+      
+      console.log(`UserEventTickets: После обработки осталось ${processedTickets.length} уникальных активных билетов`);
+      
+      // Устанавливаем билеты только один раз
+      setTickets(processedTickets);
+      setError(null);
+      
+      // Обновляем флаги для предотвращения повторных запросов
+      hasInitialData.current = true;
+      isInitialFetchDone.current = true;
       setIsLoading(false);
       isInitialLoad.current = false;
+      
+      console.log('UserEventTickets: Загрузка билетов завершена успешно');
+    } catch (err) {
+      console.error('UserEventTickets: Ошибка при загрузке билетов', err);
+      setError(err instanceof Error ? err.message : 'Ошибка при загрузке данных');
+      setIsLoading(false);
+      isInitialLoad.current = false;
+    } finally {
+      fetchAttempted.current = false;
     }
   };
+
+  // Add a function to explicitly refresh tickets
+  const refreshTickets = useCallback(() => {
+    console.log('UserEventTickets: Manual refresh requested');
+    refreshCounter.current += 1;
+    setIsLoading(true);
+    fetchTickets();
+  }, [userData]);
 
   const handleCancelClick = (ticket: UserTicket) => {
     setSelectedTicket(ticket);
@@ -510,8 +621,13 @@ const UserEventTickets = () => {
     try {
       const token = localStorage.getItem('token');
       if (!token) {
-        router.push('/');
-        throw new Error('Необходима авторизация');
+        setCancelError('Необходима авторизация');
+        setCancelLoading(false);
+        setTimeout(() => {
+          setIsModalOpen(false);
+          router.push('/');
+        }, 1500);
+        return;
       }
       
       console.log('Sending cancel request with data:', {
@@ -531,45 +647,108 @@ const UserEventTickets = () => {
         }
       });
       
-      if (response && !("aborted" in response)) {
-        if ("error" in response && response.status === 401) {
-          console.log("UserEventTickets: Unauthorized response detected during cancel, redirecting to home");
+      if (response && "error" in response) {
+        // Обработка ошибок
+        let errorMessage = response.error || 'Ошибка при отмене регистрации';
+        
+        // Специальная обработка 401 ошибки
+        if (response.status === 401) {
+          errorMessage = 'Сессия истекла. Требуется повторная авторизация.';
           localStorage.removeItem('token');
           localStorage.removeItem('userData');
-          router.push('/');
+          
+          setCancelError(errorMessage);
+          setCancelLoading(false);
+          
+          setTimeout(() => {
+            setIsModalOpen(false);
+            router.push('/');
+          }, 1500);
           return;
         }
         
-        setCancelSuccess('Регистрация успешно отменена');
+        // Обработка специфических ошибок
+        if (typeof errorMessage === 'string' && errorMessage.includes('{')) {
+          try {
+            const errorObj = JSON.parse(errorMessage);
+            if (errorObj.detail) {
+              errorMessage = errorObj.detail;
+            }
+          } catch {
+            // Если не удалось распарсить, оставляем исходное сообщение
+          }
+        }
         
-        // Remove the cancelled ticket from local state
-        setTickets(prevTickets => 
-          prevTickets.filter(ticket => ticket.id !== selectedTicket.id)
-        );
-        
-        console.log(`UserEventTickets: Removed cancelled ticket ID ${selectedTicket.id} from UI`);
-        
-        setTimeout(() => {
-          setIsModalOpen(false);
-          setCancelSuccess(undefined);
-          setCancelLoading(false);
-        }, 1500);
-      } else if ("aborted" in response && response.reason) {
-        setCancelError(`Запрос отменен: ${response.reason}`);
+        setCancelError(errorMessage);
         setCancelLoading(false);
-      }
-    } catch (err) {
-      console.error('Error cancelling registration:', err);
-      
-      if (err instanceof Error && (err.message.includes('401') || err.message.includes('Unauthorized'))) {
-        console.log("UserEventTickets: 401 Unauthorized error detected during cancel, redirecting to home");
-        localStorage.removeItem('token');
-        localStorage.removeItem('userData');
-        router.push('/');
         return;
       }
       
-      setCancelError(err instanceof Error ? err.message : 'Ошибка при отмене регистрации');
+      // Успешная отмена
+      setCancelSuccess('Регистрация успешно отменена');
+      
+      // Обновляем состояние билетов
+      setTickets(prev => {
+        // Если отмена действительно удаляет билет с сервера, удаляем из списка
+        if (selectedTicket.status === "pending") {
+          return prev.filter(ticket => ticket.id !== selectedTicket.id);
+        }
+        
+        // Иначе обновляем статус этого билета
+        return prev.map(ticket => 
+          ticket.id === selectedTicket.id 
+            ? { ...ticket, status: "cancelled" as UserTicket["status"] } 
+            : ticket
+        );
+      });
+      
+      // Закрываем модальное окно после небольшой задержки
+      setTimeout(() => {
+        setIsModalOpen(false);
+        setCancelSuccess(undefined);
+        setCancelLoading(false);
+      }, 1500);
+    } catch (err) {
+      console.error('Error cancelling registration:', err);
+      
+      // Обработка ошибок в формате строки
+      let errorMessage = err instanceof Error ? err.message : 'Ошибка при отмене регистрации';
+      
+      // Проверяем ошибку авторизации
+      if (err instanceof Error && (
+          errorMessage.includes('401') || 
+          errorMessage.includes('Unauthorized') || 
+          errorMessage.toLowerCase().includes('авториз')
+      )) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('userData');
+        
+        setCancelError('Требуется повторная авторизация');
+        setCancelLoading(false);
+        
+        setTimeout(() => {
+          setIsModalOpen(false);
+          router.push('/');
+        }, 1500);
+        return;
+      }
+      
+      // Пытаемся извлечь сообщение в формате JSON
+      if (typeof errorMessage === 'string' && errorMessage.includes('{')) {
+        try {
+          const match = errorMessage.match(/{.*}/);
+          if (match) {
+            const errorData = JSON.parse(match[0]);
+            if (errorData.detail) {
+              errorMessage = errorData.detail;
+            }
+          }
+        } catch {
+          // Если не удалось распарсить, оставляем исходное сообщение
+        }
+      }
+      
+      setCancelError(errorMessage);
       setCancelLoading(false);
     }
   };
@@ -604,25 +783,69 @@ const UserEventTickets = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="space-y-4">
-        <div className="animate-pulse bg-white rounded-lg p-4 shadow-sm">
-          <div className="h-5 bg-orange-100 rounded w-3/4 mb-3"></div>
-          <div className="space-y-2">
-            <div className="h-4 bg-orange-50 rounded w-1/2"></div>
-            <div className="h-4 bg-orange-50 rounded w-2/3"></div>
-            <div className="h-4 bg-orange-50 rounded w-1/3"></div>
-            <div className="h-4 bg-orange-50 rounded w-2/5"></div>
-            <div className="h-4 bg-orange-50 rounded w-1/4"></div>
-          </div>
-          <div className="mt-3 flex justify-end">
-            <div className="h-5 bg-orange-100 rounded w-1/6"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Комплексная функция для обработки билетов:
+  // 1. Удаление дубликатов
+  // 2. Фильтрация по статусу
+  // 3. Сортировка
+  const processTickets = (tickets: UserTicket[]): UserTicket[] => {
+    // Создаем Map для гарантированной уникальности по ID
+    const uniqueTicketsMap = new Map<number, UserTicket>();
+    
+    // Добавляем только билеты с приоритетным статусом
+    tickets.forEach(ticket => {
+      const existingTicket = uniqueTicketsMap.get(ticket.id);
+      
+      // Если такого билета еще нет или текущий имеет более приоритетный статус
+      if (!existingTicket || shouldReplaceTicket(existingTicket, ticket)) {
+        uniqueTicketsMap.set(ticket.id, ticket);
+      }
+    });
+    
+    // Извлекаем уникальные билеты
+    const uniqueTickets = Array.from(uniqueTicketsMap.values());
+    
+    // Фильтруем - удаляем билеты со статусом cancelled
+    const activeTickets = uniqueTickets.filter(ticket => ticket.status !== "cancelled");
+    
+    // Сортируем билеты по статусу и дате
+    return sortByStatusAndDate(activeTickets);
+  };
+  
+  // Вспомогательная функция для определения, нужно ли заменить существующий билет новым
+  const shouldReplaceTicket = (existing: UserTicket, newTicket: UserTicket): boolean => {
+    // Приоритет статусов (от высшего к низшему)
+    const statusPriority: Record<string, number> = {
+      "confirmed": 0,
+      "pending": 1,
+      "cancelled": 2,
+      "completed": 3
+    };
+    
+    // Сравниваем приоритеты статусов
+    return statusPriority[newTicket.status] < statusPriority[existing.status];
+  };
+  
+  // Функция для сортировки билетов по статусу и дате
+  const sortByStatusAndDate = (tickets: UserTicket[]): UserTicket[] => {
+    // Приоритет статусов (от высшего к низшему)
+    const statusPriority: Record<string, number> = {
+      "confirmed": 0,
+      "pending": 1,
+      "cancelled": 2,
+      "completed": 3
+    };
+    
+    return [...tickets].sort((a, b) => {
+      // Сначала сортируем по статусу
+      const statusDiff = statusPriority[a.status] - statusPriority[b.status];
+      if (statusDiff !== 0) return statusDiff;
+      
+      // Если статусы одинаковые, сортируем по дате начала события (сначала ближайшие)
+      const dateA = new Date(a.event.start_date);
+      const dateB = new Date(b.event.start_date);
+      return dateA.getTime() - dateB.getTime();
+    });
+  };
 
   if (error) {
     return (
@@ -641,11 +864,26 @@ const UserEventTickets = () => {
     );
   }
 
-  if (tickets.length === 0) {
+  // Показываем скелетон загрузки, если идет загрузка и еще нет билетов
+  if (isLoading && tickets.length === 0) {
+    return (
+      <div className="space-y-4">
+        {[...Array(3)].map((_, index) => (
+          <TicketSkeleton key={index} />
+        ))}
+      </div>
+    );
+  }
+  
+  // Показываем сообщение, если нет билетов и загрузка завершена
+  if (tickets.length === 0 && !isLoading) {
     return (
       <div className="text-center py-4">
         <p className="text-gray-600 mb-4">
-          У вас пока нет зарегистрированных мероприятий
+          У вас пока нет билетов
+        </p>
+        <p className="text-sm text-gray-400 mb-4">
+          После покупки билеты появятся здесь
         </p>
         <motion.button
           whileHover={{ scale: 1.02 }}
@@ -661,132 +899,152 @@ const UserEventTickets = () => {
 
   return (
     <>
-      <div className="flex items-center justify-end mb-4">
-        <span className="text-sm text-gray-500">Загружено: {tickets.length}</span>
+      <div className="flex items-center justify-end mb-4 w-full overflow-hidden pr-2">
+        <span className="text-sm text-gray-500 truncate bg-white px-2 py-1 rounded shadow-sm">
+          Загружено: {tickets.length}
+        </span>
       </div>
       
-      <div 
-        ref={ticketsContainerRef}
-        className="max-h-[400px] overflow-y-auto pr-2"
-      >
-        <div className="space-y-3">
-          {tickets.map((ticket, index) => (
-            <div key={ticket.id}>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
-              >
-                {/* Top section: Title and Status */}
-                <div className="flex justify-between items-center mb-2">
-                  <h3 className="text-lg font-semibold text-gray-800">
-                    {ticket.event.title}
-                  </h3>
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
-                        ticket.status
-                      )}`}
-                    >
-                      {getStatusText(ticket.status)}
-                    </div>
-                    {ticket.status !== "completed" && (
-                      <button 
-                        onClick={() => handleCancelClick(ticket)}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
+      <div className="space-y-4">
+        {(() => {
+          // Создаем Map для однократной дедупликации билетов
+          const uniqueTicketsMap = new Map();
+          
+          // Добавляем билеты в Map, используя ID как ключ
+          tickets.forEach(ticket => {
+            uniqueTicketsMap.set(ticket.id, ticket);
+          });
+          
+          // Преобразуем Map обратно в массив
+          const uniqueTickets = Array.from(uniqueTicketsMap.values());
+          
+          // Фильтруем - удаляем билеты со статусом cancelled
+          const activeTickets = uniqueTickets.filter(ticket => ticket.status !== "cancelled");
+          
+          // Сортируем по статусу и дате
+          const sortedTickets = sortByStatusAndDate(activeTickets);
+          
+          // Обновляем глобально счетчик для отладки
+          // console.log(`Отображение ${sortedTickets.length} уникальных билетов`);
+
+          // Рендерим только уникальные билеты
+          return sortedTickets.map((ticket, index) => {
+            // Определяем максимальное количество отмен (по умолчанию 3)
+            const maxCancellations = 3;
+            // Вычисляем оставшиеся отмены
+            const cancellationCount = ticket.cancellation_count || 0;
+            const remainingCancellations = maxCancellations - cancellationCount;
+            
+            // Отладочная информация с однократным выводом
+            console.log(`Билет #${ticket.id}: cancellation_count=${ticket.cancellation_count}, remainingCancellations=${remainingCancellations}`);
+
+            return (
+              <div key={`ticket-${ticket.id}`}>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                >
+                  {/* Top section: Title and Status */}
+                  <div className="flex justify-between items-center mb-2">
+                    <h3 className="text-lg font-semibold text-gray-800">
+                      {ticket.event.title}
+                    </h3>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
+                          ticket.status
+                        )}`}
                       >
-                        Отменить
-                      </button>
-                    )}
-                  </div>
-                </div>
-                
-                <div className="flex h-full">
-                  {/* Вертикальный номер билета */}
-                  <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
-                    <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
-                      {/* Левая колонка - заголовок */}
-                      <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
-                        <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
-                          НОМЕР БИЛЕТА
-                        </p>
+                        {getStatusText(ticket.status)}
                       </div>
-                      
-                      {/* Правая колонка - номер */}
-                      <div className="flex-1 flex items-center justify-center pl-1">
-                        <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
-                          #{ticket.id.toString().padStart(4, '0')}
-                        </p>
-                      </div>
+                      {ticket.status !== "completed" && (
+                        <button 
+                          onClick={() => handleCancelClick(ticket)}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
+                        >
+                          Отменить
+                        </button>
+                      )}
                     </div>
                   </div>
                   
-                  {/* Основное содержимое */}
-                  <div className="flex-1 ml-3">
-                    {/* Информация о событии */}
-                    <div className="space-y-2">
-                      <div className="flex items-start gap-2 text-sm text-gray-600">
-                        <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                        <span className="break-words">
-                          {formatDateForDisplay(ticket.event.start_date)}
-                          {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
-                            ` - ${formatDateForDisplay(ticket.event.end_date)}`}
-                        </span>
-                      </div>
-                      <div className="flex items-start gap-2 text-sm text-gray-600">
-                        <FaClock className="text-orange-500 flex-shrink-0 mt-1" />
-                        <span className="break-words">
-                          {formatTimeForDisplay(ticket.event.start_date)}
-                          {ticket.event.end_date && 
-                            ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
-                        </span>
-                      </div>
-                      {ticket.event.location && (
-                        <div className="flex items-start gap-2 text-sm text-gray-600">
-                          <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                          <span className="break-words">{ticket.event.location}</span>
+                  <div className="flex h-full">
+                    {/* Вертикальный номер билета */}
+                    <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
+                      <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
+                        {/* Левая колонка - заголовок */}
+                        <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
+                          <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
+                            НОМЕР БИЛЕТА
+                          </p>
                         </div>
-                      )}
-                      <div className="flex items-start gap-2 text-sm text-gray-600">
-                        <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
-                        <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
+                        
+                        {/* Правая колонка - номер */}
+                        <div className="flex-1 flex items-center justify-center pl-1">
+                          <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
+                            #{ticket.id.toString().padStart(4, '0')}
+                          </p>
+                        </div>
                       </div>
-                      
-                      {/* Последний элемент информации */}
-                      <div className="flex items-start gap-2 text-sm text-gray-600">
-                        <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
-                        <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
+                    </div>
+                    
+                    {/* Основное содержимое */}
+                    <div className="flex-1 ml-3">
+                      {/* Информация о событии */}
+                      <div className="space-y-2">
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                          <span className="break-words">
+                            {formatDateForDisplay(ticket.event.start_date)}
+                            {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
+                              ` - ${formatDateForDisplay(ticket.event.end_date)}`}
+                          </span>
+                        </div>
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <FaClock className="text-orange-500 flex-shrink-0 mt-1" />
+                          <span className="break-words">
+                            {formatTimeForDisplay(ticket.event.start_date)}
+                            {ticket.event.end_date && 
+                              ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
+                          </span>
+                        </div>
+                        {ticket.event.location && (
+                          <div className="flex items-start gap-2 text-sm text-gray-600">
+                            <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                            <span className="break-words">{ticket.event.location}</span>
+                          </div>
+                        )}
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                          <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
+                        </div>
+                        
+                        {/* Последний элемент информации */}
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
+                          <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              </motion.div>
-              {index < tickets.length - 1 && (
-                <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
-              )}
-            </div>
-          ))}
-          
-          {isLoadingMore && (
-            <div className="py-4 text-center">
-              <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
-                <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Загрузка...</span>
+                </motion.div>
+                {index < sortedTickets.length - 1 && (
+                  <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
+                )}
               </div>
-              <p className="mt-2 text-sm text-gray-500">Загрузка дополнительных билетов...</p>
+            );
+          });
+        })()}
+        
+        {isLoadingMore && (
+          <div className="py-4 text-center">
+            <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+              <span className="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Загрузка...</span>
             </div>
-          )}
-          
-          {!isLoadingMore && hasMore && (
-            <div className="py-4 text-center">
-              <button 
-                onClick={loadMoreTickets}
-                className="text-orange-500 hover:text-orange-600 text-sm font-medium"
-              >
-                Загрузить еще
-              </button>
-            </div>
-          )}
-        </div>
+            <p className="mt-2 text-sm text-gray-500">Загрузка дополнительных билетов...</p>
+          </div>
+        )}
       </div>
       
       {/* Confirmation Modal */}

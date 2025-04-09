@@ -189,8 +189,14 @@ async def create_event(
     db: AsyncSession = Depends(get_async_db)
 ):
     try:
+        # Логируем запрос и заголовки для отладки
+        logger.info(f"Create event request received. Auth header: {request.headers.get('Authorization')[:20] if request.headers.get('Authorization') else 'None'}")
+        
         token = credentials.credentials
+        logger.info(f"Token extracted: {token[:20]}...")
+        
         current_admin = await get_current_admin(token, db)
+        logger.info(f"Admin authenticated: {current_admin.email}")
         
         processed_data = await prepare_event_data(form_data)
         

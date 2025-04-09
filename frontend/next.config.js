@@ -39,16 +39,17 @@ const nextConfig = {
         destination: 'http://localhost:8001/admin/refresh'
       },
       
-      // Специфические маршруты для админских операций над событиями
-      // Важно: сначала URL со слешем в конце
+      // Маршруты для админских операций с мероприятиями - важен порядок!
+      // 1. Сначала специфические маршруты:
       {
-        source: '/admin_edits/',
-        destination: 'http://localhost:8001/admin_edits/'
+        source: '/admin_edits/users/:id',
+        destination: 'http://localhost:8001/admin_edits/users/:id'
       },
       {
-        source: '/admin_edits',
-        destination: 'http://localhost:8001/admin_edits'
+        source: '/admin_edits/events/:id',
+        destination: 'http://localhost:8001/admin_edits/events/:id'
       },
+      // 2. Потом маршруты для операций с конкретными ID:
       {
         source: '/admin_edits/:id/',
         destination: 'http://localhost:8001/admin_edits/:id/'
@@ -57,13 +58,15 @@ const nextConfig = {
         source: '/admin_edits/:id',
         destination: 'http://localhost:8001/admin_edits/:id'
       },
+      // 3. Корневые маршруты для создания - самый точный маршрут:
       {
-        source: '/admin_edits/users/:id',
-        destination: 'http://localhost:8001/admin_edits/users/:id'
+        source: '/admin_edits/',
+        destination: 'http://localhost:8001/admin_edits/'
       },
+      // 4. Маршрут без слеша:
       {
-        source: '/admin_edits/events/:id',
-        destination: 'http://localhost:8001/admin_edits/events/:id'
+        source: '/admin_edits',
+        destination: 'http://localhost:8001/admin_edits/'
       },
       
       // API маршруты для работы с событиями

@@ -39,6 +39,7 @@ app.add_middleware(
 async def refresh_token_middleware(request: Request, call_next):
     # Логируем запрос для отладки
     logger.info(f"Admin server received request: {request.method} {request.url.path}")
+    logger.info(f"Request headers: Authorization={request.headers.get('Authorization')[:20] + '...' if request.headers.get('Authorization') else 'None'}")
     
     response = await call_next(request)
     auth_header = request.headers.get("Authorization")

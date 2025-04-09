@@ -89,13 +89,49 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
   }
 
   try {
-    // Проверка сессии на сервере вместо локальной проверки
-    const isSessionValid = await ensureAdminSession();
-    if (!isSessionValid) {
-      console.log("eventService: Admin session is invalid");
+    // Проверяем обязательные поля
+    if (!eventData.title) {
+      console.error("eventService: Missing required field: title");
+      return {
+        success: false, 
+        message: "Не заполнено обязательное поле: Название"
+      };
+    }
+    
+    if (!eventData.start_date) {
+      console.error("eventService: Missing required field: start_date");
       return {
         success: false,
-        message: "Сессия администратора истекла. Необходимо войти заново.",
+        message: "Не заполнено обязательное поле: Дата начала"
+      };
+    }
+
+    // Проверка сессии на сервере через выделенный эндпоинт /admin/me
+    try {
+      const sessionCheckResponse = await fetch('/admin/me', {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          'Content-Type': 'application/json'
+        },
+        credentials: 'include'
+      });
+      
+      if (sessionCheckResponse.status !== 200) {
+        console.error(`eventService: Session check failed with status ${sessionCheckResponse.status}`);
+        return {
+          success: false,
+          message: "Ошибка авторизации. Пожалуйста, войдите снова.",
+          authError: true
+        };
+      }
+      
+      console.log("eventService: Session check passed successfully");
+    } catch (sessionError) {
+      console.error("eventService: Error checking session:", sessionError);
+      return {
+        success: false,
+        message: "Ошибка проверки сессии. Проверьте соединение.",
         authError: true
       };
     }
@@ -112,24 +148,33 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
 
     console.log("eventService: Making API request to create event");
     
-    // Проверяем порт текущего окна для отладки
-    console.log(`eventService: Current window location: ${window.location.href}`);
-    console.log(`eventService: Current window origin: ${window.location.origin}`);
+    // При отправке FormData с файлами, браузер автоматически устанавливает правильный Content-Type
+    // Убедимся, что URL точно заканчивается слешем для избежания перенаправления
+    const createUrl = '/admin_edits/';
     
-    // При отправке формы с файлами используем обычный fetch вместо apiFetch
-    const response = await fetch('/admin_edits/', {
+    const createResponse = await fetch(createUrl, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${adminToken}`
+        // НЕ устанавливаем Content-Type вручную для FormData с файлами!
       },
-      credentials: 'include',
-      body: formData // Отправляем FormData, а не formDataDebug
+      // Используем same-origin вместо include, это решает проблему с перенаправлением и cookies
+      credentials: 'same-origin',
+      body: formData
     });
     
-    console.log(`eventService: Create event response status: ${response.status}`);
+    console.log(`eventService: Create event response status: ${createResponse.status}`);
+    
+    // Логируем полный ответ для отладки
+    try {
+      const responseText = await createResponse.clone().text();
+      console.log(`eventService: Raw response: ${responseText}`);
+    } catch (err) {
+      console.error("eventService: Failed to log raw response:", err);
+    }
     
     // Обработка ошибок
-    if (response.status === 401) {
+    if (createResponse.status === 401) {
       console.log("eventService: Authentication error 401 in createEvent, clearing session");
       localStorage.removeItem("admin_token");
       localStorage.removeItem("admin_data");
@@ -140,7 +185,7 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
       };
     }
     
-    if (response.status === 403) {
+    if (createResponse.status === 403) {
       console.log("eventService: Authorization error 403 in createEvent, NOT clearing session");
       
       // Проверяем токен еще раз для отладки
@@ -148,7 +193,7 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
       console.log("eventService: Admin data in localStorage:", adminData ? JSON.parse(adminData) : "missing");
       
       // Пробуем получить текст ошибки
-      const errorText = await response.text();
+      const errorText = await createResponse.text();
       console.log("eventService: Error response body:", errorText);
       
       return {
@@ -160,10 +205,10 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
     
     // Обрабатываем успешный ответ или другие ошибки
     try {
-      const responseData = await response.json();
+      const responseData = await createResponse.json();
       console.log("eventService: Response data:", responseData);
       
-      if (response.status === 200 || response.status === 201) {
+      if (createResponse.status === 200 || createResponse.status === 201) {
         console.log("eventService: Event created successfully");
         return {
           success: true,
@@ -171,10 +216,10 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
           message: "Событие успешно создано",
         };
       } else {
-        console.warn(`eventService: Unexpected response status: ${response.status}`);
+        console.warn(`eventService: Unexpected response status: ${createResponse.status}`);
         return {
           success: false,
-          message: responseData.message || responseData.detail || `Неизвестная ошибка при создании события (${response.status})`,
+          message: responseData.message || responseData.detail || `Неизвестная ошибка при создании события (${createResponse.status})`,
         };
       }
     } catch (error) {
@@ -244,13 +289,17 @@ export const updateEvent = async (
       };
     }
 
-    // Send PUT request to update the event (используем маршрут /admin_edits/:id)
-    const response = await fetch(`/admin_edits/${id}/`, {
+    // Убедимся, что URL точно заканчивается слешем для избежания перенаправления
+    const updateUrl = `/admin_edits/${id}/`;
+    
+    // Send PUT request to update the event
+    const response = await fetch(updateUrl, {
       method: "PUT",
       headers: {
         'Authorization': `Bearer ${adminToken}`
+        // НЕ устанавливаем Content-Type вручную для FormData с файлами!
       },
-      credentials: 'include',
+      credentials: 'same-origin',
       body: formData
     });
 
@@ -362,23 +411,19 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
     
     console.log(`eventService: Making API request to fetch event ${eventId}`);
     
-    // Проверяем порт текущего окна для отладки
-    console.log(`eventService: Current window location: ${window.location.href}`);
-    console.log(`eventService: Current window origin: ${window.location.origin}`);
-    
-    // Добавлено credentials: 'include' и проверка URL на завершающий слеш
-    const url = eventId.endsWith('/') 
+    // Убедимся, что URL заканчивается слешем для избежания перенаправления
+    const fetchUrl = eventId.endsWith('/') 
       ? `/admin_edits/${eventId}` 
       : `/admin_edits/${eventId}/`;
     
-    const response = await fetch(url, {
+    const response = await fetch(fetchUrl, {
       method: "GET",
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json'
       },
-      credentials: 'include'
+      credentials: 'same-origin'
     });
 
     console.log(`eventService: Fetch event response status: ${response.status}`);

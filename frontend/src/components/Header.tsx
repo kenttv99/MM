@@ -13,6 +13,7 @@ import Image from "next/image";
 import AuthModal from "./common/AuthModal";
 import { NavItem } from "@/types/index";
 import Notifications from "./Notifications";
+import { useRouter } from "next/navigation";
 
 // Добавляем уровни логирования для оптимизации вывода
 const LOG_LEVEL = {
@@ -95,6 +96,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
 const Header: React.FC = () => {
   const { isAuth, userData, logout, isLoading: authLoading, isAuthChecked } = useAuth();
   const { currentStage } = useLoading();
+  const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -291,9 +293,35 @@ const Header: React.FC = () => {
         clearTimeout(transitionTimeoutRef.current);
       }
       
+      // Check if we're on a profile page before logout
+      const isOnProfilePage = typeof window !== 'undefined' && window.location.pathname.startsWith('/profile');
+      
+      // Set a safety timeout to ensure redirection happens even if the event doesn't fire
+      if (isOnProfilePage) {
+        logoutTimeoutRef.current = setTimeout(() => {
+          logInfo('Header: Safety timeout triggered for profile page redirect');
+          // If we have Next.js router, use it, otherwise use window.location
+          if (router) {
+            router.push('/');
+          } else {
+            window.location.href = '/';
+          }
+          // Also remove the admin route flag if it was incorrectly set
+          if (typeof window !== 'undefined' && localStorage.getItem('is_admin_route') === 'true') {
+            localStorage.removeItem('is_admin_route');
+          }
+        }, 1000); // Redirect after 1 second as a fallback
+      }
+      
       // Add listeners for logout events
       const handleLogoutComplete = () => {
         logInfo('Header: Logout complete event received');
+        
+        // Clear the safety timeout since the event fired
+        if (logoutTimeoutRef.current) {
+          clearTimeout(logoutTimeoutRef.current);
+          logoutTimeoutRef.current = null;
+        }
         
         // Immediately show the unauthenticated header without delay
         setIsLoggingOut(false);
@@ -303,6 +331,31 @@ const Header: React.FC = () => {
         hasShownHeaderRef.current = false;
         
         logInfo('Header: Showing unauthenticated header after logout');
+        
+        // Redirect to home page if user was on profile page
+        if (isOnProfilePage) {
+          logInfo('Header: Redirecting to home page after logout from profile');
+          // Use router if available, otherwise use window.location
+          if (router) {
+            setTimeout(() => {
+              router.push('/');
+            }, 50);
+          } else {
+            // Use immediate redirection with a slight delay to ensure React state updates have completed
+            setTimeout(() => {
+              window.location.href = '/';
+            }, 50);
+          }
+          
+          // Also remove the admin route flag if it was incorrectly set
+          if (typeof window !== 'undefined' && localStorage.getItem('is_admin_route') === 'true') {
+            localStorage.removeItem('is_admin_route');
+          }
+        }
+        
+        // Clean up event listeners
+        window.removeEventListener('auth-logout-complete', handleLogoutComplete);
+        window.removeEventListener('admin-logout-complete', handleLogoutComplete);
       };
 
       window.addEventListener('auth-logout-complete', handleLogoutComplete);
@@ -316,8 +369,14 @@ const Header: React.FC = () => {
       logError('Header: Logout failed', error);
       setIsLoggingOut(false);
       setForceShowHeader(true);
+      
+      // Clear any pending timeouts on error
+      if (logoutTimeoutRef.current) {
+        clearTimeout(logoutTimeoutRef.current);
+        logoutTimeoutRef.current = null;
+      }
     }
-  }, [logout]);
+  }, [logout, router]);
 
   // Cleanup event listeners
   useEffect(() => {

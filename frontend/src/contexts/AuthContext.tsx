@@ -84,7 +84,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         tokenRef.current = token;
         
         // Проверяем, находимся ли мы на админской странице
-        const isAdminRoute = typeof window !== 'undefined' && localStorage.getItem('is_admin_route') === 'true';
+        const isAdminRoute = typeof window !== 'undefined' && 
+          localStorage.getItem('is_admin_route') === 'true' && 
+          window.location.pathname.startsWith('/admin');
         
         // Если мы на админской странице, пропускаем проверку пользовательского токена
         if (isAdminRoute) {
@@ -99,6 +101,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
           }
           return;
+        }
+
+        // Clear any incorrect admin route flag if we're not on an admin page
+        if (typeof window !== 'undefined' && 
+            localStorage.getItem('is_admin_route') === 'true' && 
+            !window.location.pathname.startsWith('/admin')) {
+          console.log('AuthContext: Clearing incorrect admin route flag');
+          localStorage.removeItem('is_admin_route');
         }
         
         // Если токена нет, завершаем проверку сразу

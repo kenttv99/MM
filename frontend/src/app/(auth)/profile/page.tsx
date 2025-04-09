@@ -56,10 +56,20 @@ const ProfilePage: React.FC = () => {
   useEffect(() => {
     const initProfile = async () => {
       if (hasFetched.current || authLoading) return;
-      if (!isAuth || !userData) {
+      
+      // More aggressive redirect if not authenticated
+      if (!isAuth) {
+        console.log('ProfilePage: User not authenticated, redirecting to home page');
         router.push("/");
         return;
       }
+      
+      if (!userData) {
+        console.log('ProfilePage: No user data available, redirecting to home page');
+        router.push("/");
+        return;
+      }
+      
       const initialData = {
         fio: userData.fio || "",
         telegram: userData.telegram || "",
@@ -72,7 +82,18 @@ const ProfilePage: React.FC = () => {
       validateForm(initialData);
       hasFetched.current = true;
     };
+    
     initProfile();
+    
+    // Add failsafe redirect after a short timeout if we're still loading
+    const redirectTimeout = setTimeout(() => {
+      if (authLoading || !isAuth) {
+        console.log('ProfilePage: Failsafe redirect triggered');
+        router.push("/");
+      }
+    }, 500);
+    
+    return () => clearTimeout(redirectTimeout);
   }, [isAuth, userData, authLoading, router, validateForm]);
 
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {

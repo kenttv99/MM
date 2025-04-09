@@ -57,7 +57,7 @@ export const createEvent = async (eventData: EventFormData): Promise<EventData> 
     Authorization: `Bearer ${cleanedToken}`,
   };
 
-  const response = await fetch("http://localhost:8001/admin_edits/", {
+  const response = await fetch("/admin_edits/", {
     method: "POST",
     headers,
     body: formData,

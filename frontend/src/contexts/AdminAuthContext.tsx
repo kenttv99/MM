@@ -149,41 +149,63 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const validateToken = useCallback(async () => {
     console.log('AdminAuthContext: Validating admin token');
+    
+    // Сразу отключаем любые индикаторы загрузки
+    setDynamicLoading(false);
+    
+    // Проверяем наличие токена
     const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
     if (!token) {
       console.log('AdminAuthContext: No token found');
       logoutAdmin();
-      setIsAuthChecked(true); // Mark auth check complete even on failure
+      setIsAuthChecked(true);
+      // Принудительно устанавливаем COMPLETED для скрытия спиннера
       setStage(LoadingStage.STATIC_CONTENT);
+      
+      requestAnimationFrame(() => {
+        setStage(LoadingStage.COMPLETED);
+      });
+      
       return false;
     }
 
+    // Проверяем срок действия токена
     if (isTokenExpired(token)) {
       console.log('AdminAuthContext: Token is expired');
       logoutAdmin();
-      setIsAuthChecked(true); // Mark auth check complete even on failure
+      setIsAuthChecked(true);
+      // Принудительно устанавливаем COMPLETED для скрытия спиннера
       setStage(LoadingStage.STATIC_CONTENT);
+      
+      requestAnimationFrame(() => {
+        setStage(LoadingStage.COMPLETED);
+      });
+      
       return false;
     }
 
-    // Set failsafe timeout to prevent hanging in auth check
+    // Устанавливаем защитный таймаут
     if (authCheckFailsafeRef.current) {
       clearTimeout(authCheckFailsafeRef.current);
     }
     
+    // Запускаем защитный таймер на случай зависания запроса
     authCheckFailsafeRef.current = setTimeout(() => {
       console.log('AdminAuthContext: Auth check failsafe triggered');
       setDynamicLoading(false);
       setIsLoading(false);
       logoutAdmin();
       setIsAuthChecked(true);
-      setStage(LoadingStage.STATIC_CONTENT);
-    }, 5000); // 5 second failsafe
+      
+      // Гарантированно устанавливаем COMPLETED
+      setStage(LoadingStage.COMPLETED);
+    }, 3000); // 3 секунды вместо 5
 
     try {
+      // Запрос к API
       console.log('AdminAuthContext: Making admin auth check request to /admin/me');
-      setDynamicLoading(true);
-      setIsLoading(true);
+      
+      // Не включаем индикаторы загрузки вообще
       
       try {
         const response = await apiFetch('/admin/me', {
@@ -191,76 +213,106 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           headers: {
             'Authorization': `Bearer ${token}`
           },
-          bypassLoadingStageCheck: true // Обязательно обходим проверку стадии загрузки
+          bypassLoadingStageCheck: true
         });
         
         console.log('AdminAuthContext: Response from /admin/me:', response);
         
+        // Проверка на ошибки в ответе
         if (!response || response.error || (response as any).aborted) {
           console.log('AdminAuthContext: Auth check failed', response);
-          setDynamicLoading(false);
           logoutAdmin();
           setIsAuthChecked(true);
-          setStage(LoadingStage.STATIC_CONTENT);
+          setStage(LoadingStage.COMPLETED);
           return false;
         }
         
+        // Проверка флага успеха
         if (!(response as any).success) {
           console.log('AdminAuthContext: Response missing success flag', response);
-          setDynamicLoading(false);
           logoutAdmin();
           setIsAuthChecked(true);
-          setStage(LoadingStage.STATIC_CONTENT);
+          setStage(LoadingStage.COMPLETED);
           return false;
         }
         
-        console.log('AdminAuthContext: Auth check successful', response);
+        // Проверка наличия данных
         const adminData = (response as any).data;
-        
         if (!adminData) {
           console.log('AdminAuthContext: Response missing data field', response);
-          setDynamicLoading(false);
           logoutAdmin();
           setIsAuthChecked(true);
-          setStage(LoadingStage.STATIC_CONTENT);
+          setStage(LoadingStage.COMPLETED);
           return false;
         }
         
+        // Записываем данные администратора
+        console.log('AdminAuthContext: Auth check successful', response);
         const data = {
           id: adminData.id,
           email: adminData.email,
           fio: adminData.fio || "Администратор"
         };
       
-        // Update stored data with fresh data
+        // Обновляем локальное хранилище и состояние
         localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(data));
+        
+        // Устанавливаем состояние
         setAdminData(data);
         setIsAdminAuth(true);
-        setDynamicLoading(false);
+        setIsLoading(false);
         setIsAuthChecked(true);
-        setStage(LoadingStage.STATIC_CONTENT);
+        
+        // Устанавливаем стадию COMPLETED напрямую без промежуточных переходов
+        setStage(LoadingStage.COMPLETED);
+        
+        // Устанавливаем флаг для принудительного скрытия спиннеров
+        if (typeof window !== 'undefined') {
+          (window as any).__admin_auth_complete__ = true;
+        }
+        
         return true;
       } catch (apiError) {
+        // Обработка ошибок API
         console.error('AdminAuthContext: API error during token validation:', apiError);
-        throw apiError;
+        
+        // Сразу отключаем спиннеры
+        setIsLoading(false);
+        setDynamicLoading(false);
+        
+        // Устанавливаем состояние
+        logoutAdmin();
+        setIsAuthChecked(true);
+        setStage(LoadingStage.COMPLETED);
+        
+        return false;
       }
     } catch (error) {
+      // Обработка общих ошибок
       console.error('AdminAuthContext: Error validating token:', error);
+      
+      // Сразу отключаем спиннеры
+      setIsLoading(false);
       setDynamicLoading(false);
+      
+      // Устанавливаем состояние
       logoutAdmin();
-      // Still mark authentication check as complete, even on failure
       setIsAuthChecked(true);
-      setStage(LoadingStage.STATIC_CONTENT);
+      setStage(LoadingStage.COMPLETED);
+      
       return false;
     } finally {
-      setIsLoading(false);
-      // Clear failsafe if it still exists
+      // Очищаем защитный таймер
       if (authCheckFailsafeRef.current) {
         clearTimeout(authCheckFailsafeRef.current);
         authCheckFailsafeRef.current = null;
       }
+      
+      // Гарантированно отключаем все индикаторы загрузки
+      setIsLoading(false);
+      setDynamicLoading(false);
     }
-  }, [logoutAdmin, setDynamicLoading, setStage]);
+  }, [logoutAdmin, setDynamicLoading, setStage, setIsLoading]);
 
   useEffect(() => {
     if (typeof window === "undefined" || isInitialized.current) {

@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/admin-profile/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import InputField from "@/components/common/InputField";
 import { ModalButton } from "@/components/common/AuthModal";
@@ -25,14 +25,20 @@ const navigateTo = (path: string, params: Record<string, string> = {}) => {
 };
 
 export default function AdminProfilePage() {
-  const { isAdminAuth, adminData, isLoading, logoutAdmin } = useAdminAuth();
-  const [formValues, setFormValues] = useState<AdminData>(
-    adminData || { email: "", fio: "", id: 0 }
-  );
+  const { isAdminAuth, adminData, isLoading: authLoading, logoutAdmin } = useAdminAuth();
+  const [formValues, setFormValues] = useState<AdminData>({ email: "", fio: "", id: 0 });
   const [isEditing, setIsEditing] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [clientReady, setClientReady] = useState(false);
+
+  useEffect(() => {
+    setClientReady(true);
+    if (adminData) {
+      setFormValues(adminData);
+    }
+  }, [adminData]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -54,6 +60,7 @@ export default function AdminProfilePage() {
         return;
       }
 
+      console.log('Токен перед запросом:', token);
       const data = await apiFetch<AdminData>("/admin/me", {
         method: "PUT",
         headers: {
@@ -84,16 +91,42 @@ export default function AdminProfilePage() {
     }
   };
 
+  // Показываем скелетон загрузки до завершения рендеринга на клиенте
+  if (!clientReady) {
+    return (
+      <div className="min-h-screen bg-gray-50 relative p-4 flex items-center justify-center">
+        <div className="w-full max-w-md bg-white rounded-lg shadow-lg p-6 animate-pulse">
+          <div className="h-8 bg-gray-200 rounded w-3/4 mb-6"></div>
+          <div className="flex items-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-gray-200 mr-4"></div>
+            <div>
+              <div className="h-5 bg-gray-200 rounded w-40 mb-2"></div>
+              <div className="h-4 bg-gray-200 rounded w-32"></div>
+            </div>
+          </div>
+          <div className="space-y-4">
+            <div className="h-10 bg-gray-200 rounded"></div>
+            <div className="h-10 bg-gray-200 rounded"></div>
+            <div className="flex justify-between">
+              <div className="h-10 bg-gray-200 rounded w-24"></div>
+              <div className="h-10 bg-gray-200 rounded w-24"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 relative">
       <AdminHeader />
-      {isLoading && (
+      {authLoading && (
         <div className="absolute inset-0 bg-gray-50 flex items-center justify-center z-50">
           <p className="text-gray-600">Загрузка...</p>
         </div>
       )}
       <main className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-3xl mx-auto" style={{ visibility: isLoading ? 'hidden' : 'visible' }}>
+        <div className="max-w-3xl mx-auto" style={{ visibility: authLoading ? 'hidden' : 'visible' }}>
           {(!isAdminAuth || !adminData) ? null : (
             <>
               <h1 className="text-3xl font-bold mb-8 text-gray-800">Профиль администратора</h1>

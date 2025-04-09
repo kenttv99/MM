@@ -1,20 +1,41 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Link from "next/link";
-import Logo from "./Logo";
+import dynamic from "next/dynamic";
 import { FaSignOutAlt, FaBars, FaTimes, FaUser, FaTachometerAlt } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import Logo from "./Logo";
+
+// Динамический импорт Link для предотвращения ошибок гидратации
+const Link = dynamic(() => import('next/link'), { ssr: false });
 
 const AdminHeader: React.FC = () => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { adminData, logoutAdmin, isAdminAuth } = useAdminAuth();
+  const [isMounted, setIsMounted] = useState(false);
+  const [isClient, setIsClient] = useState(false);
 
+  // useEffect для клиентского монтирования
   useEffect(() => {
+    setIsMounted(true);
+    setIsClient(true);
+    
     const handleScroll = () => setIsScrolled(window.scrollY > 20);
     window.addEventListener("scroll", handleScroll);
-    return () => window.removeEventListener("scroll", handleScroll);
+    
+    // Проверяем хранилище напрямую, чтобы избежать задержек обновления контекста
+    const adminToken = localStorage.getItem("admin_token");
+    const isAdminPage = window.location.pathname.startsWith('/admin');
+    
+    // Устанавливаем флаг, который используется в AuthContext для пропуска проверок
+    if (isAdminPage && adminToken) {
+      localStorage.setItem('is_admin_route', 'true');
+    }
+    
+    return () => {
+      window.removeEventListener("scroll", handleScroll);
+    };
   }, []);
 
   const toggleMobileMenu = () => setIsMobileMenuOpen((prev) => !prev);
@@ -24,7 +45,30 @@ const AdminHeader: React.FC = () => {
     { href: "/dashboard", label: "Панель управления", icon: FaTachometerAlt },
   ];
 
-  if (!isAdminAuth) {
+  // Предотвращаем рендеринг на сервере
+  if (!isClient) {
+    return (
+      <header
+        className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 bg-white/90 py-4`}
+      >
+        <div className="container mx-auto px-4 sm:px-6 flex items-center justify-between flex-nowrap gap-4">
+          <div className="flex items-center flex-shrink-0">
+            <Logo />
+            <span className="ml-2 text-[var(--primary)] font-semibold text-sm hidden sm:inline">
+              Админ-панель
+            </span>
+          </div>
+          <div className="w-[100px] h-[44px]"></div>
+        </div>
+      </header>
+    );
+  }
+
+  // Обходим ошибки гидратации, используя прямые проверки локального хранилища
+  const hasAdminToken = typeof window !== 'undefined' && !!localStorage.getItem("admin_token");
+  const showAuthView = isClient && (!hasAdminToken || !isAdminAuth);
+
+  if (showAuthView) {
     return (
       <header
         className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${
@@ -49,6 +93,7 @@ const AdminHeader: React.FC = () => {
     );
   }
 
+  // Рендерим версию для авторизованного пользователя
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${

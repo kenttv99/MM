@@ -179,14 +179,58 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const setStaticLoading = useCallback((isLoading: boolean) => {
     // Логируем только при изменении состояния
     if (loadingStateRef.current.isStaticLoading !== isLoading) {
-      console.log('LoadingContext: Setting static loading', { isLoading, stage });
+      logInfo('Setting static loading', { isLoading, stage });
     }
     
-    if (isLoading && stage === LoadingStage.AUTHENTICATION) {
-      setStage(LoadingStage.STATIC_CONTENT);
+    // Проверяем админский маршрут
+    const isAdminRoute = pathname?.startsWith('/admin');
+    
+    // Особое поведение для админских маршрутов
+    if (isAdminRoute) {
+      if (isLoading) {
+        // Если админский маршрут, сразу устанавливаем STATIC_CONTENT,
+        // но не обновляем флаг isStaticLoading если мы на более высокой стадии
+        if (stage === LoadingStage.AUTHENTICATION || stage === LoadingStage.INITIAL) {
+          setStage(LoadingStage.STATIC_CONTENT);
+        } else if (stage === LoadingStage.STATIC_CONTENT) {
+          // Если мы на STATIC_CONTENT, обновляем флаг, но добавляем таймер для автоматического перехода
+          loadingStateRef.current.isStaticLoading = isLoading;
+          
+          if (!stageTransitionTimerRef.current) {
+            // Добавляем таймаут для автоматического перехода в следующую стадию
+            stageTransitionTimerRef.current = setTimeout(() => {
+              if (isMounted.current && stage === LoadingStage.STATIC_CONTENT) {
+                logInfo('Auto-progressing from STATIC_CONTENT for admin route');
+                setStage(LoadingStage.DYNAMIC_CONTENT);
+                loadingStateRef.current.isStaticLoading = false;
+              }
+            }, 500);
+          }
+        } else {
+          // На более высоких стадиях просто игнорируем флаг
+          loadingStateRef.current.isStaticLoading = false;
+          return;
+        }
+      } else {
+        // Если снимаем флаг загрузки на админском маршруте, форсируем переход к COMPLETED
+        // если мы были на STATIC_CONTENT или выше
+        if (stage !== LoadingStage.AUTHENTICATION && stage !== LoadingStage.INITIAL) {
+          // Немедленно переводим к COMPLETED минуя промежуточные стадии
+          loadingStateRef.current.isStaticLoading = false;
+          loadingStateRef.current.isDynamicLoading = false;
+          setStage(LoadingStage.COMPLETED);
+        }
+      }
+    } else {
+      // Стандартное поведение для не-админских маршрутов
+      if (isLoading && stage === LoadingStage.AUTHENTICATION) {
+        setStage(LoadingStage.STATIC_CONTENT);
+      }
+      loadingStateRef.current.isStaticLoading = isLoading;
     }
+    
     safeSetState();
-  }, [safeSetState, stage]);
+  }, [safeSetState, stage, pathname]);
 
   // Function for setting dynamic loading
   const setDynamicLoading = useCallback((isLoading: boolean) => {

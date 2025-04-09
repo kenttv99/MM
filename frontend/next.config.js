@@ -37,6 +37,20 @@ const nextConfig = {
         destination: 'http://localhost:8001/admin/:path*',
       },
       
+      // Admin edit routes - добавляем маршруты для админских операций редактирования
+      {
+        source: '/admin_edits/:path*',
+        destination: 'http://localhost:8001/admin_edits/:path*',
+      },
+      {
+        source: '/admin_edits/users/:path*',
+        destination: 'http://localhost:8001/admin_edits/users/:path*',
+      },
+      {
+        source: '/admin_edits/events/:path*',
+        destination: 'http://localhost:8001/admin_edits/events/:path*',
+      },
+      
       // User routes (с более низким приоритетом)
       {
         source: '/auth/:path*',

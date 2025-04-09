@@ -3,10 +3,7 @@
 import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import { useUserForm } from "@/hooks/useUserForm";
-import { FaUser, FaEnvelope, FaTelegram, FaWhatsapp } from "react-icons/fa";
-import InputField from "@/components/common/InputField";
-import { ModalButton } from "@/components/common/AuthModal";
+import EditUserForm from "@/components/EditUserForm";
 
 const EditUserPageContent: React.FC = () => {
   const searchParams = useSearchParams();
@@ -14,14 +11,6 @@ const EditUserPageContent: React.FC = () => {
   const router = useRouter();
   const { isAuthenticated } = useAdminAuth();
   const initialized = useRef(false);
-  const [success, setSuccess] = useState<string | null>(null);
-
-  const { userData, error, isLoading, loadUser, handleChange, handleSubmit } = useUserForm({
-    onSuccess: () => {
-      setSuccess("Пользователь успешно обновлён");
-      setTimeout(() => router.push("/dashboard"), 1500);
-    },
-  });
 
   useEffect(() => {
     if (initialized.current) return;
@@ -32,83 +21,36 @@ const EditUserPageContent: React.FC = () => {
     }
   }, [isAuthenticated, router]);
 
-  useEffect(() => {
-    if (initialized.current || !userId || !isAuthenticated) return;
-    initialized.current = true;
-
-    if (!isAuthenticated) {
-      router.push("/admin-login");
-      return;
-    }
-
-    loadUser(userId);
-  }, [userId, isAuthenticated, loadUser, router]);
+  if (!userId) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <main className="container mx-auto px-4 pt-24 pb-12">
+          <div className="text-center py-8">
+            <h1 className="text-2xl font-bold mb-4 text-gray-800">Ошибка</h1>
+            <p className="text-gray-600 mb-6">Не указан ID пользователя</p>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+            >
+              Вернуться к списку пользователей
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
       <main className="container mx-auto px-4 pt-24 pb-12">
         <h1 className="text-3xl font-bold mb-8 text-gray-800">Редактирование пользователя</h1>
-        <div className="bg-white p-8 rounded-xl shadow-lg max-w-3xl mx-auto">
-          {error && <div className="text-red-500 mb-6">{error}</div>}
-          {success && <div className="text-green-500 mb-6">{success}</div>}
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <InputField
-              type="text"
-              value={userData?.fio || ""}
-              onChange={handleChange}
-              placeholder="Введите ФИО"
-              icon={FaUser}
-              name="fio"
-              required
-              disabled={!userData || isLoading}
-            />
-            <InputField
-              type="email"
-              value={userData?.email || ""}
-              onChange={handleChange}
-              placeholder="Введите email"
-              icon={FaEnvelope}
-              name="email"
-              required
-              disabled={!userData || isLoading}
-            />
-            <InputField
-              type="text"
-              value={userData?.telegram || ""}
-              onChange={handleChange}
-              placeholder="Введите Telegram"
-              icon={FaTelegram}
-              name="telegram"
-              required
-              disabled={!userData || isLoading}
-            />
-            <InputField
-              type="text"
-              value={userData?.whatsapp || ""}
-              onChange={handleChange}
-              placeholder="Введите WhatsApp"
-              icon={FaWhatsapp}
-              name="whatsapp"
-              required
-              disabled={!userData || isLoading}
-            />
-            {userData && (
-              <div className="flex justify-between pt-6">
-                <button
-                  type="button"
-                  onClick={() => router.push("/dashboard")}
-                  className="px-6 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
-                >
-                  Отмена
-                </button>
-                <ModalButton type="submit" disabled={isLoading}>
-                  {isLoading ? "Сохранение..." : "Сохранить"}
-                </ModalButton>
-              </div>
-            )}
-            {!userData && <p className="text-gray-500 text-center">Загрузка данных...</p>}
-          </form>
-        </div>
+        
+        <EditUserForm 
+          userId={userId} 
+          onSuccess={() => {
+            setTimeout(() => router.push("/dashboard"), 1500);
+          }}
+        />
       </main>
     </div>
   );
@@ -116,7 +58,9 @@ const EditUserPageContent: React.FC = () => {
 
 const EditUserPage: React.FC = () => {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <p className="text-gray-600">Загрузка...</p>
+    </div>}>
       <EditUserPageContent />
     </Suspense>
   );

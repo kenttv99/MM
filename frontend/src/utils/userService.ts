@@ -9,6 +9,9 @@ export interface UserData {
   avatar_url?: string;
   is_blocked?: boolean;
   is_partner?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_active?: string;
 }
 
 // Преобразование данных пользователя для отправки на сервер

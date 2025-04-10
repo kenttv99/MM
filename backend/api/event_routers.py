@@ -88,7 +88,6 @@ async def get_events(
                 event_year = event.start_date.year
                 # Формируем полный url_slug в формате base-year-id
                 formatted_slug = f"{event.url_slug}-{event_year}-{event.id}"
-                logger.info(f"Generated canonical slug for event list: {formatted_slug}")
             
             event_response = EventCreate(
                 id=event.id,
@@ -166,7 +165,7 @@ async def get_event(
                         # вместо 404 ошибки просто записываем предупреждение и возвращаем событие
                         # с правильным url_slug, чтобы клиент мог выполнить перенаправление
                         if canonical_slug != slug_or_id:
-                            logger.warning(f"Non-canonical slug access attempt: {slug_or_id}, canonical: {canonical_slug}")
+                            logger.warning(f"Non-canonical slug: {slug_or_id}, canonical: {canonical_slug}")
                             # Продолжаем выполнение, клиент выполнит перенаправление
         
         if not db_event or not db_event.published:

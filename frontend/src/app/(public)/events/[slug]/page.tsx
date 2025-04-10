@@ -194,9 +194,6 @@ const ensureCanonicalSlug = (eventData: EventData): string => {
     }
     
     // Произвольный слаг, который нужно преобразовать
-    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
-      console.warn(`EventPage: ⚠️ Received potentially malformed url_slug: ${eventData.url_slug}`);
-    }
     // Проверяем, есть ли уже год и ID в слаге
     const parts = eventData.url_slug.split('-');
     if (parts.length >= 2) {
@@ -367,29 +364,6 @@ export default function EventPage() {
         // Типобезопасный кастинг
         const eventData = response as unknown as EventData;
         
-        // Детальное логирование для отладки проблемы с URL
-        logInfo("Received event data", {
-          id: eventData.id,
-          title: eventData.title,
-          url_slug: eventData.url_slug,
-          start_date: eventData.start_date
-        });
-        
-        // Проверяем формат url_slug
-        if (eventData.url_slug) {
-          const year = eventData.start_date ? new Date(eventData.start_date).getFullYear() : new Date().getFullYear();
-          const expectedPattern = `-${year}-${eventData.id}`;
-          
-          if (!eventData.url_slug.endsWith(expectedPattern)) {
-            logWarn(`url_slug from API doesn't have the expected format. Should end with ${expectedPattern}`, {
-              receivedSlug: eventData.url_slug,
-              expectedPattern
-            });
-          }
-        } else {
-          logWarn("Event data doesn't contain url_slug", eventData);
-        }
-        
         setFetchError(null);
         setHasServerError(false);
         hasInitialFetchRef.current = true;
@@ -477,7 +451,6 @@ export default function EventPage() {
           if (eventData.url_slug && slug.toString() !== eventData.url_slug) {
             // Формируем канонический slug
             const canonicalSlug = ensureCanonicalSlug(eventData);
-            logInfo(`Current URL ${slug} doesn't match canonical: ${canonicalSlug}, redirecting...`);
             
             // Перенаправляем на канонический URL
             router.replace(`/events/${canonicalSlug}`, { scroll: false });
@@ -561,15 +534,6 @@ export default function EventPage() {
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-grow">
-        {/* Добавляем отладочную информацию для разработчика */}
-        {process.env.NODE_ENV !== 'production' && (
-          <div className="bg-yellow-100 p-2 text-xs font-mono" style={{ maxWidth: '100%', overflow: 'auto' }}>
-            <p><strong>Debug:</strong> ID: {event.id}, URL slug from API: {event.url_slug || 'не задан'}</p>
-            <p><strong>Canonical slug:</strong> {ensureCanonicalSlug(event)}</p>
-            <p><strong>Page slug param:</strong> {slug}</p>
-          </div>
-        )}
-        
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

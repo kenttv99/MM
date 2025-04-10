@@ -66,16 +66,6 @@ interface FilterState {
 }
 
 const generateSlug = (event: EventData): string => {
-  // Проверяем и логируем приходящие данные для отладки
-  if (event && event.id) {
-    logInfo(`Generating slug for event ${event.id}`, { 
-      url_slug: event.url_slug,
-      title: event.title,
-      id: event.id,
-      start_date: event.start_date
-    });
-  }
-
   if (!event || !event.id) return "";
   
   const eventId = event.id;
@@ -86,7 +76,6 @@ const generateSlug = (event: EventData): string => {
   if (event.url_slug) {
     // Если url_slug уже содержит правильный формат year-id, возвращаем его как есть
     if (event.url_slug.endsWith(`-${startYear}-${idStr}`)) {
-      logInfo(`Server returned correctly formatted slug: ${event.url_slug}`);
       return event.url_slug;
     }
     
@@ -100,16 +89,12 @@ const generateSlug = (event: EventData): string => {
       if (/^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
         // Извлекаем базовый слаг без года и ID
         const baseSlug = parts.slice(0, -2).join('-');
-        const formattedSlug = `${baseSlug}-${startYear}-${idStr}`;
-        logInfo(`Reformatting slug with different year/id: ${formattedSlug}`);
-        return formattedSlug;
+        return `${baseSlug}-${startYear}-${idStr}`;
       }
     }
     
     // Если url_slug не содержит формат year-id, добавляем его
-    const formattedSlug = `${event.url_slug}-${startYear}-${idStr}`;
-    logInfo(`Reformatting slug to canonical format: ${formattedSlug}`);
-    return formattedSlug;
+    return `${event.url_slug}-${startYear}-${idStr}`;
   }
   
   // Для случаев, когда url_slug не задан
@@ -123,9 +108,7 @@ const generateSlug = (event: EventData): string => {
     : 'event';
     
   // Формируем канонический URL в формате slug-year-id
-  const fallbackSlug = `${safeSlug}-${startYear}-${idStr}`;
-  logInfo(`Generated fallback slug: ${fallbackSlug}`);
-  return fallbackSlug;
+  return `${safeSlug}-${startYear}-${idStr}`;
 };
 
 const formatDateForDisplay = (dateString: string): string => {
@@ -229,7 +212,7 @@ const DateFilter: React.FC<{
 const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | null) => void }> = React.memo(
   ({ event, lastCardRef }) => {
     const isCompleted = event.status === "completed";
-    // Генерируем слаг для отладки
+    // Генерируем слаг для использования в ссылке
     const generatedSlug = generateSlug(event);
     
     return (
@@ -237,14 +220,6 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | nu
         <Link href={`/events/${generatedSlug}`}>
           <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 min-h-[300px] flex flex-col">
             <div className="relative h-48">
-              {/* Добавляем отладочную информацию для разработчика */}
-              {process.env.NODE_ENV !== 'production' && (
-                <div className="absolute top-0 left-0 z-10 bg-yellow-100 p-1 text-xs font-mono" style={{ maxWidth: '100%', overflow: 'auto' }}>
-                  <span><strong>API slug:</strong> {event.url_slug || 'none'}</span><br/>
-                  <span><strong>Generated:</strong> {generatedSlug}</span>
-                </div>
-              )}
-              
               {event.image_url ? (
                 <Image src={event.image_url} alt={event.title} fill className="object-cover rounded-t-xl" />
               ) : (

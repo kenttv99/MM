@@ -32,6 +32,7 @@ export interface EventResponse {
   message: string;
   event?: EventData;
   authError?: boolean;
+  warningOnly?: boolean; // Флаг для случаев, когда операция успешна, но с предупреждением
 }
 
 export interface EventFormData {
@@ -54,6 +55,7 @@ export interface EventFormData {
   registrations_count?: number;  // Добавлено
   remove_image?: boolean;
   url_slug?: string;
+  url_slug_changed?: boolean; // Flag to track if URL was manually changed by user
 }
 
 export type EventStatus = "draft" | "registration_open" | "registration_closed" | "completed";

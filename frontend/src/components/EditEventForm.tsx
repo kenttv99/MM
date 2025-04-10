@@ -2,12 +2,12 @@
 
 import React, { useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
-import { EventFormData, TicketTypeEnum } from "@/types/events";
 import { motion } from "framer-motion";
+import { EventFormData, TicketTypeEnum } from "@/types/events";
 import {
   FaCalendarAlt, FaMapMarkerAlt, FaMoneyBillWave, FaTicketAlt,
   FaImage, FaTrash, FaEye, FaBold, FaItalic, FaLink, FaListUl,
-  FaListOl, FaHeading, FaQuoteRight, FaSync
+  FaListOl, FaHeading, FaQuoteRight, FaSync, FaCheck, FaTimes
 } from "react-icons/fa";
 import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
@@ -16,7 +16,6 @@ import Image from "next/image";
 import Switch from "@/components/common/Switch";
 import { createPortal } from "react-dom";
 import { MdLink } from "react-icons/md";
-import { createEvent, updateEvent } from "@/utils/eventService";
 
 interface EditEventFormProps {
   isNewEvent: boolean;
@@ -65,7 +64,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   setIsPageLoading,
   setError,
   setSuccess,
-  refreshEventData,
+  refreshEventData
 }) => {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -79,8 +78,10 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [imageError, setImageError] = useState<string | null>(null);
   const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
   const [ticketTypes, setTicketTypes] = useState<any[]>([]);
-  const [localError, setLocalError] = useState<string | null>(error);
-  const [localSuccess, setLocalSuccess] = useState<string | null>(success);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localSuccess, setLocalSuccess] = useState<string | null>(null);
+  const [slugStatus, setSlugStatus] = useState<{ isValid: boolean | null; message: string | null }>({ isValid: null, message: null });
+  const formRef = useRef<HTMLFormElement>(null);
   
   // Обновляем локальные состояния при изменении пропсов
   useEffect(() => {
@@ -389,116 +390,227 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     router.push("/dashboard");
   };
 
-  // Обработчик отправки формы после валидации
+  // Функция для отправки формы после валидации
   const submitFormHandler = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
-    console.log("EditEventForm: Starting form submission");
-    
+    if (typeof setError === 'function') {
+      setError("");
+    }
+    setLocalError("");
+    setLocalSuccess("");
     setIsPageLoading(true);
-    
+
     try {
-      console.log("EditEventForm: Preparing event data for submission", formData);
+      // Создаем объект FormData для отправки
+      const formDataToSend = new FormData();
       
-      // Perform the save operation
-      let result;
-      if (isNewEvent) {
-        result = await createEvent(formData);
+      // Добавляем все основные поля
+      formDataToSend.append("title", formData.title);
+      formDataToSend.append("description", formData.description || "");
+      
+      // Добавляем даты
+      if (formData.start_date) {
+        const startDateStr = formData.start_date + (formData.start_time ? `T${formData.start_time}:00` : "");
+        formDataToSend.append("start_date", startDateStr);
+      }
+      
+      if (formData.end_date) {
+        const endDateStr = formData.end_date + (formData.end_time ? `T${formData.end_time}:00` : "");
+        formDataToSend.append("end_date", endDateStr);
+      }
+      
+      // Добавляем остальные поля
+      if (formData.location) {
+        formDataToSend.append("location", formData.location);
+      }
+      
+      formDataToSend.append("price", String(formData.price || 0));
+      formDataToSend.append("published", String(formData.published || false));
+      formDataToSend.append("status", formData.status || "draft");
+      formDataToSend.append("ticket_type_name", formData.ticket_type_name || "standart");
+      formDataToSend.append("ticket_type_available_quantity", String(formData.ticket_type_available_quantity || 0));
+      
+      // Обработка изображения
+      if (formData.image_file) {
+        formDataToSend.append("image_file", formData.image_file);
+      }
+      
+      formDataToSend.append("remove_image", String(formData.remove_image || false));
+      
+      // МАКСИМАЛЬНО ПРОСТАЯ ОБРАБОТКА URL SLUG - без дополнительной обработки
+      if (formData.url_slug) {
+        // Просто отправляем текущее значение URL slug
+        formDataToSend.append("url_slug", formData.url_slug);
+        console.log(`Form: Sending URL slug: "${formData.url_slug}"`);
+      }
+      
+      // Добавляем временные метки
+      const now = new Date().toISOString();
+      formDataToSend.append("created_at", now);
+      formDataToSend.append("updated_at", now);
+      
+      // Добавляем ID, если редактируем существующее событие
+      if (!isNewEvent && formData.id) {
+        formDataToSend.append("id", formData.id.toString());
+      }
+      
+      // Делаем запрос к API
+      let response;
+      if (!isNewEvent) {
+        // Обновляем существующее событие
+        response = await fetch(`/admin_edits/${formData.id}/`, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem("admin_token")}`,
+          },
+          credentials: 'same-origin',
+          body: formDataToSend
+        });
       } else {
-        result = await updateEvent(formData.id!, formData);
+        // Создаем новое событие
+        response = await fetch('/admin_edits/', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem("admin_token")}`,
+          },
+          credentials: 'same-origin',
+          body: formDataToSend
+        });
       }
       
-      // Handle the result
-      if (result.success) {
-        console.log("EditEventForm: Event saved successfully");
-        
-        // Устанавливаем флаг необходимости обновления данных при возврате на дашборд
-        localStorage.setItem("dashboard_need_refresh", "true");
-        
-        setLocalSuccess(
-          isNewEvent
-            ? "Мероприятие успешно создано! Вы будете перенаправлены в панель управления."
-            : "Мероприятие успешно обновлено!"
-        );
-        
-        // Обновляем и родительское состояние, если оно передано
-        if (setSuccess) {
-          try {
-            setSuccess(
-              isNewEvent
-                ? "Мероприятие успешно создано! Вы будете перенаправлены в панель управления."
-                : "Мероприятие успешно обновлено!"
-            );
-          } catch (e) {
-            console.warn("Failed to update parent success state:", e);
-          }
+      // Проверяем успешность запроса
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Ошибка сервера: ${response.status} ${errorText}`);
+      }
+      
+      // Получаем ответ сервера
+      const resultData = await response.json();
+      console.log("Form: Server response:", resultData);
+      
+      // Формируем полный URL-слаг для отображения
+      let fullSlug = resultData.url_slug;
+      if (resultData.start_date && resultData.id) {
+        const year = new Date(resultData.start_date).getFullYear();
+        fullSlug = `${resultData.url_slug}-${year}-${resultData.id}`;
+      }
+      
+      // Создаем результат для обработки
+      const result = {
+        success: true,
+        message: isNewEvent ? "Мероприятие создано!" : "Мероприятие обновлено!",
+        event: {
+          ...resultData,
+          full_slug: fullSlug
         }
-        
-        // If it's a new event and was created successfully, redirect back to dashboard
-        if (isNewEvent) {
-          // Clear any saved draft
-          localStorage.removeItem('event_form_draft');
-          
-          // Set small delay before redirect to allow user to see the success message
-          setTimeout(() => {
-            router.push("/dashboard");
-          }, 2000);
-        }
+      };
+      
+      // Показываем успешное сообщение
+      let successMessage = isNewEvent
+        ? `Мероприятие создано! URL: ${fullSlug}`
+        : `Мероприятие обновлено! URL: ${fullSlug}`;
+      
+      setLocalSuccess(successMessage);
+      if (typeof setSuccess === 'function') {
+        setSuccess(successMessage);
+      }
+      
+      // Обновляем флаг необходимости обновления данных
+      localStorage.setItem("dashboard_need_refresh", "true");
+      localStorage.removeItem('event_form_draft');
+      
+      // Перенаправляем на дашборд после успеха
+      setTimeout(() => {
+        router.push("/dashboard");
+      }, 2000);
+      
+    } catch (error) {
+      console.error("Error submitting form:", error);
+      if (typeof setError === 'function') {
+        setError("Произошла ошибка при отправке формы");
       } else {
-        // Handle known errors
-        if (result.authError) {
-          // Store draft of the form data before redirecting for auth issues
-          localStorage.setItem('event_form_draft', JSON.stringify(formData));
-          setLocalError("Ошибка авторизации. Сохраняем черновик формы и перенаправляем на страницу входа...");
-          
-          // Обновляем и родительское состояние, если оно передано
-          if (setError) {
-            try {
-              setError("Ошибка авторизации. Сохраняем черновик формы и перенаправляем на страницу входа...");
-            } catch (e) {
-              console.warn("Failed to update parent error state:", e);
-            }
-          }
-          
-          setTimeout(() => {
-            router.push("/admin-login");
-          }, 2000);
-        } else {
-          const errorMessage = result.message || "Произошла ошибка при сохранении мероприятия.";
-          setLocalError(errorMessage);
-          
-          // Обновляем и родительское состояние, если оно передано
-          if (setError) {
-            try {
-              setError(errorMessage);
-            } catch (e) {
-              console.warn("Failed to update parent error state:", e);
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("EditEventForm: Error saving event:", err);
-      let errorMessage = "Произошла ошибка при сохранении мероприятия.";
-      
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      }
-      
-      setLocalError(errorMessage);
-      
-      // Обновляем и родительское состояние, если оно передано
-      if (setError) {
-        try {
-          setError(errorMessage);
-        } catch (e) {
-          console.warn("Failed to update parent error state:", e);
-        }
+        setLocalError("Произошла ошибка при отправке формы");
       }
     } finally {
       setIsPageLoading(false);
     }
   };
+
+  // Упрощенная валидация URL slug
+  const validateSlug = useCallback((slug: string) => {
+    // Если слаг пустой или слишком короткий, не валидируем
+    if (!slug || slug.length < 3) {
+      setSlugStatus({ 
+        isValid: null,
+        message: slug ? "URL должен быть не менее 3 символов" : null 
+      });
+      return;
+    }
+    
+    // Проверка на наличие не-латинских символов
+    if (/[^\x00-\x7F]/.test(slug)) {
+      setSlugStatus({
+        isValid: false,
+        message: "URL может содержать только латинские буквы, цифры и дефисы"
+      });
+      return;
+    }
+    
+    // Проверка на недопустимые символы (разрешены только буквы, цифры и дефисы)
+    const cleanedSlug = slug.toLowerCase().replace(/[^a-z0-9-]+/g, '-');
+    if (cleanedSlug !== slug.toLowerCase()) {
+      setSlugStatus({
+        isValid: false,
+        message: "URL может содержать только латинские буквы, цифры и дефисы"
+      });
+      return;
+    }
+    
+    // Проверка на зарезервированные слова
+    const reservedSlugs = ['admin', 'api', 'dashboard', 'auth', 'login', 'register', 'settings', 'profile'];
+    const slugLower = slug.toLowerCase();
+    
+    for (const reserved of reservedSlugs) {
+      if (slugLower === reserved || slugLower.startsWith(`${reserved}-`)) {
+        setSlugStatus({
+          isValid: false,
+          message: `URL содержит зарезервированное слово "${reserved}"`
+        });
+        return;
+      }
+    }
+    
+    // Если все проверки пройдены, слаг валиден
+    setSlugStatus({ 
+      isValid: true, 
+      message: "URL доступен" 
+    });
+  }, []);
+  
+  // Упрощенная валидация slug при изменении
+  useEffect(() => {
+    if (formData.url_slug) {
+      validateSlug(formData.url_slug);
+    } else {
+      setSlugStatus({ isValid: null, message: null });
+    }
+  }, [formData.url_slug, validateSlug]);
+
+  // Упрощенный обработчик изменения url_slug
+  const handleUrlSlugChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawValue = e.target.value;
+    
+    // Фильтруем ввод, оставляем только допустимые символы (a-z, 0-9, дефис)
+    // НЕ заменяем недопустимые символы на дефисы, а просто игнорируем их
+    const validChars = rawValue.split('').filter(char => /[a-z0-9-]/.test(char));
+    const cleanedSlug = validChars.join('').toLowerCase();
+    
+    // Обновляем значение в форме
+    setFieldValue('url_slug', cleanedSlug);
+    
+    // Помечаем как измененное пользователем
+    setFieldValue('url_slug_changed', true);
+  }, [setFieldValue]);
 
   if (isLoading) {
     return <div className="text-center py-10">Загрузка данных мероприятия...</div>;
@@ -825,26 +937,58 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
 
             <div className="mb-6">
-              <label className="block text-gray-700 font-medium mb-2">
-                URL мероприятия (только латинские буквы a-z, цифры 0-9 и тире "-")
-                <span className="ml-1 text-xs text-gray-500">(в адресной строке будет добавлен ID события)</span>
-              </label>
-              <div className="flex items-center">
-                <MdLink className="text-gray-400 mr-2 shrink-0" />
+              <div className="flex flex-col sm:flex-row gap-2 mb-1">
+                <label htmlFor="url_slug" className="text-sm font-medium text-gray-700">
+                  URL мероприятия <span className="text-red-500">*</span>
+                </label>
+                {slugStatus.isValid === true && (
+                  <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    {slugStatus.message}
+                  </span>
+                )}
+                {slugStatus.isValid === false && slugStatus.message && (
+                  <span className="text-xs text-red-600 font-medium">
+                    {slugStatus.message}
+                  </span>
+                )}
+              </div>
+              <div className="relative">
                 <input
                   type="text"
+                  id="url_slug"
                   name="url_slug"
                   value={formData.url_slug || ""}
-                  onChange={handleChange}
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-                  placeholder="например: kirtan-mela"
+                  onChange={handleUrlSlugChange}
+                  className={`w-full p-3 pl-3 pr-10 border rounded-lg focus:outline-none focus:ring-2 min-h-[44px] ${
+                    slugStatus.isValid === false || (localError && localError.includes("URL не был изменен"))
+                      ? "border-red-300 focus:border-red-400 focus:ring-red-200"
+                      : slugStatus.isValid === true
+                      ? "border-green-300 focus:border-green-400 focus:ring-green-200"
+                      : "border-gray-300 focus:border-gray-400 focus:ring-gray-200"
+                  }`}
+                  placeholder={isNewEvent ? "kirtan-mela" : "базовая часть адреса (год и ID добавляются автоматически)"}
                 />
+                <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
+                  {slugStatus.isValid === true && (
+                    <svg className="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  )}
+                  {slugStatus.isValid === false && (
+                    <svg className="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  )}
+                </div>
               </div>
-              <p className="mt-1 text-xs text-gray-500">
-                Формат: {formData.url_slug ? `${formData.url_slug}-${new Date(formData.start_date).getFullYear()}-ID` : "kirtan-mela-2023-ID"} (год и ID добавляются автоматически)
-              </p>
-              <p className="mt-1 text-xs text-gray-500 italic">
-                URL мероприятия будет отображаться на сайте как: <strong>/events/{formData.url_slug || "kirtan-mela"}-{new Date(formData.start_date).getFullYear()}-{formData.id || "ID"}</strong>
+              <p className="mt-2 text-xs text-gray-500">
+                URL мероприятия будет отображаться на сайте как: 
+                <strong>/events/{formData.url_slug || "kirtan-mela"}</strong>
+                <br/>
+                <span className="text-gray-400">Введите только базовую часть URL (без года и ID).</span>
               </p>
             </div>
 

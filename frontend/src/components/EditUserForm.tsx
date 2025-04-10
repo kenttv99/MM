@@ -82,6 +82,12 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
   const mountedRef = useRef(true);
   const loadAttempts = useRef(0);
   const maxAttempts = 3;
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadingTimeoutMs = 5000;
+  const isLoadingRef = useRef(false); // Реф для отслеживания прогресса загрузки
+  const hasInitLoadRef = useRef(false); // Реф для отслеживания инициализации в StrictMode
+  const isDevelopmentMode = process.env.NODE_ENV === 'development';
+  const requestIdRef = useRef(0); // Уникальный ID для каждого запроса
 
   // Проверка валидности токена и авторизации
   useEffect(() => {
@@ -94,103 +100,159 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
     }
   }, [isAuthenticated, router, isRedirecting]);
 
-  // Загрузка данных пользователя
-  const loadUser = useCallback(async () => {
-    if (!userId || !mountedRef.current || isRedirecting) return;
+  // Единоразовая загрузка данных пользователя (вызываем только один раз при монтировании)
+  useEffect(() => {
+    // Предотвращаем повторную инициализацию в strict mode и горячую перезагрузку
+    if (hasInitLoadRef.current) {
+      return;
+    }
+    hasInitLoadRef.current = true;
     
-    setIsFetching(true);
-    setError(null);
+    mountedRef.current = true;
+    isLoadingRef.current = false;
     
-    try {
-      console.log(`EditUserForm: Loading user data for ID ${userId}, attempt ${loadAttempts.current + 1}`);
+    // Очищаем предыдущие таймауты при повторном рендере
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
+    const loadUserData = async () => {
+      if (!userId || isRedirecting) return;
       
-      // Проверяем авторизацию перед загрузкой данных
-      const isAuthValid = await checkAuth();
-      if (!isAuthValid) {
-        console.log("EditUserForm: Auth check failed before loading user data");
-        if (mountedRef.current && !isRedirecting) {
+      // Предотвращаем параллельные запросы
+      if (isLoadingRef.current) {
+        console.log(`EditUserForm: Skipping duplicate request (isDev: ${isDevelopmentMode}, attempt: ${loadAttempts.current})`);
+        return;
+      }
+      
+      // Проверяем авторизацию перед загрузкой
+      if (!isAuthenticated) {
+        console.log("EditUserForm: Not authenticated in loadUserData");
+        setIsRedirecting(true);
+        setTimeout(() => {
+          router.push("/admin-login");
+        }, 100);
+        return;
+      }
+      
+      // Увеличиваем счетчик запросов для отслеживания
+      const currentRequestId = ++requestIdRef.current;
+      isLoadingRef.current = true;
+      setIsFetching(true);
+      loadAttempts.current += 1;
+      
+      console.log(`EditUserForm: Loading user data (request ${currentRequestId}, attempt ${loadAttempts.current}/${maxAttempts}, isDev: ${isDevelopmentMode})`);
+      
+      try {
+        const data = await fetchUser(userId);
+        
+        // Проверяем, что запрос не устарел (если был запущен новый)
+        if (currentRequestId !== requestIdRef.current) {
+          console.log(`EditUserForm: Ignoring stale response for request ${currentRequestId} (current: ${requestIdRef.current})`);
+          return;
+        }
+        
+        // Сбрасываем ошибку при успешной загрузке
+        setError(null);
+        
+        // Очищаем таймаут, так как данные успешно загружены
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        
+        if (mountedRef.current) {
+          console.log(`EditUserForm: Successfully loaded data for request ${currentRequestId}`);
+          setUserData(data);
+          setOriginalData(JSON.parse(JSON.stringify(data))); // Создаем копию для отслеживания изменений
+          setIsFetching(false);
+          loadAttempts.current = 0;
+        }
+      } catch (err: any) {
+        // Проверяем, что запрос не устарел
+        if (currentRequestId !== requestIdRef.current) {
+          console.log(`EditUserForm: Ignoring error for stale request ${currentRequestId}`);
+          return;
+        }
+        
+        console.error(`EditUserForm: Error loading user data (request ${currentRequestId}):`, err);
+        
+        // Проверяем, не проблема ли это с авторизацией
+        if (err.status === 401 || err.status === 403) {
+          console.log("EditUserForm: Authorization error in loadUserData");
           setIsRedirecting(true);
           setTimeout(() => {
             router.push("/admin-login");
           }, 100);
-        }
-        return;
-      }
-      
-      const data = await fetchUser(userId);
-      
-      if (mountedRef.current) {
-        setUserData(data);
-        setOriginalData(JSON.parse(JSON.stringify(data))); // Создаем копию для отслеживания изменений
-        console.log("EditUserForm: User data loaded successfully", data);
-      }
-    } catch (err) {
-      if (mountedRef.current) {
-        const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки данных пользователя";
-        console.error("EditUserForm: Error loading user data", errorMessage);
-        setError(errorMessage);
-        
-        // Проверяем, связана ли ошибка с авторизацией (401/403)
-        if (err instanceof Error && 'status' in err && (err.status === 401 || err.status === 403)) {
-          console.log("EditUserForm: Authorization error detected, redirecting to login");
-          if (!isRedirecting) {
-            setIsRedirecting(true);
-            setError("Необходима авторизация. Перенаправление на страницу входа...");
-            setTimeout(() => {
-              router.push("/admin-login");
-            }, 1500);
-          }
           return;
         }
         
-        // Повторяем попытку загрузки данных
-        loadAttempts.current += 1;
-        if (loadAttempts.current < maxAttempts) {
-          console.log(`EditUserForm: Retrying in 2 seconds, attempt ${loadAttempts.current + 1}/${maxAttempts}`);
-          setTimeout(loadUser, 2000);
-          return; // Выходим из функции, чтобы не устанавливать isFetching в false
+        if (mountedRef.current) {
+          setIsFetching(false);
+          
+          // Если есть возможность повторить попытку - делаем это
+          if (loadAttempts.current < maxAttempts) {
+            console.log(`EditUserForm: Retrying load (request ${currentRequestId}, attempt ${loadAttempts.current}/${maxAttempts})`);
+            
+            // Увеличиваем задержку с каждой попыткой
+            const retryDelay = Math.min(1000 * loadAttempts.current, 3000);
+            
+            setTimeout(() => {
+              if (mountedRef.current) {
+                isLoadingRef.current = false;
+                loadUserData();
+              }
+            }, retryDelay);
+          } else {
+            setError(err.message || "Ошибка загрузки данных пользователя");
+            if (onError) onError(err instanceof Error ? err : new Error(err.message || "Ошибка загрузки данных пользователя"));
+          }
         }
-        
-        if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsFetching(false);
-      }
-    }
-  }, [userId, onError, router, isRedirecting, checkAuth]);
-
-  // Загрузка данных при монтировании
-  useEffect(() => {
-    mountedRef.current = true;
-    
-    // Проверяем состояние авторизации перед загрузкой
-    if (!isAuthenticated && !isRedirecting) {
-      console.log("EditUserForm: Not authenticated in initial mount");
-      setIsRedirecting(true);
-      setTimeout(() => {
-        router.push("/admin-login");
-      }, 100);
-      return;
-    }
-    
-    loadUser();
-    
-    // Устанавливаем таймаут для гарантированного скрытия скелетона через 5 секунд
-    const timeout = setTimeout(() => {
-      if (mountedRef.current && isFetching) {
-        setIsFetching(false);
-        if (!userData && !error) {
-          setError("Превышено время ожидания загрузки данных");
+      } finally {
+        // Для текущего запроса освобождаем флаг загрузки
+        if (currentRequestId === requestIdRef.current) {
+          console.log(`EditUserForm: Request ${currentRequestId} completed (success or failure)`);
+          isLoadingRef.current = false;
         }
       }
-    }, 5000);
+    };
     
+    // Сбрасываем счетчик попыток перед загрузкой
+    loadAttempts.current = 0;
+    
+    // Загружаем данные
+    loadUserData();
+    
+    // Устанавливаем таймаут для предотвращения бесконечной загрузки
+    timeoutRef.current = setTimeout(() => {
+      if (mountedRef.current && isFetching && !userData && !error) {
+        console.log("EditUserForm: Loading timeout exceeded");
+        setError("Превышено время ожидания загрузки данных");
+        setIsFetching(false);
+      }
+    }, loadingTimeoutMs);
+    
+    // Функция очистки при размонтировании
     return () => {
       mountedRef.current = false;
-      clearTimeout(timeout);
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      console.log("EditUserForm: Component unmounted, cleanup completed");
     };
-  }, [loadUser, isAuthenticated, router, isRedirecting]);
+  }, [userId, isAuthenticated, router, isRedirecting, onError]);
+
+  // Дополнительная защита от двойной загрузки при hot-reload в development режиме
+  useEffect(() => {
+    return () => {
+      console.log("EditUserForm: Cleanup before re-mount");
+      // Этот эффект выполняется при каждом размонтировании, 
+      // в том числе при обновлении в режиме разработки
+      hasInitLoadRef.current = false;
+    };
+  }, []);
 
   // Отслеживание изменений формы
   useEffect(() => {
@@ -223,6 +285,56 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
     });
   };
 
+  // Повторная загрузка данных (для кнопки "Попробовать снова")
+  const reloadUserData = async () => {
+    if (isLoadingRef.current || !userId || isRedirecting) return;
+    
+    setError(null);
+    setIsFetching(true);
+    isLoadingRef.current = true;
+    loadAttempts.current = 0;
+    
+    // Увеличиваем счетчик запросов для отслеживания
+    const currentRequestId = ++requestIdRef.current;
+    
+    try {
+      console.log(`EditUserForm: Manually reloading user data (request ${currentRequestId})`);
+      const data = await fetchUser(userId);
+      
+      // Проверяем, что запрос не устарел
+      if (currentRequestId !== requestIdRef.current) {
+        console.log(`EditUserForm: Ignoring stale manual reload result for request ${currentRequestId}`);
+        return;
+      }
+      
+      if (mountedRef.current) {
+        console.log(`EditUserForm: Successfully reloaded data for request ${currentRequestId}`);
+        setUserData(data);
+        setOriginalData(JSON.parse(JSON.stringify(data))); // Создаем копию для отслеживания изменений
+        setIsFetching(false);
+      }
+    } catch (err: any) {
+      // Проверяем, что запрос не устарел
+      if (currentRequestId !== requestIdRef.current) {
+        console.log(`EditUserForm: Ignoring error for stale manual reload ${currentRequestId}`);
+        return;
+      }
+      
+      console.error(`EditUserForm: Error reloading user data (request ${currentRequestId}):`, err);
+      
+      if (mountedRef.current) {
+        setError(err.message || "Ошибка загрузки данных пользователя");
+        setIsFetching(false);
+      }
+    } finally {
+      // Для текущего запроса освобождаем флаг загрузки
+      if (currentRequestId === requestIdRef.current) {
+        console.log(`EditUserForm: Manual reload request ${currentRequestId} completed`);
+        isLoadingRef.current = false;
+      }
+    }
+  };
+
   // Обработка отправки формы
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -253,6 +365,9 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
       setSuccess("Пользователь успешно обновлён");
       setOriginalData(JSON.parse(JSON.stringify(result)));
       setIsFormModified(false);
+      
+      // Устанавливаем флаг необходимости обновления данных при возврате на дашборд
+      localStorage.setItem("dashboard_need_refresh", "true");
       
       if (onSuccess) {
         setTimeout(() => {
@@ -287,6 +402,8 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
 
   // Отмена изменений
   const handleCancel = () => {
+    // Устанавливаем флаг необходимости обновления данных при возврате на дашборд
+    localStorage.setItem("dashboard_need_refresh", "true");
     router.push("/dashboard");
   };
 
@@ -342,7 +459,7 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
         <div className="text-center py-8">
           <p className="text-gray-600 mb-4">Не удалось загрузить данные пользователя</p>
           <button 
-            onClick={loadUser}
+            onClick={reloadUserData}
             className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
           >
             Попробовать снова

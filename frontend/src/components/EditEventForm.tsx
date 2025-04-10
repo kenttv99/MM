@@ -16,6 +16,7 @@ import Image from "next/image";
 import Switch from "@/components/common/Switch";
 import { createPortal } from "react-dom";
 import { MdLink } from "react-icons/md";
+import { createEvent, updateEvent } from "@/utils/eventService";
 
 interface EditEventFormProps {
   isNewEvent: boolean;
@@ -30,6 +31,9 @@ interface EditEventFormProps {
   isLoading: boolean;
   isPageLoading: boolean;
   setImagePreview: (url: string | null) => void;
+  setIsPageLoading: (isLoading: boolean) => void;
+  setError: (error: string | null) => void;
+  setSuccess: (success: string | null) => void;
 }
 
 // Вспомогательная функция для проверки токена локально
@@ -57,6 +61,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   isLoading,
   isPageLoading,
   setImagePreview,
+  setIsPageLoading,
+  setError,
+  setSuccess,
 }) => {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -70,6 +77,17 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [imageError, setImageError] = useState<string | null>(null);
   const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
   const [ticketTypes, setTicketTypes] = useState<any[]>([]);
+  const [localError, setLocalError] = useState<string | null>(error);
+  const [localSuccess, setLocalSuccess] = useState<string | null>(success);
+  
+  // Обновляем локальные состояния при изменении пропсов
+  useEffect(() => {
+    setLocalError(error);
+  }, [error]);
+  
+  useEffect(() => {
+    setLocalSuccess(success);
+  }, [success]);
   
   // Refs для отслеживания состояния компонента
   const isMountedRef = useRef(true);
@@ -279,7 +297,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
           }
           
           // Show notification to user
-          setSuccess("Форма восстановлена из сохраненного черновика");
+          setLocalSuccess("Форма восстановлена из сохраненного черновика");
         }
       } catch (e) {
         console.error("Error restoring form data:", e);
@@ -362,41 +380,122 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     };
   }, []);
 
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  // Обработчик нажатия на кнопку "Отмена"
+  const handleCancel = () => {
+    // Устанавливаем флаг необходимости обновления данных при возврате на дашборд
+    localStorage.setItem("dashboard_need_refresh", "true");
+    router.push("/dashboard");
+  };
+
+  // Обработчик отправки формы после валидации
+  const submitFormHandler = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log("EditEventForm: Form submission started");
     
-    // Reset validation errors
-    setValidationErrors({});
+    console.log("EditEventForm: Starting form submission");
     
-    if (imageError) {
-      console.log("EditEventForm: Preventing form submission due to image error");
-      return;
+    setIsPageLoading(true);
+    
+    try {
+      console.log("EditEventForm: Preparing event data for submission", formData);
+      
+      // Perform the save operation
+      let result;
+      if (isNewEvent) {
+        result = await createEvent(formData);
+      } else {
+        result = await updateEvent(formData.id!, formData);
+      }
+      
+      // Handle the result
+      if (result.success) {
+        console.log("EditEventForm: Event saved successfully");
+        
+        // Устанавливаем флаг необходимости обновления данных при возврате на дашборд
+        localStorage.setItem("dashboard_need_refresh", "true");
+        
+        setLocalSuccess(
+          isNewEvent
+            ? "Мероприятие успешно создано! Вы будете перенаправлены в панель управления."
+            : "Мероприятие успешно обновлено!"
+        );
+        
+        // Обновляем и родительское состояние, если оно передано
+        if (setSuccess) {
+          try {
+            setSuccess(
+              isNewEvent
+                ? "Мероприятие успешно создано! Вы будете перенаправлены в панель управления."
+                : "Мероприятие успешно обновлено!"
+            );
+          } catch (e) {
+            console.warn("Failed to update parent success state:", e);
+          }
+        }
+        
+        // If it's a new event and was created successfully, redirect back to dashboard
+        if (isNewEvent) {
+          // Clear any saved draft
+          localStorage.removeItem('event_form_draft');
+          
+          // Set small delay before redirect to allow user to see the success message
+          setTimeout(() => {
+            router.push("/dashboard");
+          }, 2000);
+        }
+      } else {
+        // Handle known errors
+        if (result.authError) {
+          // Store draft of the form data before redirecting for auth issues
+          localStorage.setItem('event_form_draft', JSON.stringify(formData));
+          setLocalError("Ошибка авторизации. Сохраняем черновик формы и перенаправляем на страницу входа...");
+          
+          // Обновляем и родительское состояние, если оно передано
+          if (setError) {
+            try {
+              setError("Ошибка авторизации. Сохраняем черновик формы и перенаправляем на страницу входа...");
+            } catch (e) {
+              console.warn("Failed to update parent error state:", e);
+            }
+          }
+          
+          setTimeout(() => {
+            router.push("/admin-login");
+          }, 2000);
+        } else {
+          const errorMessage = result.message || "Произошла ошибка при сохранении мероприятия.";
+          setLocalError(errorMessage);
+          
+          // Обновляем и родительское состояние, если оно передано
+          if (setError) {
+            try {
+              setError(errorMessage);
+            } catch (e) {
+              console.warn("Failed to update parent error state:", e);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error("EditEventForm: Error saving event:", err);
+      let errorMessage = "Произошла ошибка при сохранении мероприятия.";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      }
+      
+      setLocalError(errorMessage);
+      
+      // Обновляем и родительское состояние, если оно передано
+      if (setError) {
+        try {
+          setError(errorMessage);
+        } catch (e) {
+          console.warn("Failed to update parent error state:", e);
+        }
+      }
+    } finally {
+      setIsPageLoading(false);
     }
-    
-    // Проверка валидности полей перед отправкой
-    let hasErrors = false;
-    const errors: Record<string, string> = {};
-    
-    if (formData.start_date && !formData.start_time) {
-      console.log("EditEventForm: Validation error - start time is required");
-      errors.start_time = "Требуется указать время начала";
-      hasErrors = true;
-    }
-    
-    if (formData.title.trim() === "") {
-      console.log("EditEventForm: Validation error - title is required");
-      errors.title = "Название мероприятия обязательно";
-      hasErrors = true;
-    }
-    
-    if (hasErrors) {
-      setValidationErrors(errors);
-      return;
-    }
-    
-    console.log("EditEventForm: Form validation passed, submitting");
-    handleSubmit(e);
   };
 
   if (isLoading) {
@@ -424,8 +523,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </button>
           </div>
 
-          {error && <ErrorDisplay error={error} />}
-          {success && <SuccessDisplay message={success} />}
+          {localError && <ErrorDisplay error={localError} />}
+          {localSuccess && <SuccessDisplay message={localSuccess} />}
 
           {!isNewEvent && (
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-6">
@@ -479,7 +578,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
           )}
 
-          <form onSubmit={onSubmit} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
+          <form onSubmit={submitFormHandler} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Название мероприятия*</label>
               <input
@@ -880,7 +979,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
               <div className="flex flex-col sm:flex-row gap-4">
                 <button
                   type="button"
-                  onClick={() => router.push("/dashboard")}
+                  onClick={handleCancel}
                   className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] min-h-[44px]"
                 >
                   Отмена

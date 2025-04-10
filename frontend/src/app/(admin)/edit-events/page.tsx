@@ -2,7 +2,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useMemo, Suspense } from "react";
+import { useEffect, useRef, useMemo, Suspense, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useEventForm } from "@/hooks/useEventForm";
@@ -19,6 +19,7 @@ function EditEventsPageContent() {
   const router = useRouter();
   const { isAuthenticated } = useAdminAuth();
   const initialized = useRef(false);
+  const [isPageLoading, setIsPageLoading] = useState(false);
 
   const initialValues = useMemo<EventFormData>(() => ({
     title: "",
@@ -50,7 +51,9 @@ function EditEventsPageContent() {
     loadEvent,
     setFieldValue,
     setImagePreview,
-    isLoading
+    isLoading,
+    setError,
+    setSuccess
   } = useEventForm({
     initialValues,
     onSuccess: () => router.push("/dashboard?refresh=true"),
@@ -84,7 +87,10 @@ function EditEventsPageContent() {
       setFieldValue={setFieldValue}
       setImagePreview={setImagePreview}
       isLoading={isLoading}
-      isPageLoading={false}
+      isPageLoading={isPageLoading}
+      setIsPageLoading={setIsPageLoading}
+      setError={setError}
+      setSuccess={setSuccess}
     />
   );
 }

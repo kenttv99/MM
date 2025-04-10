@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/admin-login/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import InputField from "@/components/common/InputField";
@@ -21,6 +21,16 @@ export default function AdminLoginPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+
+  // Очищаем токен и данные администратора при загрузке страницы логина
+  useEffect(() => {
+    // Если мы на странице логина и у нас есть токен, вероятно он истек или недействителен
+    // Очищаем локальное хранилище для предотвращения ошибок отображения
+    localStorage.removeItem("admin_token");
+    localStorage.removeItem("admin_data");
+    localStorage.removeItem("is_admin_route");
+    console.log('AdminLogin: Cleared existing admin tokens and session data on login page mount');
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;

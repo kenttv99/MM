@@ -188,8 +188,11 @@ export default function Dashboard() {
         throw new Error("Токен администратора не найден");
       }
       
+      // Добавляем параметр для предотвращения кэширования ответа
+      const cacheBuster = `_ts=${Date.now()}`;
+      
       console.log('Dashboard: Sending request to fetch users');
-      const fetchedUsers = await apiFetch<any[]>("/admin_edits/users", {
+      const fetchedUsers = await apiFetch<any[]>(`/admin_edits/users?${cacheBuster}`, {
         bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
         headers: {
           'Authorization': `Bearer ${token}`
@@ -198,30 +201,22 @@ export default function Dashboard() {
       
       if ('aborted' in fetchedUsers) {
         console.log('Dashboard: Users request was aborted:', fetchedUsers.reason);
-        throw new Error(fetchedUsers.reason || "Запрос пользователей был прерван");
-      }
-      
-      if ('error' in fetchedUsers) {
-        console.error('Dashboard: Error response from users API:', fetchedUsers);
-        throw new Error(fetchedUsers.error || "Ошибка при загрузке пользователей");
-      }
-      
-      console.log(`Dashboard: Users fetched successfully, count: ${fetchedUsers.length}`);
-      setUsers(fetchedUsers as User[]);
-      setDataLoaded(prev => ({ ...prev, users: true }));
-      return true;
-    } catch (err: any) {
-      console.error("Dashboard: Error fetching users:", err);
-      
-      // Check for 401/403 errors and redirect to login
-      if (err.status === 401 || err.status === 403) {
-        setError("Требуется авторизация администратора. Перенаправление на страницу входа...");
-        setTimeout(() => router.push("/admin-login"), 2000);
         return false;
       }
       
-      setError("Не удалось загрузить пользователей");
-      setDataLoaded(prev => ({ ...prev, users: true })); // Отмечаем как загруженное даже при ошибке, чтобы убрать скелетон
+      setUsers(fetchedUsers);
+      console.log(`Dashboard: Fetched ${fetchedUsers.length} users`);
+      setDataLoaded(prev => ({ ...prev, users: true }));
+      return true;
+    } catch (error) {
+      console.error("Dashboard: Error fetching users:", error);
+      if (error instanceof Error && error.message.includes("Токен")) {
+        console.log('Dashboard: Auth error detected in fetchUsers, redirecting');
+        // Если ошибка связана с токеном, очищаем данные и перенаправляем
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
+        router.push("/admin-login");
+      }
       return false;
     }
   };
@@ -230,17 +225,19 @@ export default function Dashboard() {
   const fetchEvents = async () => {
     try {
       console.log('Dashboard: Starting fetchEvents');
-      // Get token with the correct key
       const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
       
       if (!token) {
-        console.log('Dashboard: No admin token found');
+        console.log('Dashboard: No admin token found for events');
         throw new Error("Токен администратора не найден");
       }
       
+      // Добавляем параметр для предотвращения кэширования ответа
+      const cacheBuster = `_ts=${Date.now()}`;
+      
       console.log('Dashboard: Sending request to fetch events');
-      const fetchedEvents = await apiFetch<any[]>("/admin_edits/events", {
-        bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
+      const fetchedEvents = await apiFetch<any[]>(`/admin_edits/events?${cacheBuster}`, {
+        bypassLoadingStageCheck: true,
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -248,37 +245,28 @@ export default function Dashboard() {
       
       if ('aborted' in fetchedEvents) {
         console.log('Dashboard: Events request was aborted:', fetchedEvents.reason);
-        throw new Error(fetchedEvents.reason || "Запрос мероприятий был прерван");
-      }
-      
-      if ('error' in fetchedEvents) {
-        console.error('Dashboard: Error response from events API:', fetchedEvents);
-        throw new Error(fetchedEvents.error || "Ошибка при загрузке мероприятий");
-      }
-      
-      console.log(`Dashboard: Events fetched successfully, count: ${fetchedEvents.length}`);
-      setEvents(fetchedEvents as Event[]);
-      setDataLoaded(prev => ({ ...prev, events: true }));
-      return true;
-    } catch (err: any) {
-      console.error("Dashboard: Error fetching events:", err);
-      
-      // Check for 401/403 errors and redirect to login
-      if (err.status === 401 || err.status === 403) {
-        setError("Требуется авторизация администратора. Перенаправление на страницу входа...");
-        setTimeout(() => router.push("/admin-login"), 2000);
         return false;
       }
       
-      setError("Не удалось загрузить мероприятия");
-      setDataLoaded(prev => ({ ...prev, events: true })); // Отмечаем как загруженное даже при ошибке, чтобы убрать скелетон
+      setEvents(fetchedEvents);
+      console.log(`Dashboard: Fetched ${fetchedEvents.length} events`);
+      setDataLoaded(prev => ({ ...prev, events: true }));
+      return true;
+    } catch (error) {
+      console.error("Dashboard: Error fetching events:", error);
+      if (error instanceof Error && error.message.includes("Токен")) {
+        console.log('Dashboard: Auth error detected in fetchEvents, redirecting');
+        // Если ошибка связана с токеном, очищаем данные и перенаправляем
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
+        router.push("/admin-login");
+      }
       return false;
     }
   };
 
-  // Загрузка данных и управление стадиями загрузки
+  // Установка флага клиентской загрузки при монтировании компонента
   useEffect(() => {
-    // Установка флага клиентской загрузки
     setClientReady(true);
     console.log('Dashboard: Client ready set to true');
     
@@ -286,77 +274,82 @@ export default function Dashboard() {
     setStage(LoadingStage.COMPLETED);
     console.log('Dashboard: Setting stage to COMPLETED, current stage =', stage);
     
-    // Логируем состояние аутентификации
-    console.log('Dashboard: Current authentication state:', {
-      isAuthChecked,
-      isAuthenticated,
-      ADMIN_TOKEN: localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN) ? 'exists' : 'missing'
-    });
-    
-    // Если проверка аутентификации еще не завершена, добавляем таймаут для повторной проверки
-    if (!isAuthChecked) {
-      console.log('Dashboard: Authentication check not completed yet, setting timeout to check again');
-      const checkAgain = setTimeout(() => {
-        console.log('Dashboard: Re-checking authentication after timeout');
-        if (isAuthChecked) {
-          console.log('Dashboard: Auth check completed during timeout, isAuthenticated =', isAuthenticated);
-          // Нет необходимости делать что-то особенное, эффект будет вызван снова
-        } else {
-          console.log('Dashboard: Auth check still pending after timeout');
-        }
-      }, 500);
-      
-      return () => clearTimeout(checkAgain);
+    // Если мы вернулись с редактирования и нужно обновить данные, сбрасываем состояние загрузки
+    if (localStorage.getItem("dashboard_need_refresh") === "true") {
+      console.log('Dashboard: Need refresh flag detected in initial mount');
+      setDataLoaded({
+        users: false,
+        events: false
+      });
     }
-    
-    console.log('Dashboard: Auth check completed, isAuthenticated =', isAuthenticated);
-    
+  }, [stage, setStage]);
+
+  // Эффект для проверки авторизации и загрузки данных
+  useEffect(() => {
+    if (!isAuthChecked) return;
+
     if (!isAuthenticated) {
-      // Not authenticated, redirect to login
-      console.log('Dashboard: User not authenticated, redirecting to login');
-      setError("Требуется авторизация администратора");
+      console.log('Dashboard: Not authenticated, redirecting to login');
       router.push("/admin-login");
       return;
     }
-    
-    // Немедленно запускаем загрузку данных если пользователь авторизован
-    console.log('Dashboard: User authenticated, starting data load');
-    const loadData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Используем Promise.all для параллельной загрузки
-        console.log('Dashboard: Fetching users and events in parallel');
-        const results = await Promise.all([
-          fetchUsers(),
-          fetchEvents()
-        ]);
-        
-        // Check if any requests failed with auth errors
-        if (results.includes(false)) {
-          console.log("Dashboard: Some requests failed, check individual error handlers");
-        } else {
-          console.log("Dashboard: All data fetched successfully");
-        }
-        
-        // После загрузки данных (успешной или нет) скрываем индикатор загрузки
-        setIsLoading(false);
-      } catch (e) {
-        console.error("Ошибка при загрузке данных:", e);
-        setError("Не удалось загрузить данные для дашборда");
-        setIsLoading(false);
-        
-        // Отмечаем данные как загруженные, даже при ошибке
-        setDataLoaded({
-          users: true,
-          events: true
-        });
+
+    // Проверяем, нужно ли обновить данные (например, после редактирования пользователя)
+    const needRefresh = localStorage.getItem("dashboard_need_refresh") === "true";
+    if (needRefresh) {
+      console.log('Dashboard: Need refresh flag detected, forcing data reload');
+      // Сбрасываем флаг обновления
+      localStorage.removeItem("dashboard_need_refresh");
+      
+      // Принудительно перезагружаем данные (даже если они уже загружены)
+      setDataLoaded({
+        users: false,
+        events: false
+      });
+      setIsLoading(true);
+      
+      // Загружаем данные
+      loadData();
+      return;
+    }
+
+    if (clientReady && (!dataLoaded.users || !dataLoaded.events)) {
+      loadData();
+    }
+  }, [isAuthenticated, isAuthChecked, clientReady, dataLoaded, router]);
+
+  // Функция для загрузки данных
+  const loadData = async () => {
+    console.log('Dashboard: Starting to load data');
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Загружаем данные параллельно
+      const [usersFetched, eventsFetched] = await Promise.all([
+        !dataLoaded.users ? fetchUsers() : Promise.resolve(true),
+        !dataLoaded.events ? fetchEvents() : Promise.resolve(true)
+      ]);
+
+      // Обновляем состояние загрузки данных
+      setDataLoaded({
+        users: dataLoaded.users || usersFetched === true,
+        events: dataLoaded.events || eventsFetched === true
+      });
+
+      // Продвигаем стадию загрузки
+      if ((dataLoaded.users || usersFetched === true) && 
+          (dataLoaded.events || eventsFetched === true)) {
+        console.log('Dashboard: All data loaded successfully');
+        setStage(LoadingStage.COMPLETED);
       }
-    };
-    
-    // Запускаем загрузку при первом рендере если пользователь авторизован
-    loadData();
-  }, [setStage, isAuthChecked, isAuthenticated, router]);
+    } catch (err) {
+      console.error('Dashboard: Error loading data:', err);
+      setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleCreateEvent = () => {
     router.push("/edit-events");

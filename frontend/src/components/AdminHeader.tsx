@@ -102,9 +102,15 @@ const AdminHeader: React.FC = memo(() => {
     // Используем локальную валидацию токена вместо прямой проверки
     const isValidToken = validateTokenLocally();
     const isAdminPage = window.location.pathname.startsWith('/admin');
+    const isLoginPage = window.location.pathname.includes('/admin-login');
     
+    // На странице логина всегда сбрасываем флаг is_admin_route, чтобы предотвратить
+    // показ авторизованного хедера, если токен устарел
+    if (isLoginPage) {
+      localStorage.removeItem('is_admin_route');
+    }
     // Устанавливаем флаг, который используется в AuthContext для пропуска проверок
-    if (isAdminPage && isValidToken) {
+    else if (isAdminPage && isValidToken) {
       localStorage.setItem('is_admin_route', 'true');
     }
     
@@ -120,7 +126,7 @@ const AdminHeader: React.FC = memo(() => {
       }
       window.removeEventListener("scroll", handleScroll);
     };
-  }, [isMounted, validateTokenLocally]);
+  }, [isMounted, validateTokenLocally, pathname]);
 
   // Эффект для обновления рефов при изменении значимых состояний
   useEffect(() => {
@@ -160,7 +166,10 @@ const AdminHeader: React.FC = memo(() => {
   // Обходим ошибки гидратации, используя прямые проверки локального хранилища
   // и новую функцию validateTokenLocally
   const hasValidToken = isClient && validateTokenLocally();
-  const showAuthView = isClient && (!hasValidToken || !isAuthenticated);
+  const isLoginPage = isClient && pathname?.includes('/admin-login');
+  
+  // На странице логина всегда показываем неавторизованный вид
+  const showAuthView = isClient && (isLoginPage || !hasValidToken || !isAuthenticated);
 
   // Функция для выполнения выхода с логированием
   const handleLogout = () => {
@@ -203,7 +212,7 @@ const AdminHeader: React.FC = memo(() => {
           </Link>
           <Link
             href="/admin-login"
-            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 min-w-[100px] min-h-[44px] text-sm sm:text-base"
+            className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 min-w-[100px] min-h-[44px] text-sm sm:text-base flex items-center justify-center"
           >
             Войти
           </Link>

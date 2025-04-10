@@ -96,7 +96,7 @@ const nextConfig = {
       },
       {
         source: '/events/:path*',
-        destination: 'http://localhost:8000/events/:path*'
+        destination: 'http://localhost:8000/v1/public/events/:path*'
       },
       {
         source: '/user_edits/:path*',
@@ -113,10 +113,6 @@ const nextConfig = {
       {
         source: '/notifications/:path*',
         destination: 'http://localhost:8000/notifications/:path*'
-      },
-      {
-        source: '/v1/public/events/:path*',
-        destination: 'http://localhost:8000/events/:path*'
       },
     ]
   },

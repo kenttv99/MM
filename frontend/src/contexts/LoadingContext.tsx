@@ -81,7 +81,7 @@ const logError = (message: string, data?: any) => {
 const LoadingContext = createContext<LoadingContextType | undefined>(undefined);
 
 // Special paths that don't need to reset loading state
-const specialPaths = ['/events', '/event/'];
+const specialPaths = ['/events', '/events/'];
 
 // Global active requests counter
 let activeRequestsCount = 0;
@@ -167,13 +167,43 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return;
       }
       
+      // Проверяем текущее состояние загрузки
+      const isDynamicLoading = loadingStateRef.current.isDynamicLoading;
+      
+      // Обновляем состояние и глобальный флаг
       loadingStateRef.current = {
         ...loadingStateRef.current,
         isStaticLoading: isLoading,
-        isDynamicLoading: isLoading
+        isDynamicLoading: isDynamicLoading
       };
+      
+      // Синхронизируем глобальное состояние
+      lastDynamicLoadingState = isDynamicLoading;
+      
+      // Если загрузка завершена и мы дошли до стадии DATA_LOADING или выше,
+      // принудительно сбрасываем все флаги загрузки для устранения бесконечного спиннера
+      const currentStageLevel = getStageLevel(stage);
+      if (!isLoading && 
+          !isDynamicLoading && 
+          activeRequestsCount === 0 && 
+          currentStageLevel >= getStageLevel(LoadingStage.DATA_LOADING)) {
+        
+        // Гарантируем, что все флаги загрузки сброшены
+        loadingStateRef.current.isDynamicLoading = false;
+        loadingStateRef.current.isStaticLoading = false;
+        lastDynamicLoadingState = false;
+        
+        // Если мы на стадии DATA_LOADING, переходим к COMPLETED
+        if (stage === LoadingStage.DATA_LOADING) {
+          setTimeout(() => {
+            if (isMounted.current) {
+              setStage(LoadingStage.COMPLETED);
+            }
+          }, 500);
+        }
+      }
     }
-  }, [isLoading]);
+  }, [isLoading, stage, getStageLevel]);
 
   // Function for setting static loading
   const setStaticLoading = useCallback((isLoading: boolean) => {
@@ -263,12 +293,51 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     } else {
       activeRequestsCount = Math.max(0, activeRequestsCount - 1);
-      if (activeRequestsCount === 0 && stage === LoadingStage.DYNAMIC_CONTENT) {
-        setStage(LoadingStage.DATA_LOADING);
+      
+      // Если активных запросов больше нет, явно сбрасываем все флаги загрузки
+      if (activeRequestsCount === 0) {
+        // Переходим на стадию DATA_LOADING при завершении всех запросов
+        if (stage === LoadingStage.DYNAMIC_CONTENT) {
+          setStage(LoadingStage.DATA_LOADING);
+        }
+        
+        // Важно: явно обновляем ref и флаг, чтобы все компоненты знали, что загрузка завершена
+        loadingStateRef.current.isDynamicLoading = false;
+        
+        // Обновляем глобальный флаг, чтобы GlobalSpinner мог корректно обновиться
+        lastDynamicLoadingState = false;
+        
+        // Если мы уже на стадии DATA_LOADING или выше и нет активных запросов,
+        // переходим к COMPLETED для гарантированного скрытия спиннера
+        const currentStageLevel = getStageLevel(stage);
+        if (currentStageLevel >= getStageLevel(LoadingStage.DATA_LOADING)) {
+          setTimeout(() => {
+            if (activeRequestsCount === 0 && isMounted.current) {
+              setStage(LoadingStage.COMPLETED);
+            }
+          }, 500);
+        }
+      } else {
+        // Если ещё есть активные запросы, только обновляем флаг
+        loadingStateRef.current.isDynamicLoading = isLoading;
       }
     }
+    
+    // Важно: явно вызываем safeSetState для обновления состояния
     safeSetState();
-  }, [safeSetState, stage]);
+    
+    // Обновляем компоненты, добавляя таймер для гарантированной проверки состояния
+    if (!isLoading && activeRequestsCount === 0) {
+      setTimeout(() => {
+        if (isMounted.current && activeRequestsCount === 0) {
+          // Финальная проверка и сброс
+          loadingStateRef.current.isDynamicLoading = false;
+          lastDynamicLoadingState = false;
+          safeSetState();
+        }
+      }, 1000); // Таймаут для гарантированной проверки
+    }
+  }, [safeSetState, stage, getStageLevel]);
 
   // Function for resetting loading state
   const resetLoading = useCallback(() => {
@@ -598,6 +667,30 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setStaticLoading(false);
         }
       }
+      
+      // Проверяем состояние загрузки и принудительно сбрасываем флаги, если нет активных запросов
+      // но при этом состояние загрузки осталось активным
+      if (!hasSpinner && 
+          (loadingStateRef.current.isStaticLoading || loadingStateRef.current.isDynamicLoading) && 
+          activeRequestsCount === 0) {
+        
+        logWarn('Detected orphaned loading state, resetting flags', {
+          isStaticLoading: loadingStateRef.current.isStaticLoading,
+          isDynamicLoading: loadingStateRef.current.isDynamicLoading,
+          activeRequests: activeRequestsCount,
+          stage
+        });
+        
+        // Принудительно сбрасываем флаги
+        loadingStateRef.current.isStaticLoading = false;
+        loadingStateRef.current.isDynamicLoading = false;
+        lastDynamicLoadingState = false;
+        
+        // Обновляем компоненты
+        if (stage !== LoadingStage.COMPLETED) {
+          setStage(LoadingStage.COMPLETED);
+        }
+      }
     };
 
     // Increase check interval to 1 second
@@ -609,7 +702,7 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         clearInterval(spinnerCheckIntervalRef.current);
       }
     };
-  }, [loadingStateRef.current.isStaticLoading, setStaticLoading]);
+  }, [loadingStateRef.current.isStaticLoading, setStaticLoading, stage]);
 
   // Effect for handling stage changes
   useEffect(() => {
@@ -782,6 +875,93 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
       window.removeEventListener('authStateChanged', handleLogout as EventListener);
     };
   }, [stage, loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, activeRequestsCount, updateStage]);
+
+  // Добавляем функцию для обнаружения и исправления несогласованности флагов загрузки
+  const detectAndFixLoadingInconsistency = useCallback(() => {
+    // Если мы в стадии DATA_LOADING или COMPLETED, но при этом флаги загрузки все еще активны
+    if ((stage === LoadingStage.DATA_LOADING || stage === LoadingStage.COMPLETED) &&
+        (loadingStateRef.current.isStaticLoading || loadingStateRef.current.isDynamicLoading) &&
+        activeRequestsCount === 0) {
+          
+      logWarn('Detected inconsistency between loading flags and stage', {
+        stage,
+        isStaticLoading: loadingStateRef.current.isStaticLoading,
+        isDynamicLoading: loadingStateRef.current.isDynamicLoading,
+        activeRequests: activeRequestsCount
+      });
+      
+      // Сбрасываем флаги загрузки
+      loadingStateRef.current.isStaticLoading = false;
+      loadingStateRef.current.isDynamicLoading = false;
+      lastDynamicLoadingState = false;
+      
+      // Принудительно переходим к завершающей стадии
+      if (stage !== LoadingStage.COMPLETED) {
+        setStage(LoadingStage.COMPLETED);
+      }
+      
+      return true; // Была обнаружена и исправлена несогласованность
+    }
+    
+    // Проверяем обратную ситуацию: нет флагов загрузки, но мы на ранних стадиях
+    if (stage === LoadingStage.STATIC_CONTENT && 
+        !loadingStateRef.current.isStaticLoading && 
+        !loadingStateRef.current.isDynamicLoading &&
+        activeRequestsCount === 0) {
+          
+      logInfo('Static content loaded, progressing to DYNAMIC_CONTENT', {
+        stage,
+        isStaticLoading: loadingStateRef.current.isStaticLoading,
+        isDynamicLoading: loadingStateRef.current.isDynamicLoading
+      });
+      
+      // Продвигаем стадию загрузки
+      setStage(LoadingStage.DYNAMIC_CONTENT);
+      
+      return true; // Была обнаружена и исправлена несогласованность
+    }
+    
+    // Аналогично для DYNAMIC_CONTENT
+    if (stage === LoadingStage.DYNAMIC_CONTENT && 
+        !loadingStateRef.current.isDynamicLoading &&
+        activeRequestsCount === 0) {
+          
+      logInfo('Dynamic content loaded, progressing to DATA_LOADING', {
+        stage,
+        isDynamicLoading: loadingStateRef.current.isDynamicLoading
+      });
+      
+      // Продвигаем стадию загрузки
+      setStage(LoadingStage.DATA_LOADING);
+      
+      return true; // Была обнаружена и исправлена несогласованность
+    }
+    
+    // Финальная проверка для DATA_LOADING
+    if (stage === LoadingStage.DATA_LOADING && activeRequestsCount === 0) {
+      setTimeout(() => {
+        if (isMounted.current && stage === LoadingStage.DATA_LOADING) {
+          logInfo('Data loading complete, finalizing to COMPLETED stage');
+          setStage(LoadingStage.COMPLETED);
+        }
+      }, 500);
+    }
+    
+    return false; // Несогласованность не обнаружена
+  }, [stage]);
+  
+  // Эффект для периодической проверки и исправления несогласованности
+  useEffect(() => {
+    const consistencyCheckInterval = setInterval(() => {
+      if (isMounted.current) {
+        detectAndFixLoadingInconsistency();
+      }
+    }, 2000); // Проверяем каждые 2 секунды
+    
+    return () => {
+      clearInterval(consistencyCheckInterval);
+    };
+  }, [detectAndFixLoadingInconsistency]);
 
   const value = useMemo(() => ({
     isStaticLoading: loadingStateRef.current.isStaticLoading,

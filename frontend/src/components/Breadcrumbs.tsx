@@ -49,7 +49,7 @@ const Breadcrumbs: React.FC = () => {
         } catch (error) {
           console.error("Error accessing localStorage:", error);
         }
-        crumbs.push({ href: `/event/${cachedSlug}`, label: cachedTitle, isLast: true });
+        crumbs.push({ href: `/events/${cachedSlug}`, label: cachedTitle, isLast: true });
       }
     });
 

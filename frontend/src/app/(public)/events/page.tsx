@@ -72,8 +72,9 @@ const generateSlug = (event: EventData): string => {
   }
   
   // Иначе генерируем из названия (для обратной совместимости)
-  const title = event.title;
+  const title = event.title || 'event';
   const id = event.id;
+  const startYear = event.start_date ? new Date(event.start_date).getFullYear() : new Date().getFullYear();
   
   const translitMap: { [key: string]: string } = {
     а: "a", б: "b", в: "v", г: "g", д: "d", е: "e", ё: "yo", ж: "zh", з: "z", и: "i",
@@ -81,9 +82,18 @@ const generateSlug = (event: EventData): string => {
     у: "u", ф: "f", х: "kh", ц: "ts", ч: "ch", ш: "sh", щ: "shch", ы: "y", э: "e",
     ю: "yu", я: "ya", " ": "-"
   };
-  const slug = title.toLowerCase().split("").map(char => translitMap[char] || char).join("")
-    .replace(/[^a-z0-9-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "");
-  return slug ? `${slug}-${id}` : `event-${id}`;
+  
+  // Транслитерация названия
+  let slug = title.toLowerCase().split("").map(char => translitMap[char] || char).join("")
+    .replace(/[^a-z0-9-]+/g, "-") // заменяем все не букво-цифровые символы на дефис
+    .replace(/-+/g, "-")          // заменяем множественные дефисы одним
+    .replace(/^-+|-+$/g, "");     // удаляем начальные и конечные дефисы
+  
+  // Если после обработки слаг пустой, используем запасной вариант
+  slug = slug || "event";
+  
+  // Формируем финальный слаг в новом формате с годом
+  return `${slug}-${startYear}-${id}`;
 };
 
 const formatDateForDisplay = (dateString: string): string => {
@@ -189,7 +199,7 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | nu
     const isCompleted = event.status === "completed";
     return (
       <div ref={lastCardRef}>
-        <Link href={`/event/${generateSlug(event)}`}>
+        <Link href={`/events/${generateSlug(event)}`}>
           <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 min-h-[300px] flex flex-col">
             <div className="relative h-48">
               {event.image_url ? (

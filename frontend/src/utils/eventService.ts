@@ -84,32 +84,62 @@ export const prepareUrlSlug = (slug: string | undefined, eventId?: number, start
     return undefined;
   }
   
-  // Очищаем слаг от возможных уже добавленных суффиксов
+  // Сначала очищаем слаг от возможных уже добавленных суффиксов (для форм редактирования)
   const slugParts = slug.split('-');
-  let cleanSlug = slug;
+  let baseSlug = slug;
   
   // Если слаг содержит больше 2 частей, пробуем убрать потенциальный год и ID
   if (slugParts.length > 2) {
     // Проверяем, является ли предпоследняя часть годом (4 цифры)
     const potentialYear = slugParts[slugParts.length - 2];
-    if (/^\d{4}$/.test(potentialYear)) {
-      cleanSlug = slugParts.slice(0, -2).join('-');
+    const potentialId = slugParts[slugParts.length - 1];
+    if (/^\d{4}$/.test(potentialYear) && /^\d+$/.test(potentialId)) {
+      // Если похоже на формат "название-год-id", удаляем суффиксы
+      console.log(`prepareUrlSlug: Removing year and ID suffixes from "${slug}"`);
+      baseSlug = slugParts.slice(0, -2).join('-');
+    } else if (/^\d+$/.test(potentialId)) {
+      // Если похоже на формат "название-id", удаляем только ID суффикс
+      console.log(`prepareUrlSlug: Removing ID suffix from "${slug}"`);
+      baseSlug = slugParts.slice(0, -1).join('-');
     }
+  } else if (slugParts.length === 2 && /^\d+$/.test(slugParts[1])) {
+    // Простой случай "название-id"
+    console.log(`prepareUrlSlug: Removing ID suffix from "${slug}"`);
+    baseSlug = slugParts[0];
+  }
+  
+  // Теперь очищаем базовый слаг от недопустимых символов
+  let cleanSlug = baseSlug.toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-') // заменяем все не букво-цифровые символы на дефис
+    .replace(/-+/g, '-')          // заменяем множественные дефисы одним
+    .replace(/^-+|-+$/g, '');     // удаляем начальные и конечные дефисы
+  
+  // Если после очистки слаг пустой, используем запасной вариант
+  if (!cleanSlug) {
+    cleanSlug = 'event';
   }
   
   // Получаем год из даты начала события или используем текущий год
   let year = new Date().getFullYear().toString();
   if (startDate) {
-    const eventDate = new Date(startDate);
-    year = eventDate.getFullYear().toString();
+    try {
+      const eventDate = new Date(startDate);
+      if (!isNaN(eventDate.getTime())) {
+        year = eventDate.getFullYear().toString();
+      }
+    } catch (e) {
+      console.error("prepareUrlSlug: Error parsing date", e);
+    }
   }
   
-  // Если есть ID события, добавляем его как суффикс
-  let result;
+  // Формируем финальный слаг
+  let result: string;
+  
+  // Если есть ID события, добавляем его в конец
   if (eventId) {
     result = `${cleanSlug}-${year}-${eventId}`;
   } else {
-    // Для новых событий не добавляем ID (будет добавлен сервером)
+    // Для новых событий оставляем без ID (добавится на сервере)
     result = `${cleanSlug}-${year}`;
   }
   

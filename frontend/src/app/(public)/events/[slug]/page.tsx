@@ -1,7 +1,7 @@
-// frontend/src/app/(public)/event/[slug]/page.tsx
+// frontend/src/app/(public)/events/[slug]/page.tsx
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -152,20 +152,54 @@ const EventDetailsSkeleton: React.FC = () => (
 );
 
 const extractIdFromSlug = (slug: string): string => {
+  if (!slug) return "";
   const parts = slug.split("-");
-  const id = parts.pop() || "";
-  return id;
+  const lastPart = parts[parts.length - 1];
+  
+  // Если последняя часть - число, считаем её ID
+  if (lastPart && /^\d+$/.test(lastPart)) {
+    return lastPart;
+  }
+  
+  // Если предпоследняя часть - год (4 цифры), а последняя - ID
+  if (parts.length >= 2) {
+    const preLast = parts[parts.length - 2];
+    if (preLast && /^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
+      return lastPart;
+    }
+  }
+  
+  // Иначе используем весь слаг
+  return slug;
 };
 
 const extractTitleFromSlug = (slug: string): string => {
+  if (!slug) return "";
   const parts = slug.split("-");
-  // Remove the last part (id)
-  parts.pop();
-  // Join the remaining parts and convert to title case
+  
+  // Проверяем формат слага с годом и ID (base-2023-123)
+  if (parts.length >= 3) {
+    const preLast = parts[parts.length - 2];
+    const last = parts[parts.length - 1];
+    
+    // Если предпоследняя часть похожа на год, а последняя на ID, удаляем их обе
+    if (/^\d{4}$/.test(preLast) && /^\d+$/.test(last)) {
+      parts.splice(-2, 2);
+    } else if (/^\d+$/.test(last)) {
+      // Иначе просто удаляем ID в конце
+      parts.pop();
+    }
+  } else if (parts.length >= 1 && /^\d+$/.test(parts[parts.length - 1])) {
+    // Для формата base-123 удаляем только ID
+    parts.pop();
+  }
+  
+  // Преобразуем в заголовок
   return parts.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
 };
 
 export default function EventPage() {
+  const router = useRouter();
   const { slug } = useParams<{ slug: string }>();
   const [event, setEvent] = useState<EventData | null>(null);
   const [hasServerError, setHasServerError] = useState(false);
@@ -183,6 +217,7 @@ export default function EventPage() {
   const lastFetchTimeRef = useRef(0);
   const globalLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountCountRef = useRef(0);
+  const eventIdRef = useRef<string>("");
   
   // Функции логирования с разными уровнями
   const logDebug = (message: string, data?: any) => {
@@ -262,135 +297,147 @@ export default function EventPage() {
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, []);
 
-  // Fetch event data with improved error handling and loading state
+  // Функция для получения данных мероприятия
+  const fetchEventData = useCallback(async (targetSlug: string): Promise<EventData | null> => {
+    if (fetchInProgressRef.current) {
+      logInfo("Fetch already in progress, skipping");
+      return null;
+    }
+    
+    const eventId = extractIdFromSlug(targetSlug);
+    eventIdRef.current = eventId;
+    
+    logInfo(`Fetching event data for slug: ${targetSlug}, extracted eventId: ${eventId}`);
+    
+    fetchInProgressRef.current = true;
+    
+    try {
+      setIsLoading(true);
+      setDynamicLoading(true);
+      
+      const timestamp = Date.now();
+      const url = `/v1/public/events/${targetSlug}?t=${timestamp}`;
+      
+      logInfo(`Making API request`, { url, targetSlug });
+      
+      const controller = new AbortController();
+      
+      const response = await apiFetch<EventData>(url, {
+        signal: controller.signal,
+        bypassLoadingStageCheck: true
+      });
+      
+      // Проверяем, не был ли запрос отменён
+      if (!isMountedRef.current) return null;
+      
+      logInfo("Raw response data", response);
+      
+      if ('error' in response) {
+        logError("Error in response", response.error);
+        setFetchError(typeof response.error === 'string' ? response.error : "Ошибка загрузки");
+        setHasServerError(response.status >= 500);
+        return null;
+      }
+      
+      // Проверяем что ответ - это данные мероприятия
+      if ('title' in response) {
+        // Типобезопасный кастинг
+        const eventData = response as unknown as EventData;
+        
+        // Если название не информативно, обновляем его из slug
+        if (!eventData.title || eventData.title === "Мероприятие " + eventId) {
+          const titleFromSlug = extractTitleFromSlug(targetSlug);
+          logInfo("Using title from slug", { titleFromSlug });
+          eventData.title = titleFromSlug;
+        }
+        
+        // Проверяем, есть ли у мероприятия url_slug, если нет - исправляем роут
+        if (eventData.url_slug && eventData.url_slug !== targetSlug) {
+          logInfo("Event has different url_slug, redirecting", { from: targetSlug, to: eventData.url_slug });
+          // Используем setTimeout чтобы избежать ошибок React с обновлением состояния во время рендера
+          setTimeout(() => {
+            router.replace(`/events/${eventData.url_slug}`);
+          }, 0);
+        }
+        
+        // Сохраняем метаданные в localStorage для быстрого доступа
+        try {
+          localStorage.setItem(`event-title-${eventId}`, eventData.title);
+          localStorage.setItem(`event-slug-${eventId}`, eventData.url_slug || targetSlug);
+          logDebug("Saved event metadata to localStorage");
+        } catch (error) {
+          logError("Error saving to localStorage", error);
+        }
+        
+        setFetchError(null);
+        setHasServerError(false);
+        hasInitialFetchRef.current = true;
+        return eventData;
+      } else {
+        logWarn("Invalid event data received", response);
+        setFetchError("Мероприятие не найдено");
+        return null;
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        logError("Error fetching event", err);
+        setFetchError(err instanceof Error ? err.message : "Ошибка загрузки мероприятия");
+      }
+      return null;
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+        setDynamicLoading(false);
+        fetchInProgressRef.current = false;
+        setShowInitialSkeleton(false);
+      }
+    }
+  }, [setDynamicLoading, router]);
+
+  // Обработка успешного бронирования
+  const handleBookingSuccess = useCallback(async () => {
+    if (!slug || fetchInProgressRef.current || !isMountedRef.current) return;
+    if (!canMakeNewRequest()) return;
+    
+    logInfo("Refreshing event data after successful booking");
+    
+    const eventData = await fetchEventData(slug.toString());
+    if (eventData) {
+      setEvent(eventData);
+    }
+  }, [slug, canMakeNewRequest, fetchEventData]);
+
+  // Основной эффект для получения данных мероприятия
   useEffect(() => {
     if (!slug) {
       setHasServerError(true);
       return;
     }
 
-    // Пытаемся извлечь ID из слага (для обратной совместимости)
-    const parts = slug.split("-");
-    const lastPart = parts[parts.length - 1];
-    
-    let eventId: string;
-    if (lastPart && /^\d+$/.test(lastPart)) {
-      // Слаг в формате "название-id"
-      eventId = lastPart;
-    } else {
-      // Используем slug напрямую (url_slug)
-      eventId = slug;
-    }
-
     let isRequestCancelled = false;
     
-    // Устанавливаем таймер для гарантированного скрытия скелетона
+    // Таймер для гарантированного скрытия скелетона
     const skeletonTimer = setTimeout(() => {
       if (isMountedRef.current) {
         logInfo('Hiding skeleton regardless of data state');
         setShowInitialSkeleton(false);
       }
-    }, 3000); // Максимальное время показа скелетона
+    }, 3000);
 
-    const fetchEventData = async () => {
-      if (fetchInProgressRef.current) {
-        logInfo("Fetch already in progress, skipping");
-        return;
-      }
-      
-      logInfo(`Fetching event data for slug: ${slug}, eventId: ${eventId}`);
-      
-      fetchInProgressRef.current = true;
-      
-      try {
-        setIsLoading(true);
-        setDynamicLoading(true);
-        
-        const timestamp = Date.now();
-        const url = `/v1/public/events/${eventId}?t=${timestamp}`;
-        
-        logInfo(`Fetching event data`, { url, eventId });
-        
-        const controller = new AbortController();
-        
-        const response = await apiFetch<EventData>(url, {
-          signal: controller.signal,
-          bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
-        });
-        
-        if (isRequestCancelled) return;
-        
-        logInfo("Raw response data", response);
-        
-        if ('error' in response) {
-          logError("Error in response", response.error);
-          setFetchError(typeof response.error === 'string' ? response.error : "Ошибка загрузки");
-          setHasServerError(response.status >= 500);
-          return;
-        }
-        
-        // At this point, response must be EventData
-        if ('title' in response) {
-          // Обеспечиваем типобезопасный кастинг
-          const eventData = response as unknown as EventData;
-          setEvent(eventData);
-          
-          // Если название не совпадает со slug, обновляем его из slug
-          if (!eventData.title || eventData.title === "Мероприятие " + eventId) {
-            const titleFromSlug = extractTitleFromSlug(slug);
-            logInfo("Using title from slug", { titleFromSlug });
-            eventData.title = titleFromSlug;
-          }
-          
-          // Сохраняем заголовок в localStorage для быстрых ссылок
-          try {
-            localStorage.setItem(`event-title-${eventId}`, String(eventData.title));
-            localStorage.setItem(`event-slug-${eventId}`, slug);
-            logDebug("Saved to localStorage", {
-              title: eventData.title,
-              slug: slug
-            });
-          } catch (error) {
-            logError("Error saving to localStorage", error);
-          }
-          
-          setFetchError(null);
-          setHasServerError(false);
-          hasInitialFetchRef.current = true;
-        } else {
-          logWarn("Invalid event data received", response);
-          setFetchError("Мероприятие не найдено");
-        }
-      } catch (err) {
-        if (!isRequestCancelled) {
-          logError("Error fetching event", err);
-          setFetchError(err instanceof Error ? err.message : "Ошибка загрузки мероприятия");
-        }
-      } finally {
-        if (!isRequestCancelled) {
-          setIsLoading(false);
-          setDynamicLoading(false);
-          fetchInProgressRef.current = false;
-          setShowInitialSkeleton(false);
-        }
-      }
-    };
-
+    // Инициируем загрузку, если это первая загрузка
     if (!fetchInProgressRef.current && !hasInitialFetchRef.current) {
-      fetchEventData();
-    }
-    
-    if (event && hasInitialFetchRef.current) {
-      logInfo("Event data already loaded, skipping fetch");
-      return;
+      fetchEventData(slug.toString()).then(eventData => {
+        if (eventData && isMountedRef.current) {
+          setEvent(eventData);
+        }
+      });
     }
     
     return () => {
       isRequestCancelled = true;
       clearTimeout(skeletonTimer);
-      fetchInProgressRef.current = false;
     };
-  }, [slug, event, setDynamicLoading]);
+  }, [slug, fetchEventData]);
   
   // Component mount/unmount handling
   useEffect(() => {
@@ -425,75 +472,6 @@ export default function EventPage() {
   const handleModalClose = useCallback(() => setIsModalOpen(false), []);
   const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
   const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
-
-  // Handle booking success with improved request handling
-  const handleBookingSuccess = useCallback(() => {
-    if (!slug || fetchInProgressRef.current) return;
-    if (!canMakeNewRequest()) return;
-    
-    // Set loading state
-    setIsLoading(true);
-    setShowInitialSkeleton(true);
-    setDynamicLoading(true);
-    fetchInProgressRef.current = true;
-    lastFetchTimeRef.current = Date.now();
-    
-    // Create an AbortController for this fetch
-    const controller = new AbortController();
-    
-    // Fetch updated event data
-    apiFetch<EventData>(`/v1/public/events/${slug}?t=${Date.now()}`, {
-      signal: controller.signal,
-      bypassLoadingStageCheck: true
-    })
-      .then((response) => {
-        // Check if response is an aborted response
-        if ('aborted' in response) {
-          logInfo("Request was aborted", { reason: response.reason });
-          
-          // Если запрос был отклонен из-за глобальной блокировки, установим таймаут для сброса
-          if (response.reason === "global_lock") {
-            resetGlobalLock();
-          }
-          return;
-        }
-
-        // Check if response contains an error
-        if ('error' in response) {
-          logError("Error in response", response.error);
-          setFetchError(typeof response.error === 'string' ? response.error : "Ошибка загрузки");
-          setHasServerError(response.status >= 500);
-          return;
-        }
-        
-        // At this point, response must be EventData
-        const eventData = response as unknown as EventData;
-        setEvent(eventData);
-        setFetchError(null);
-        setHasServerError(false);
-        logInfo("Event data updated after booking success");
-      })
-      .catch((err) => {
-        // Check if the error is due to abort
-        if (err.name === 'AbortError') {
-          logInfo("Request was aborted by the browser");
-          return;
-        }
-        
-        logError("Error fetching updated event data", err);
-        setFetchError(err.message);
-        setHasServerError(true);
-      })
-      .finally(() => {
-        setIsLoading(false);
-        setShowInitialSkeleton(false);
-        setDynamicLoading(false);
-        fetchInProgressRef.current = false;
-      });
-      
-    // Return the controller for cleanup
-    return controller;
-  }, [slug, canMakeNewRequest, resetGlobalLock, setDynamicLoading]);
 
   // Debug render states
   useEffect(() => {

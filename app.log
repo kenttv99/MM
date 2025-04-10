@@ -1818,3 +1818,39 @@ cancellation_count
 2025-04-09 13:43:46,561 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-09 13:50:21,756 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-09 13:50:22,069 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:04:40,494 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:04:40,633 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:04:40,979 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:04:41,013 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:06:28,873 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:06:28,887 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:14,753 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:14,916 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:15,281 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:15,340 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:28,912 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:29,067 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:29,456 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:29,461 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:43,506 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:43,608 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:44,147 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:07:44,162 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 00:10:06,414 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:12:29,008 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:12:29,360 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:12:29,753 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:12:29,757 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:12:58,065 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:13:12,496 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:13:12,514 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:13:18,468 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:13:18,488 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:13:19,034 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:13:19,050 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:16:48,197 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:16:48,205 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:17:32,475 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:17:32,595 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:17:33,493 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 00:17:33,503 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

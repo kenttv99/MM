@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, forwardRef, ForwardedRef, useImperativeHandle } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
@@ -355,7 +355,16 @@ interface UserEventTicketsProps {
   forceUpdateTrigger?: number;
 }
 
-export const UserEventTickets: React.FC<UserEventTicketsProps> = ({ needsRefresh, forceUpdateTrigger = 0 }) => {
+// Define the ref methods interface
+export interface UserEventTicketsRef {
+  refreshTickets: () => void;
+}
+
+// Convert to forwardRef with imperative handle
+const UserEventTickets = forwardRef((
+  { needsRefresh, forceUpdateTrigger = 0 }: UserEventTicketsProps,
+  ref: ForwardedRef<UserEventTicketsRef>
+) => {
   const [tickets, setTickets] = useState<UserTicket[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -775,6 +784,10 @@ export const UserEventTickets: React.FC<UserEventTicketsProps> = ({ needsRefresh
         }
       }
       
+      // Filter out cancelled tickets immediately
+      ticketsData = ticketsData.filter(ticket => ticket.status !== "cancelled");
+      console.log(`UserEventTickets: Отфильтровано ${ticketsData.length} неотмененных билетов для пагинации`);
+      
       // Обрабатываем билеты, используя функцию processTickets
       const processedTickets = processTickets(ticketsData);
       
@@ -920,8 +933,12 @@ export const UserEventTickets: React.FC<UserEventTicketsProps> = ({ needsRefresh
         
       console.log(`UserEventTickets: Получено ${ticketsData.length} билетов`);
       
-      // Process tickets once at the API response level - no need to trigger additional processing
-      const processedTickets = processTickets(ticketsData);
+      // Make sure we only consider non-cancelled tickets
+      const nonCancelledTickets = ticketsData.filter(ticket => ticket.status !== "cancelled");
+      console.log(`UserEventTickets: Отфильтровано ${ticketsData.length - nonCancelledTickets.length} отмененных билетов`);
+      
+      // Process tickets once at the API response level
+      const processedTickets = processTickets(nonCancelledTickets);
       
       console.log(`UserEventTickets: После обработки осталось ${processedTickets.length} уникальных активных билетов`);
       
@@ -949,11 +966,16 @@ export const UserEventTickets: React.FC<UserEventTicketsProps> = ({ needsRefresh
 
   // Add a function to explicitly refresh tickets
   const refreshTickets = useCallback(() => {
-    console.log('UserEventTickets: Manual refresh requested');
+    console.log('UserEventTickets: Manual refresh requested via ref');
     refreshCounter.current += 1;
     setIsLoading(true);
     fetchTickets();
   }, []);
+  
+  // Expose methods to parent components via ref
+  useImperativeHandle(ref, () => ({
+    refreshTickets
+  }), [refreshTickets]);
 
   const handleCancelClick = (ticket: UserTicket) => {
     // Reset modal states
@@ -1156,7 +1178,7 @@ export const UserEventTickets: React.FC<UserEventTicketsProps> = ({ needsRefresh
   }
 
     return (
-    <div className="h-full overflow-auto" ref={ticketsContainerRef}>
+    <div className="h-full overflow-auto" ref={ref || ticketsContainerRef}>
       {isLoading && tickets.length === 0 ? (
         <div className="p-2">
           <TicketSkeleton />
@@ -1319,6 +1341,9 @@ export const UserEventTickets: React.FC<UserEventTicketsProps> = ({ needsRefresh
       )}
     </div>
   );
-};
+});
+
+// Add display name for debugging
+UserEventTickets.displayName = 'UserEventTickets';
 
 export default UserEventTickets;

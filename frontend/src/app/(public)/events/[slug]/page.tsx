@@ -248,6 +248,12 @@ export default function EventPage() {
   const globalLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountCountRef = useRef(0);
   const eventIdRef = useRef<string>("");
+  const [registrationUpdateKey, setRegistrationUpdateKey] = useState(0);
+  const isStableMount = useRef(false);
+  const registrationReadyRef = useRef(false);
+  const [componentsReady, setComponentsReady] = useState<{[key: string]: boolean}>({
+    registration: false
+  });
   
   // Функции логирования с разными уровнями
   const logDebug = (message: string, data?: any) => {
@@ -318,6 +324,12 @@ export default function EventPage() {
   
   // Функция для получения данных мероприятия
   const fetchEventData = useCallback(async (targetSlug: string): Promise<EventData | null> => {
+    // Skip during unstable mounting
+    if (!isStableMount.current) {
+      logInfo("Component not stable yet, skipping fetch");
+      return null;
+    }
+    
     if (fetchInProgressRef.current) {
       logInfo("Fetch already in progress, skipping");
       return null;
@@ -384,33 +396,61 @@ export default function EventPage() {
         setIsLoading(false);
         setDynamicLoading(false);
         fetchInProgressRef.current = false;
-        setShowInitialSkeleton(false);
       }
     }
   }, [setDynamicLoading]);
   
-  // Обработка успешного бронирования
-  const handleBookingSuccess = useCallback(async () => {
-    if (!slug || fetchInProgressRef.current || !isMountedRef.current) return;
-    if (!canMakeNewRequest()) return;
+  // Add this function to really force a refresh of the component - SIMPLIFIED
+  const forceFullRefresh = useCallback(() => {
+    logInfo("Forcing a refresh of event registration component");
     
-    logInfo("Refreshing event data after successful booking");
+    // Only update the registration component key
+    setRegistrationUpdateKey(prev => prev + 1);
     
-    const eventData = await fetchEventData(slug.toString());
-    if (eventData) {
-      setEvent(eventData);
+    // Get fresh data in background if needed without page refresh
+    if (slug && !fetchInProgressRef.current) {
+      fetchEventData(slug.toString()).then(data => {
+        if (data && isMountedRef.current) {
+          setEvent(data);
+        }
+      });
     }
-  }, [slug, canMakeNewRequest, fetchEventData]);
+  }, [slug, fetchEventData]);
   
-  // Событийные обработчики
-  const handleBookingClick = useCallback(() => logDebug("Booking click triggered"), []);
+  // Simplified page navigation effect
+  useEffect(() => {
+    // Function to handle page navigation events
+    const handleNavigation = () => {
+      logInfo("Navigation detected - updating registration component");
+      setRegistrationUpdateKey(prev => prev + 1);
+    };
+    
+    // Add event listeners for navigation and focus events
+    window.addEventListener('pageshow', handleNavigation);
+    window.addEventListener('popstate', handleNavigation);
+    
+    return () => {
+      window.removeEventListener('pageshow', handleNavigation);
+      window.removeEventListener('popstate', handleNavigation);
+    };
+  }, []);
+  
+  // Simplified event handlers
+  const handleBookingClick = useCallback(() => {
+    // Use simple function that doesn't trigger any page updates
+    logDebug("Booking click triggered");
+  }, []);
+  
   const handleLoginClick = useCallback(() => {
     setIsRegisterMode(false);
     setIsModalOpen(true);
   }, []);
-  const handleModalClose = useCallback(() => setIsModalOpen(false), []);
-  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
-  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+  
+  // Simplified booking success handler
+  const handleBookingSuccess = useCallback(() => {
+    logInfo("Booking successful");
+    // No additional action needed - component updates itself
+  }, []);
 
   // Handle auth changes
   useEffect(() => {
@@ -423,82 +463,122 @@ export default function EventPage() {
     return () => window.removeEventListener("auth-change", handleAuthChange);
   }, []);
 
-  // Основной эффект для получения данных мероприятия
+  // Main effect to handle initial data fetching
   useEffect(() => {
-    if (!slug) {
-      setHasServerError(true);
+    // Don't fetch during unstable mounting periods
+    if (mountCountRef.current > 2) {
+      logWarn("Skipping fetch due to unstable mount state");
       return;
     }
-
-    let isRequestCancelled = false;
     
-    // Таймер для гарантированного скрытия скелетона
-    const skeletonTimer = setTimeout(() => {
-      if (isMountedRef.current) {
-        logInfo('Hiding skeleton regardless of data state');
-        setShowInitialSkeleton(false);
-      }
-    }, 3000);
-
-    // Инициируем загрузку, если это первая загрузка и запрос не в процессе
-    if (!fetchInProgressRef.current && !hasInitialFetchRef.current) {
-      // Инициируем загрузку данных, используя ID события из slug
-      // вместо самого slug для обеспечения канонического URL
-      const eventId = extractIdFromSlug(slug.toString());
-      fetchEventData(eventId).then(eventData => {
-        if (eventData && isMountedRef.current) {
-          // Проверяем, соответствует ли текущий URL каноническому
-          if (eventData.url_slug && slug.toString() !== eventData.url_slug) {
-            // Формируем канонический slug
-            const canonicalSlug = ensureCanonicalSlug(eventData);
-            
-            // Перенаправляем на канонический URL
-            router.replace(`/events/${canonicalSlug}`, { scroll: false });
-            return;
+    // Don't continue if slug is missing
+    if (!slug) return;
+    
+    // If we already have the event data, don't fetch again
+    if (event) return;
+    
+    // Only fetch if we're in a stable state
+    setTimeout(() => {
+      if (isMountedRef.current && !fetchInProgressRef.current) {
+        fetchEventData(slug.toString()).then(data => {
+          if (data && isMountedRef.current) {
+            setEvent(data);
           }
-          
-          setEvent(eventData);
-        }
-      });
-    }
-    
-    return () => {
-      isRequestCancelled = true;
-      clearTimeout(skeletonTimer);
-    };
-  }, [slug, fetchEventData, router]);
+        });
+      }
+    }, 100); // Small delay to allow component to stabilize
+  }, [event, fetchEventData, slug]);
   
-  // Component mount/unmount handling
-  useEffect(() => {
-    const currentMountCount = mountCountRef.current;
-    mountCountRef.current++;
-    isMountedRef.current = true;
-    logInfo(`Component mounted (${currentMountCount + 1})`);
+  // Add new effect to track when ALL data is fully loaded
+  const [isEventRegistrationReady, setIsEventRegistrationReady] = useState(false);
+  
+  // Create a ref for the event registration component to communicate its ready state
+  const eventRegistrationReadyRef = useRef(false);
+  
+  // Create a function to mark the EventRegistration component as ready
+  const markEventRegistrationReady = useCallback(() => {
+    logInfo('EventRegistration component is ready');
+    eventRegistrationReadyRef.current = true;
+    setIsEventRegistrationReady(true);
     
-    // Защита от слишком частых перемонтирований компонента
-    const now = Date.now();
-    if (now - lastFetchTimeRef.current < 500 && currentMountCount > 1) {
-      logWarn(`Detected rapid remounts (${currentMountCount + 1} mounts), suppressing further fetches`);
-      hasInitialFetchRef.current = true;
+    // Hide skeleton when registration is ready (if event data is already loaded)
+    if (event) {
+      setShowInitialSkeleton(false);
     }
-    lastFetchTimeRef.current = now;
+  }, [event]);
+  
+  // Add effect to hide skeleton when both event data and registration component are ready
+  useEffect(() => {
+    if (event && isEventRegistrationReady) {
+      logInfo('All components ready - hiding skeleton');
+      setShowInitialSkeleton(false);
+    }
+  }, [event, isEventRegistrationReady]);
+  
+  // Additional effect to ensure we don't get stuck waiting for components
+  useEffect(() => {
+    // If we have event data but the EventRegistration component is taking too long,
+    // we should still hide the skeleton after a reasonable timeout (2 seconds)
+    if (event && !isEventRegistrationReady) {
+      const registrationTimeout = setTimeout(() => {
+        if (isMountedRef.current && !isEventRegistrationReady) {
+          logInfo('Registration component timeout - hiding skeleton anyway');
+          setShowInitialSkeleton(false);
+        }
+      }, 2000);
+      
+      return () => clearTimeout(registrationTimeout);
+    }
+  }, [event, isEventRegistrationReady]);
+  
+  // Add as early as possible in the component
+  useEffect(() => {
+    // Track mount count to detect rapid remounts
+    mountCountRef.current += 1;
+    isMountedRef.current = true;
+    
+    // Log mount with current count
+    logInfo(`Component mounted (${mountCountRef.current})`);
+
+    // Detect unstable mounting patterns
+    if (mountCountRef.current > 1) {
+      logWarn(`Detected rapid remounts (${mountCountRef.current} mounts), suppressing further fetches`);
+    } else {
+      // First mount is considered stable
+      isStableMount.current = true;
+    }
+    
+    // Wait a bit and then mark as stable regardless
+    // This ensures hooks are stable after initial fluctuation
+    const stabilityTimer = setTimeout(() => {
+      isStableMount.current = true;
+    }, 300);
     
     return () => {
+      clearTimeout(stabilityTimer);
       isMountedRef.current = false;
-      logInfo(`Component unmounted (${currentMountCount + 1})`);
+      logInfo(`Component unmounted (${mountCountRef.current})`);
       
-      // Сбрасываем состояние при размонтировании
-      setIsLoading(false);
-      setDynamicLoading(false);
-      fetchInProgressRef.current = false;
-      
-      // Очищаем таймауты
+      // Cleanup
       if (globalLockTimeoutRef.current) {
         clearTimeout(globalLockTimeoutRef.current);
         globalLockTimeoutRef.current = null;
       }
     };
-  }, [setDynamicLoading]);
+  }, []);
+  
+  // Add this function to handle registration component ready state
+  const handleRegistrationReady = useCallback(() => {
+    logInfo("EventRegistration component is ready");
+    registrationReadyRef.current = true;
+    setComponentsReady(prev => ({...prev, registration: true}));
+    
+    // Hide skeleton when registration is ready
+    if (isMountedRef.current) {
+      logInfo("All components ready - hiding skeleton");
+      setShowInitialSkeleton(false);
+    }
+  }, []);
 
   // Debug render states
   useEffect(() => {
@@ -512,6 +592,19 @@ export default function EventPage() {
     }
   }, [isLoading, event, fetchError, showInitialSkeleton]);
 
+  // This effect will run whenever the page is navigated to - with initialization check
+  useEffect(() => {
+    // Skip on initial page load in development to reduce renders
+    if (process.env.NODE_ENV === 'development' && mountCountRef.current <= 2) {
+      logInfo("Skipping initial registration update in dev mode");
+      return;
+    }
+    
+    logInfo("Page mounted or navigated to - forcing EventRegistration update");
+    // Increment the key to force the component to re-mount
+    setRegistrationUpdateKey(prev => prev + 1);
+  }, []);
+  
   // Render error states
   if (hasServerError) {
     logWarn("Rendering server error");
@@ -601,6 +694,7 @@ export default function EventPage() {
               </h2>
 
               <EventRegistration
+                key={`event-registration-${registrationUpdateKey}`}
                 eventId={event.id || parseInt(extractIdFromSlug(slug.toString()))}
                 eventTitle={event.title}
                 eventDate={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
@@ -614,6 +708,7 @@ export default function EventPage() {
                 onBookingClick={handleBookingClick}
                 onLoginClick={handleLoginClick}
                 onBookingSuccess={handleBookingSuccess}
+                onReady={markEventRegistrationReady}
                 displayStatus={event.status === "registration_open" && 
                              (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
                               ? "Регистрация закрыта (мест нет)"
@@ -666,20 +761,20 @@ export default function EventPage() {
         {isModalOpen && (
           <AuthModal 
             isOpen={isModalOpen} 
-            onClose={handleModalClose} 
+            onClose={() => setIsModalOpen(false)} 
             title={isRegisterMode ? "Регистрация" : "Вход"}
           >
             {isRegisterMode ? (
               <Registration 
                 isOpen={isModalOpen} 
-                onClose={handleModalClose} 
-                toggleMode={toggleToLogin} 
+                onClose={() => setIsModalOpen(false)} 
+                toggleMode={() => setIsRegisterMode(false)} 
               />
             ) : (
               <Login 
                 isOpen={isModalOpen} 
-                onClose={handleModalClose} 
-                toggleMode={toggleToRegister} 
+                onClose={() => setIsModalOpen(false)} 
+                toggleMode={() => setIsRegisterMode(true)} 
               />
             )}
           </AuthModal>

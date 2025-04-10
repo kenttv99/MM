@@ -14,7 +14,7 @@ import ChangePasswordForm from "@/components/ChangePasswordForm";
 import { motion } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
 import { apiFetch } from "@/utils/api";
-import UserEventTickets from "@/components/UserEventTickets";
+import UserEventTickets, { UserEventTicketsRef } from "@/components/UserEventTickets";
 
 const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
@@ -23,7 +23,7 @@ const ProfilePage: React.FC = () => {
 
   // Add a ref to track ticket updates for UserEventTickets component
   const ticketsNeedRefresh = useRef(false);
-  const ticketsComponentRef = useRef<{ refreshTickets: () => void }>(null);
+  const ticketsComponentRef = useRef<UserEventTicketsRef>(null);
   
   // Function to force refresh tickets
   const refreshTickets = useCallback(() => {
@@ -70,6 +70,43 @@ const ProfilePage: React.FC = () => {
   
   // Add a state to force updates when needed
   const [forceUpdate, setForceUpdate] = useState(0);
+
+  // Add state to force UserEventTickets component refresh
+  const [ticketsComponentKey, setTicketsComponentKey] = useState(0);
+  
+  // Add effect to handle browser navigation events
+  useEffect(() => {
+    // Function to handle page show events (back/forward navigation)
+    const handlePageShow = (e: PageTransitionEvent) => {
+      // If the page is being restored from cache (back button)
+      if (e.persisted) {
+        console.log('ProfilePage: Page restored from cache, forcing tickets update');
+        // Increment the key to completely re-mount the tickets component
+        setTicketsComponentKey(prev => prev + 1);
+        // Also trigger refresh
+        ticketsNeedRefresh.current = true;
+        setForceUpdate(prev => prev + 1);
+      }
+    };
+    
+    // Handle popstate events (URL changes without page reload)
+    const handlePopState = () => {
+      console.log('ProfilePage: Browser navigation detected, forcing tickets update');
+      // Increment the key to completely re-mount the tickets component
+      setTicketsComponentKey(prev => prev + 1);
+      // Also trigger refresh
+      ticketsNeedRefresh.current = true;
+      setForceUpdate(prev => prev + 1);
+    };
+    
+    window.addEventListener('pageshow', handlePageShow);
+    window.addEventListener('popstate', handlePopState);
+    
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, []);
 
   const [formState, setFormState] = useState<FormState>({
     fio: "",
@@ -555,6 +592,7 @@ const ProfilePage: React.FC = () => {
         <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
           {userData && <UserEventTickets 
+            key={`tickets-component-${ticketsComponentKey}`}
             ref={ticketsComponentRef}
             needsRefresh={ticketsNeedRefresh} 
             forceUpdateTrigger={forceUpdate} 

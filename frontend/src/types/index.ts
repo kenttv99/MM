@@ -199,6 +199,7 @@ export interface EventRegistrationProps {
   onBookingClick: () => void;
   onLoginClick: () => void;
   onBookingSuccess?: () => void;
+  onReady?: () => void;
   displayStatus?: string;
 }
 

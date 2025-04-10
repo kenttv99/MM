@@ -80,6 +80,16 @@ async def get_events(
         for event in events:
             ticket = event.tickets[0] if event.tickets else None
             remaining_quantity = ticket.available_quantity - ticket.sold_quantity if ticket else 0
+            
+            # Формируем канонический URL slug для списка мероприятий
+            formatted_slug = None
+            if event.url_slug:
+                # Получаем год из даты начала события
+                event_year = event.start_date.year
+                # Формируем полный url_slug в формате base-year-id
+                formatted_slug = f"{event.url_slug}-{event_year}-{event.id}"
+                logger.info(f"Generated canonical slug for event list: {formatted_slug}")
+            
             event_response = EventCreate(
                 id=event.id,
                 title=event.title,
@@ -93,6 +103,7 @@ async def get_events(
                 created_at=event.created_at,
                 updated_at=event.updated_at,
                 status=event.status,
+                url_slug=formatted_slug,  # Добавляем канонический URL слаг
                 ticket_type=TicketTypeCreate(
                     name=ticket.name,
                     price=float(ticket.price),
@@ -120,15 +131,43 @@ async def get_event(
 ):
     try:
         db_event = None
+        accessed_by_id = False
         
         # Если это числовой ID, ищем по ID
         if slug_or_id.isdigit():
             db_event = await db.get(Event, int(slug_or_id), options=[selectinload(Event.tickets)])
+            accessed_by_id = True
         else:
-            # Иначе ищем по url_slug
+            # Сначала пытаемся найти по точному соответствию url_slug
             query = select(Event).where(Event.url_slug == slug_or_id).options(selectinload(Event.tickets))
             result = await db.execute(query)
             db_event = result.scalars().first()
+            
+            # Если не найдено по slug, проверяем является ли это составным слагом (base-year-id)
+            if not db_event:
+                parts = slug_or_id.split('-')
+                if len(parts) >= 2 and parts[-1].isdigit():
+                    # Получаем ID из последней части slug
+                    event_id = int(parts[-1])
+                    logger.info(f"Extracted event ID {event_id} from slug {slug_or_id}")
+                    
+                    # Ищем мероприятие по ID
+                    db_event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
+                    
+                    # Если мероприятие найдено, проверяем соответствует ли запрошенный slug каноническому
+                    if db_event and db_event.url_slug:
+                        # Получаем год из даты начала события
+                        event_year = db_event.start_date.year
+                        
+                        # Формируем полный канонический url_slug
+                        canonical_slug = f"{db_event.url_slug}-{event_year}-{db_event.id}"
+                        
+                        # Если запрошенный slug не соответствует каноническому - 
+                        # вместо 404 ошибки просто записываем предупреждение и возвращаем событие
+                        # с правильным url_slug, чтобы клиент мог выполнить перенаправление
+                        if canonical_slug != slug_or_id:
+                            logger.warning(f"Non-canonical slug access attempt: {slug_or_id}, canonical: {canonical_slug}")
+                            # Продолжаем выполнение, клиент выполнит перенаправление
         
         if not db_event or not db_event.published:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found or not published")
@@ -147,7 +186,6 @@ async def get_event(
             "created_at": db_event.created_at,
             "updated_at": db_event.updated_at,
             "status": db_event.status,
-            "url_slug": db_event.url_slug
         }
 
         if db_event.tickets and len(db_event.tickets) > 0:
@@ -161,8 +199,30 @@ async def get_event(
                 remaining_quantity=remaining_quantity,
                 sold_quantity=ticket.sold_quantity
             ).model_dump()
+        
+        # Формируем канонический URL slug для ответа
+        if db_event.url_slug:
+            # Получаем год из даты начала события
+            event_year = db_event.start_date.year
             
-        logger.info(f"Public request for event {db_event.id}")
+            # Формируем полный url_slug в формате base-year-id
+            formatted_slug = f"{db_event.url_slug}-{event_year}-{db_event.id}"
+            
+            # Добавляем в ответ
+            event_dict["url_slug"] = formatted_slug
+            
+            # Если был доступ по ID, логируем информацию о каноническом URL
+            if accessed_by_id:
+                logger.info(f"Accessed by ID {db_event.id}, canonical slug is: {formatted_slug}")
+        else:
+            # Формируем временный slug из названия
+            base_slug = db_event.title.lower().replace(' ', '-')
+            event_year = db_event.start_date.year
+            formatted_slug = f"{base_slug}-{event_year}-{db_event.id}"
+            event_dict["url_slug"] = formatted_slug
+            logger.info(f"No url_slug in database, generated: {formatted_slug} for event {db_event.id}")
+        
+        logger.info(f"Public request for event {db_event.id} with url_slug: {event_dict['url_slug']}")
         return EventCreate(**event_dict)
     except HTTPException as e:
         raise e

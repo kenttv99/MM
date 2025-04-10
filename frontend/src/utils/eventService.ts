@@ -77,6 +77,24 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   return formData;
 };
 
+// Функция для транслитерации кириллицы в латиницу
+const transliterate = (text: string): string => {
+  const charMap: { [key: string]: string } = {
+    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
+    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+    'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '',
+    'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+    'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'E',
+    'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+    'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+    'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch', 'Ъ': '',
+    'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
+  };
+  
+  return text.split('').map(char => charMap[char] || char).join('');
+};
+
 // Helper function to prepare URL slug with year and ID suffix
 export const prepareUrlSlug = (slug: string | undefined, eventId?: number, startDate?: string): string | undefined => {
   if (!slug || slug.trim() === '') {
@@ -84,9 +102,19 @@ export const prepareUrlSlug = (slug: string | undefined, eventId?: number, start
     return undefined;
   }
   
+  // Проверяем, содержит ли slug кириллические символы
+  const hasCyrillic = /[а-яА-ЯёЁ]/.test(slug);
+  
+  // Если есть кириллица, преобразуем в латиницу
+  let processedSlug = slug;
+  if (hasCyrillic) {
+    processedSlug = transliterate(slug);
+    console.log(`prepareUrlSlug: Transliterated slug from "${slug}" to "${processedSlug}"`);
+  }
+  
   // Сначала очищаем слаг от возможных уже добавленных суффиксов (для форм редактирования)
-  const slugParts = slug.split('-');
-  let baseSlug = slug;
+  const slugParts = processedSlug.split('-');
+  let baseSlug = processedSlug;
   
   // Если слаг содержит больше 2 частей, пробуем убрать потенциальный год и ID
   if (slugParts.length > 2) {
@@ -95,16 +123,16 @@ export const prepareUrlSlug = (slug: string | undefined, eventId?: number, start
     const potentialId = slugParts[slugParts.length - 1];
     if (/^\d{4}$/.test(potentialYear) && /^\d+$/.test(potentialId)) {
       // Если похоже на формат "название-год-id", удаляем суффиксы
-      console.log(`prepareUrlSlug: Removing year and ID suffixes from "${slug}"`);
+      console.log(`prepareUrlSlug: Removing year and ID suffixes from "${processedSlug}"`);
       baseSlug = slugParts.slice(0, -2).join('-');
     } else if (/^\d+$/.test(potentialId)) {
       // Если похоже на формат "название-id", удаляем только ID суффикс
-      console.log(`prepareUrlSlug: Removing ID suffix from "${slug}"`);
+      console.log(`prepareUrlSlug: Removing ID suffix from "${processedSlug}"`);
       baseSlug = slugParts.slice(0, -1).join('-');
     }
   } else if (slugParts.length === 2 && /^\d+$/.test(slugParts[1])) {
     // Простой случай "название-id"
-    console.log(`prepareUrlSlug: Removing ID suffix from "${slug}"`);
+    console.log(`prepareUrlSlug: Removing ID suffix from "${processedSlug}"`);
     baseSlug = slugParts[0];
   }
   

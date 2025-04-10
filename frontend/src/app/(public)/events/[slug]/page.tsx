@@ -173,29 +173,62 @@ const extractIdFromSlug = (slug: string): string => {
   return slug;
 };
 
-const extractTitleFromSlug = (slug: string): string => {
-  if (!slug) return "";
-  const parts = slug.split("-");
+// Функция для проверки и восстановления канонического слага
+const ensureCanonicalSlug = (eventData: EventData): string => {
+  if (!eventData || !eventData.id) return "";
   
-  // Проверяем формат слага с годом и ID (base-2023-123)
-  if (parts.length >= 3) {
-    const preLast = parts[parts.length - 2];
-    const last = parts[parts.length - 1];
-    
-    // Если предпоследняя часть похожа на год, а последняя на ID, удаляем их обе
-    if (/^\d{4}$/.test(preLast) && /^\d+$/.test(last)) {
-      parts.splice(-2, 2);
-    } else if (/^\d+$/.test(last)) {
-      // Иначе просто удаляем ID в конце
-      parts.pop();
+  // Получение года из даты
+  const year = eventData.start_date ? new Date(eventData.start_date).getFullYear() : new Date().getFullYear();
+  const idStr = String(eventData.id);
+  
+  // Проверяем, корректно ли сформирован слаг
+  if (eventData.url_slug) {
+    // Слаг уже содержит нужный формат
+    if (eventData.url_slug.endsWith(`-${year}-${idStr}`)) {
+      return eventData.url_slug;
     }
-  } else if (parts.length >= 1 && /^\d+$/.test(parts[parts.length - 1])) {
-    // Для формата base-123 удаляем только ID
-    parts.pop();
+    
+    // Базовый слаг без year-id на конце
+    if (!eventData.url_slug.includes(`-${year}-`) && !eventData.url_slug.endsWith(`-${idStr}`)) {
+      return `${eventData.url_slug}-${year}-${idStr}`;
+    }
+    
+    // Произвольный слаг, который нужно преобразовать
+    if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
+      console.warn(`EventPage: ⚠️ Received potentially malformed url_slug: ${eventData.url_slug}`);
+    }
+    // Проверяем, есть ли уже год и ID в слаге
+    const parts = eventData.url_slug.split('-');
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1];
+      const preLast = parts[parts.length - 2];
+      
+      // Если уже есть correct формат (slug-year-id)
+      if (preLast === String(year) && lastPart === idStr) {
+        return eventData.url_slug;
+      }
+      
+      // Если формат неправильный, но содержит год-ID, удаляем и заменяем
+      if (/^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
+        const baseSlug = parts.slice(0, -2).join('-');
+        return `${baseSlug}-${year}-${idStr}`;
+      }
+    }
+    
+    // Если все проверки не сработали, форматируем просто добавив год и ID
+    return `${eventData.url_slug}-${year}-${idStr}`;
   }
   
-  // Преобразуем в заголовок
-  return parts.map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
+  // Если url_slug отсутствует, создаем из названия
+  const safeTitle = eventData.title
+    ? eventData.title.toLowerCase()
+        .replace(/[^a-zA-Z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '')
+    : 'event';
+  
+  return `${safeTitle}-${year}-${idStr}`;
 };
 
 export default function EventPage() {
@@ -286,17 +319,6 @@ export default function EventPage() {
     }, 5000); // Сбрасываем через 5 секунд
   }, []);
   
-  // Handle auth changes
-  useEffect(() => {
-    const handleAuthChange = () => {
-      logInfo("Auth change detected");
-      // Только сбрасываем флаг начальной загрузки
-      hasInitialFetchRef.current = false;
-    };
-    window.addEventListener("auth-change", handleAuthChange);
-    return () => window.removeEventListener("auth-change", handleAuthChange);
-  }, []);
-
   // Функция для получения данных мероприятия
   const fetchEventData = useCallback(async (targetSlug: string): Promise<EventData | null> => {
     if (fetchInProgressRef.current) {
@@ -316,7 +338,8 @@ export default function EventPage() {
       setDynamicLoading(true);
       
       const timestamp = Date.now();
-      const url = `/v1/public/events/${targetSlug}?t=${timestamp}`;
+      // Используем явный API endpoint вместо относительного пути
+      const url = `/v1/public/events/${eventId}?t=${timestamp}`;
       
       logInfo(`Making API request`, { url, targetSlug });
       
@@ -344,29 +367,27 @@ export default function EventPage() {
         // Типобезопасный кастинг
         const eventData = response as unknown as EventData;
         
-        // Если название не информативно, обновляем его из slug
-        if (!eventData.title || eventData.title === "Мероприятие " + eventId) {
-          const titleFromSlug = extractTitleFromSlug(targetSlug);
-          logInfo("Using title from slug", { titleFromSlug });
-          eventData.title = titleFromSlug;
-        }
+        // Детальное логирование для отладки проблемы с URL
+        logInfo("Received event data", {
+          id: eventData.id,
+          title: eventData.title,
+          url_slug: eventData.url_slug,
+          start_date: eventData.start_date
+        });
         
-        // Проверяем, есть ли у мероприятия url_slug, если нет - исправляем роут
-        if (eventData.url_slug && eventData.url_slug !== targetSlug) {
-          logInfo("Event has different url_slug, redirecting", { from: targetSlug, to: eventData.url_slug });
-          // Используем setTimeout чтобы избежать ошибок React с обновлением состояния во время рендера
-          setTimeout(() => {
-            router.replace(`/events/${eventData.url_slug}`);
-          }, 0);
-        }
-        
-        // Сохраняем метаданные в localStorage для быстрого доступа
-        try {
-          localStorage.setItem(`event-title-${eventId}`, eventData.title);
-          localStorage.setItem(`event-slug-${eventId}`, eventData.url_slug || targetSlug);
-          logDebug("Saved event metadata to localStorage");
-        } catch (error) {
-          logError("Error saving to localStorage", error);
+        // Проверяем формат url_slug
+        if (eventData.url_slug) {
+          const year = eventData.start_date ? new Date(eventData.start_date).getFullYear() : new Date().getFullYear();
+          const expectedPattern = `-${year}-${eventData.id}`;
+          
+          if (!eventData.url_slug.endsWith(expectedPattern)) {
+            logWarn(`url_slug from API doesn't have the expected format. Should end with ${expectedPattern}`, {
+              receivedSlug: eventData.url_slug,
+              expectedPattern
+            });
+          }
+        } else {
+          logWarn("Event data doesn't contain url_slug", eventData);
         }
         
         setFetchError(null);
@@ -392,8 +413,8 @@ export default function EventPage() {
         setShowInitialSkeleton(false);
       }
     }
-  }, [setDynamicLoading, router]);
-
+  }, [setDynamicLoading]);
+  
   // Обработка успешного бронирования
   const handleBookingSuccess = useCallback(async () => {
     if (!slug || fetchInProgressRef.current || !isMountedRef.current) return;
@@ -406,6 +427,27 @@ export default function EventPage() {
       setEvent(eventData);
     }
   }, [slug, canMakeNewRequest, fetchEventData]);
+  
+  // Событийные обработчики
+  const handleBookingClick = useCallback(() => logDebug("Booking click triggered"), []);
+  const handleLoginClick = useCallback(() => {
+    setIsRegisterMode(false);
+    setIsModalOpen(true);
+  }, []);
+  const handleModalClose = useCallback(() => setIsModalOpen(false), []);
+  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
+  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
+
+  // Handle auth changes
+  useEffect(() => {
+    const handleAuthChange = () => {
+      logInfo("Auth change detected");
+      // Только сбрасываем флаг начальной загрузки
+      hasInitialFetchRef.current = false;
+    };
+    window.addEventListener("auth-change", handleAuthChange);
+    return () => window.removeEventListener("auth-change", handleAuthChange);
+  }, []);
 
   // Основной эффект для получения данных мероприятия
   useEffect(() => {
@@ -424,10 +466,24 @@ export default function EventPage() {
       }
     }, 3000);
 
-    // Инициируем загрузку, если это первая загрузка
+    // Инициируем загрузку, если это первая загрузка и запрос не в процессе
     if (!fetchInProgressRef.current && !hasInitialFetchRef.current) {
-      fetchEventData(slug.toString()).then(eventData => {
+      // Инициируем загрузку данных, используя ID события из slug
+      // вместо самого slug для обеспечения канонического URL
+      const eventId = extractIdFromSlug(slug.toString());
+      fetchEventData(eventId).then(eventData => {
         if (eventData && isMountedRef.current) {
+          // Проверяем, соответствует ли текущий URL каноническому
+          if (eventData.url_slug && slug.toString() !== eventData.url_slug) {
+            // Формируем канонический slug
+            const canonicalSlug = ensureCanonicalSlug(eventData);
+            logInfo(`Current URL ${slug} doesn't match canonical: ${canonicalSlug}, redirecting...`);
+            
+            // Перенаправляем на канонический URL
+            router.replace(`/events/${canonicalSlug}`, { scroll: false });
+            return;
+          }
+          
           setEvent(eventData);
         }
       });
@@ -437,7 +493,7 @@ export default function EventPage() {
       isRequestCancelled = true;
       clearTimeout(skeletonTimer);
     };
-  }, [slug, fetchEventData]);
+  }, [slug, fetchEventData, router]);
   
   // Component mount/unmount handling
   useEffect(() => {
@@ -445,6 +501,14 @@ export default function EventPage() {
     mountCountRef.current++;
     isMountedRef.current = true;
     logInfo(`Component mounted (${currentMountCount + 1})`);
+    
+    // Защита от слишком частых перемонтирований компонента
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < 500 && currentMountCount > 1) {
+      logWarn(`Detected rapid remounts (${currentMountCount + 1} mounts), suppressing further fetches`);
+      hasInitialFetchRef.current = true;
+    }
+    lastFetchTimeRef.current = now;
     
     return () => {
       isMountedRef.current = false;
@@ -462,16 +526,6 @@ export default function EventPage() {
       }
     };
   }, [setDynamicLoading]);
-
-  // Event handlers
-  const handleBookingClick = useCallback(() => logDebug("Booking click triggered"), []);
-  const handleLoginClick = useCallback(() => {
-    setIsRegisterMode(false);
-    setIsModalOpen(true);
-  }, []);
-  const handleModalClose = useCallback(() => setIsModalOpen(false), []);
-  const toggleToLogin = useCallback(() => setIsRegisterMode(false), []);
-  const toggleToRegister = useCallback(() => setIsRegisterMode(true), []);
 
   // Debug render states
   useEffect(() => {
@@ -507,6 +561,15 @@ export default function EventPage() {
     <div className="min-h-screen flex flex-col">
       <Header />
       <main className="flex-grow">
+        {/* Добавляем отладочную информацию для разработчика */}
+        {process.env.NODE_ENV !== 'production' && (
+          <div className="bg-yellow-100 p-2 text-xs font-mono" style={{ maxWidth: '100%', overflow: 'auto' }}>
+            <p><strong>Debug:</strong> ID: {event.id}, URL slug from API: {event.url_slug || 'не задан'}</p>
+            <p><strong>Canonical slug:</strong> {ensureCanonicalSlug(event)}</p>
+            <p><strong>Page slug param:</strong> {slug}</p>
+          </div>
+        )}
+        
         <motion.section
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -574,7 +637,7 @@ export default function EventPage() {
               </h2>
 
               <EventRegistration
-                eventId={event.id || parseInt(extractIdFromSlug(slug))}
+                eventId={event.id || parseInt(extractIdFromSlug(slug.toString()))}
                 eventTitle={event.title}
                 eventDate={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
                 eventTime={format(new Date(event.start_date), "HH:mm", { locale: ru })}

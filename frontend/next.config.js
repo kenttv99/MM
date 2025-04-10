@@ -94,10 +94,16 @@ const nextConfig = {
         source: '/users/:path*',
         destination: 'http://localhost:8000/users/:path*'
       },
+      // API маршрут для событий - должен быть перед общим маршрутом для страниц мероприятий
       {
-        source: '/events/:path*',
+        source: '/v1/public/events/:path*',
         destination: 'http://localhost:8000/v1/public/events/:path*'
       },
+      // Маршрут для страниц мероприятий не должен перенаправляться на API
+      // {
+      //   source: '/events/:path*',
+      //   destination: 'http://localhost:8000/v1/public/events/:path*'
+      // },
       {
         source: '/user_edits/:path*',
         destination: 'http://localhost:8000/user_edits/:path*'

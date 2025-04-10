@@ -78,6 +78,8 @@ const EventDetails: React.FC<EventDetailsProps> = ({
           <span className="font-medium" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
             {freeRegistration ? (
               <span className="text-green-600">Бесплатно</span>
+            ) : price === 0 ? (
+              <span className="text-green-600">Свободный взнос</span>
             ) : (
               `${price} ₽`
             )}

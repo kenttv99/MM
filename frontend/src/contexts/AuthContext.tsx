@@ -276,11 +276,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       avatarUrl: data.avatar_url
     });
     
+    // Check if avatar was removed (userData had it but new data doesn't)
+    const wasAvatarRemoved = user && user.avatar_url && !data.avatar_url;
+    if (wasAvatarRemoved) {
+      console.log('AuthContext: Avatar was removed, updating localStorage and creating cache busters');
+      
+      // Create cache buster for avatar URLs
+      localStorage.setItem('avatar_cache_buster', Date.now().toString());
+    }
+    
     setUser(data);
     if (resetLoading) {
       setIsAuthenticated(false);
     }
-  }, []);
+
+    // Store updated user data in localStorage
+    localStorage.setItem('userData', JSON.stringify(data));
+    
+    // Dispatch custom event to notify components (like Header) about user data change
+    const event = new CustomEvent('userDataChanged', {
+      detail: {
+        userData: data,
+        avatarRemoved: wasAvatarRemoved
+      }
+    });
+    window.dispatchEvent(event);
+    console.log('AuthContext: Dispatched userDataChanged event with updated avatar');
+  }, [user]);
 
   const handleLoginSuccess = useCallback((token: string, userData: any) => {
     console.log('AuthContext: Login success, updating state with token and user data');

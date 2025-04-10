@@ -122,6 +122,7 @@ const ProfilePage: React.FC = () => {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+  const [shouldDeleteAvatar, setShouldDeleteAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
@@ -287,10 +288,19 @@ const ProfilePage: React.FC = () => {
   }, [initialFormState, setFetchError]);
 
   const handleRemoveAvatar = useCallback(() => {
+    // Save the original avatar URL before removing it
+    if (formState.avatarPreview && typeof window !== 'undefined') {
+      console.log("ProfilePage: Saving original avatar URL before deletion:", formState.avatarPreview);
+      localStorage.setItem('original_avatar_url', formState.avatarPreview);
+    }
+    
     setSelectedFile(null);
     setFormState((prev) => ({ ...prev, avatarPreview: null }));
     if (fileInputRef.current) fileInputRef.current.value = "";
-  }, []);
+    // Set flag to indicate avatar should be deleted on save
+    setShouldDeleteAvatar(true);
+    console.log("ProfilePage: Marked avatar for deletion");
+  }, [formState.avatarPreview]);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -329,6 +339,7 @@ const ProfilePage: React.FC = () => {
         telegram: formState.telegram,
         whatsapp: formState.whatsapp,
         email: userData.email, // Сохраняем текущий email, чтобы не потерять его
+        remove_avatar: shouldDeleteAvatar // Добавляем флаг для удаления аватарки
       };
       
       console.log("Отправляемые данные профиля:", userDataToUpdate);
@@ -359,7 +370,55 @@ const ProfilePage: React.FC = () => {
       }
 
       let updatedUser = profileResponse;
-      if (selectedFile) {
+      
+      // If we requested avatar deletion, make sure it's processed correctly
+      if (shouldDeleteAvatar && updatedUser && !('aborted' in updatedUser) && 'id' in updatedUser) {
+        console.log("ProfilePage: Avatar deletion requested, ensuring avatar is removed from user data");
+        
+        // Force remove avatar from the updatedUser object
+        updatedUser.avatar_url = undefined;
+        
+        // We don't need a separate explicit request - the remove_avatar flag in the initial request 
+        // should handle it, but the backend might not properly process it.
+        // We'll force the avatar to be null locally to ensure UI consistency.
+        
+        // Create a timestamp to bust cache for any future avatar loads
+        const avatarCacheBuster = Date.now();
+        localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
+        
+        // Also update the userData in localStorage to ensure it reflects the avatar removal
+        const storedUserData = localStorage.getItem('userData');
+        if (storedUserData) {
+          try {
+            const parsedUserData = JSON.parse(storedUserData);
+            parsedUserData.avatar_url = null; // Make sure avatar is null
+            localStorage.setItem('userData', JSON.stringify(parsedUserData));
+            console.log("ProfilePage: Updated localStorage userData to remove avatar");
+            
+            // Force the browser to reload any cached images by attempting to access the image
+            // with cache busting and then canceling the request
+            const originalAvatarUrl = localStorage.getItem('original_avatar_url');
+            if (originalAvatarUrl) {
+              const invalidateUrl = `${originalAvatarUrl}?clear=${Date.now()}`;
+              const img = document.createElement('img');
+              img.src = invalidateUrl;
+              setTimeout(() => {
+                img.src = '';  // Cancel the request after a brief timeout
+              }, 100);
+              console.log("ProfilePage: Attempted to invalidate avatar cache for:", originalAvatarUrl);
+            }
+          } catch (e) {
+            console.error("ProfilePage: Error updating userData in localStorage:", e);
+          }
+        }
+        
+        // Store the original avatar URL in case we need to make explicit backend requests later
+        if (typeof window !== 'undefined' && userData?.avatar_url) {
+          localStorage.setItem('last_deleted_avatar', userData.avatar_url);
+        }
+        
+        console.log("ProfilePage: Avatar cached data cleared successfully");
+      } else if (selectedFile) {
         try {
           const formData = new FormData();
           formData.append("file", selectedFile);
@@ -381,6 +440,26 @@ const ProfilePage: React.FC = () => {
             // Продолжаем с обновлением профиля, даже если аватарка не загрузилась
           } else if (!('aborted' in avatarResponse)) {
             updatedUser = avatarResponse;
+            
+            // Создаем кэш-бастер для обновления аватарки во всех компонентах
+            if (updatedUser.avatar_url) {
+              const avatarCacheBuster = Date.now();
+              localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
+              console.log("ProfilePage: Created cache buster for new avatar:", avatarCacheBuster);
+              
+              // Явно отправляем событие об обновлении аватарки
+              if (typeof window !== 'undefined') {
+                const avatarEvent = new CustomEvent('avatar-updated', {
+                  detail: {
+                    userData: updatedUser,
+                    newAvatarUrl: updatedUser.avatar_url,
+                    timestamp: avatarCacheBuster
+                  }
+                });
+                window.dispatchEvent(avatarEvent);
+                console.log("ProfilePage: Dispatched avatar-updated event");
+              }
+            }
           }
         } catch (avatarError) {
           console.error("Ошибка при загрузке аватарки:", avatarError);
@@ -389,6 +468,13 @@ const ProfilePage: React.FC = () => {
       }
 
       if (updatedUser && !('aborted' in updatedUser) && 'fio' in updatedUser) {
+        // Force clear avatar_url if deletion was requested, regardless of server response
+        if (shouldDeleteAvatar) {
+          console.log("ProfilePage: Forcing avatar_url to null in updated user data");
+          updatedUser.avatar_url = undefined;
+          // Cache busting already done earlier in the function
+        }
+        
         const updatedData = {
           fio: updatedUser.fio || "",
           telegram: updatedUser.telegram || "",
@@ -401,6 +487,7 @@ const ProfilePage: React.FC = () => {
         setInitialFormState(updatedData);
         updateUserData(updatedUser as UserData, false);
         setUpdateSuccess("Профиль успешно обновлен!");
+        setShouldDeleteAvatar(false); // Reset the flag after successful update
         setTimeout(() => {
           setSelectedFile(null);
           setUpdateSuccess(null);
@@ -449,7 +536,7 @@ const ProfilePage: React.FC = () => {
             <div className="relative group w-24 h-24">
               {formState.avatarPreview ? (
                 <Image
-                  src={formState.avatarPreview}
+                  src={`${formState.avatarPreview}?t=${localStorage.getItem('avatar_cache_buster') || Date.now()}`}
                   alt="Аватар"
                   width={96}
                   height={96}
@@ -495,14 +582,14 @@ const ProfilePage: React.FC = () => {
                     </motion.div>
                   </button>
                   {formState.avatarPreview && (
-                    <motion.button
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
+                    <div
                       onClick={handleRemoveAvatar}
-                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center transform translate-x-1/3 -translate-y-1/3 hover:bg-red-600 transition-colors"
+                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-red-600 z-10"
+                      style={{ width: '18px', height: '18px', transform: 'translate(25%, -25%)' }}
+                      title="Удалить аватар"
                     >
-                      <FaTrash className="w-2 h-2" />
-                    </motion.button>
+                      <FaTrash style={{ width: '8px', height: '8px' }} />
+                    </div>
                   )}
                 </>
               )}

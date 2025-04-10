@@ -27,6 +27,34 @@ async def update_user_profile(
         current_user = await get_current_user(token, db)
         
         update_data = user_data.dict(exclude_unset=True, exclude={'email'})
+        
+        # Handle avatar removal if requested
+        if update_data.get('remove_avatar'):
+            logger.info(f"User {current_user.email} requested avatar removal")
+            
+            # Delete the avatar file if it exists
+            if current_user.avatar_url:
+                # Extract filename from URL
+                avatar_filename = current_user.avatar_url.split('/')[-1]
+                avatar_path = os.path.join(USERS_AVATARS_DIR, avatar_filename)
+                
+                if os.path.exists(avatar_path):
+                    try:
+                        os.remove(avatar_path)
+                        logger.info(f"Deleted avatar file: {avatar_path}")
+                    except OSError as e:
+                        logger.warning(f"Failed to delete avatar file {avatar_path}: {str(e)}")
+                else:
+                    logger.warning(f"Avatar file not found at path: {avatar_path}")
+                
+                # Set avatar_url to None in the database
+                current_user.avatar_url = None
+                logger.info(f"Set avatar_url to None for user {current_user.email}")
+            
+            # Remove the remove_avatar flag from update_data to avoid trying to set it on the model
+            update_data.pop('remove_avatar', None)
+        
+        # Apply the remaining updates
         for key, value in update_data.items():
             setattr(current_user, key, value)
 

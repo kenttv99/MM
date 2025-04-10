@@ -706,23 +706,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
   // Добавляем кнопку для отладки (только в режиме разработки)
   const renderDebugButton = () => {
-    if (process.env.NODE_ENV !== 'production') {
-      return (
-        <div className="mt-4 w-full">
-          <button 
-            onClick={showDebugInfo}
-            className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 py-1 px-2 rounded"
-          >
-            Проверить билеты
-          </button>
-          {debugInfo && (
-            <pre className="mt-2 p-2 bg-gray-100 text-xs overflow-auto max-h-40 rounded whitespace-pre-wrap">
-              {debugInfo}
-            </pre>
-          )}
-        </div>
-      );
-    }
+    // Always return null to hide the debug button in all environments
     return null;
   };
 
@@ -904,7 +888,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 className="flex items-center"
               >
                 <FaRubleSign className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
-                <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{price} ₽</span>
+                <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
+                  {price === 0 ? <span className="text-green-600">Свободный взнос</span> : `${price} ₽`}
+                </span>
               </motion.div>
             )}
           </div>

@@ -67,6 +67,7 @@ class UserUpdate(BaseModel):
     whatsapp: Optional[str] = None
     is_blocked: Optional[bool] = None
     is_partner: Optional[bool] = None
+    remove_avatar: Optional[bool] = None
 
     class Config:
         from_attributes = True

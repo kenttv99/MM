@@ -68,17 +68,39 @@ const HeaderSkeleton = () => (
 
 const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
   const [imgError, setImgError] = useState(false);
+  const [cacheBuster, setCacheBuster] = useState(() => Date.now());
 
+  // Reset error state and update cache buster when avatar URL changes
   useEffect(() => {
-    // Remove frequent console log
     setImgError(false);
+    setCacheBuster(Date.now());
+    
+    // Pre-load avatar to check for errors
+    if (avatarUrl) {
+      const testImg = document.createElement('img');
+      testImg.onload = () => console.log('Header: Avatar preload successful:', avatarUrl);
+      testImg.onerror = () => {
+        console.error('Header: Avatar preload failed:', avatarUrl);
+        setImgError(true);
+      };
+      testImg.src = `${avatarUrl}?t=${cacheBuster}`;
+    }
   }, [avatarUrl]);
 
   const sizeClasses = "w-10 h-10 min-w-[40px] min-h-[40px]";
   
+  // Check localStorage for avatar cache buster if available
+  const storageAvatarCacheBuster = typeof window !== 'undefined' ? 
+    localStorage.getItem('avatar_cache_buster') : null;
+  
+  // Determine the src with cache busting
+  const avatarSrc = avatarUrl 
+    ? `${avatarUrl}?t=${storageAvatarCacheBuster || cacheBuster}` 
+    : '';
+  
   return avatarUrl && !imgError ? (
     <Image
-      src={avatarUrl}
+      src={avatarSrc}
       alt="User Avatar"
       width={40}
       height={40}
@@ -100,7 +122,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
 };
 
 const Header: React.FC = () => {
-  const { isAuth, userData, logout, isLoading: authLoading, isAuthChecked } = useAuth();
+  const { isAuth, userData, logout, isLoading: authLoading, isAuthChecked, updateUserData } = useAuth();
   const { currentStage } = useLoading();
   const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
@@ -239,6 +261,116 @@ const Header: React.FC = () => {
       }
     }
   }, [authLoading, isAuthChecked, currentStage, userData]);
+
+  // Add event listeners for user data changes and avatar updates
+  useEffect(() => {
+    // Handle user data change events (particularly avatar updates)
+    const handleUserDataChange = (event: CustomEvent) => {
+      const { userData: updatedUserData, avatarRemoved } = event.detail;
+      if (updatedUserData) {
+        logInfo('Header: Received userDataChanged event, updating user data', {
+          hasAvatar: !!updatedUserData.avatar_url,
+          userId: updatedUserData.id,
+          fio: updatedUserData.fio,
+          avatarRemoved
+        });
+        
+        // Force immediate UI update
+        const forceUIUpdate = () => {
+          // Force update of user data in this component by using the Auth context
+          if (updateUserData && typeof updateUserData === 'function') {
+            updateUserData({...updatedUserData}, false);
+            
+            // Also trigger a React state update to force re-render
+            forceUpdate({});
+          }
+        };
+        
+        // If avatar was removed, make sure to clear any cached versions
+        if (avatarRemoved) {
+          logInfo('Header: Avatar removed, clearing cache');
+          
+          // Force immediate UI update
+          forceUIUpdate();
+          
+          // Force reload any avatar components
+          const avatarElements = document.querySelectorAll('img[alt="User Avatar"]');
+          avatarElements.forEach(img => {
+            // Update src to empty to prevent showing
+            (img as HTMLImageElement).src = '';
+          });
+        }
+        // Force reload the avatar image to clear browser cache
+        else if (updatedUserData.avatar_url) {
+          logInfo('Header: New avatar detected, updating display');
+          
+          // Get cache buster from localStorage if available or generate new one
+          const timestamp = typeof window !== 'undefined' ? 
+            localStorage.getItem('avatar_cache_buster') || Date.now().toString() :
+            Date.now().toString();
+            
+          // Force immediate UI update with timeout to ensure DOM is ready
+          setTimeout(forceUIUpdate, 0);
+          
+          // Pre-load the new avatar
+          const cachedBusterUrl = updatedUserData.avatar_url.includes('?') 
+            ? `${updatedUserData.avatar_url}&t=${timestamp}` 
+            : `${updatedUserData.avatar_url}?t=${timestamp}`;
+            
+          const testImg = document.createElement('img');
+          testImg.onload = () => {
+            console.log('Header: Updated avatar loaded successfully:', cachedBusterUrl);
+            // Force another update after successful load
+            setTimeout(forceUIUpdate, 50);
+          };
+          testImg.onerror = () => console.error('Header: Failed to load updated avatar:', cachedBusterUrl);
+          testImg.src = cachedBusterUrl;
+        } else {
+          // No avatar changes, just update normally
+          forceUIUpdate();
+        }
+      }
+    };
+
+    // Handle specific avatar update events from Profile page
+    const handleAvatarUpdate = (event: CustomEvent) => {
+      const { userData: updatedUserData, newAvatarUrl, timestamp } = event.detail;
+      
+      if (updatedUserData && newAvatarUrl) {
+        logInfo('Header: Received avatar-updated event', {
+          newAvatarUrl,
+          timestamp
+        });
+        
+        // Immediately update user data with the new avatar
+        if (updateUserData && typeof updateUserData === 'function') {
+          // Create a fresh copy to ensure React detects the change
+          const freshUserData = {...updatedUserData};
+          
+          // Force immediate render
+          updateUserData(freshUserData, false);
+          forceUpdate({});
+          
+          // Preload the image
+          const img = document.createElement('img');
+          img.src = `${newAvatarUrl}?t=${timestamp}`;
+          img.onload = () => {
+            logInfo('Header: New avatar preloaded successfully');
+            // Force another update after successful load
+            setTimeout(() => forceUpdate({}), 50);
+          };
+        }
+      }
+    };
+
+    window.addEventListener('userDataChanged', handleUserDataChange as EventListener);
+    window.addEventListener('avatar-updated', handleAvatarUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('userDataChanged', handleUserDataChange as EventListener);
+      window.removeEventListener('avatar-updated', handleAvatarUpdate as EventListener);
+    };
+  }, [updateUserData]);
 
   // Эффект для отслеживания прокрутки
   useEffect(() => {

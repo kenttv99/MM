@@ -13,13 +13,55 @@ const nextConfig = {
       {
         protocol: 'http',
         hostname: 'localhost',
+        port: '8000',
+        pathname: '/images/**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '8000',
+        pathname: '/images/users_avatars/**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
         port: '8001',
         pathname: '/images/**',
       },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/images/**',
+      },
+      {
+        protocol: 'http',
+        hostname: 'localhost',
+        port: '3000',
+        pathname: '/images/users_avatars/**',
+      },
     ],
+    // Включаем отладку для Next.js Image Optimization
+    dangerouslyAllowSVG: true,
+    contentDispositionType: 'attachment',
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
+    minimumCacheTTL: 60,
+    formats: ['image/webp', 'image/avif'],
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920, 2048, 3840],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
   async rewrites() {
     return [
+      // Перенаправление для изображений аватаров пользователей
+      {
+        source: '/images/users_avatars/:path*',
+        destination: 'http://localhost:8000/images/users_avatars/:path*'
+      },
+      {
+        source: '/images/:path*',
+        destination: 'http://localhost:8000/images/:path*'
+      },
+      
       // Админские маршруты - приоритет выше, чем у общих
       // Специфические маршруты для админской аутентификации
       {

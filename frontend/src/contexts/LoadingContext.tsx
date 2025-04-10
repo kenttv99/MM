@@ -36,6 +36,7 @@ interface LoadingContextType {
   setProgress: (progress: number) => void;
   error: string | null;
   setError: (error: string | null) => void;
+  detectAndFixLoadingInconsistency: () => boolean;
 }
 
 // Добавим базовые настройки для логов
@@ -976,7 +977,8 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     progress,
     setProgress,
     error,
-    setError
+    setError,
+    detectAndFixLoadingInconsistency
   }), [
     loadingStateRef.current.isStaticLoading,
     loadingStateRef.current.isDynamicLoading,
@@ -987,7 +989,8 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updateStage,
     isLoading,
     progress,
-    error
+    error,
+    detectAndFixLoadingInconsistency
   ]);
 
   return (

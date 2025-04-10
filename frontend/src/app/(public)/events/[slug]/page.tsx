@@ -541,7 +541,7 @@ export default function EventPage() {
         >
           <div className="relative h-full w-full rounded-xl overflow-hidden">
             {event.image_url ? (
-              <Image src={event.image_url} alt={event.title} fill className="object-cover" priority />
+              <Image src={event.image_url} alt={event.title} fill className="object-cover" priority unoptimized />
             ) : (
               <AnimatedGradientBackground>
               </AnimatedGradientBackground>

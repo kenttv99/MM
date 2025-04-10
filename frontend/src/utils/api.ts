@@ -542,17 +542,28 @@ export async function apiFetch<T>(
     // Create promise for request execution
     const requestPromise = (async () => {
       try {
+        // Log image-related requests for debugging
+        if (endpoint.includes('images') || endpoint.includes('avatar')) {
+          console.log(`API: Запрос к изображению: ${endpoint}`, fetchOptions);
+        }
+        
         // Create promise for request execution
         const response = await fetch(`${endpoint}`, {
           ...fetchOptions,
           signal: controller.signal,
           headers: {
-            'Content-Type': 'application/json',
+            // Добавляем Content-Type только если это не FormData
+            ...(!fetchOptions.data || !(fetchOptions.data instanceof FormData) ? {'Content-Type': 'application/json'} : {}),
             ...fetchOptions.headers,
           },
           // Add body for POST, PUT, PATCH requests
           ...(fetchOptions.method && ['POST', 'PUT', 'PATCH'].includes(fetchOptions.method) && fetchOptions.data
-            ? { body: JSON.stringify(fetchOptions.data) }
+            ? { 
+                // Используем формат данных в зависимости от типа
+                body: fetchOptions.data instanceof FormData 
+                  ? fetchOptions.data 
+                  : JSON.stringify(fetchOptions.data) 
+              }
             : {}),
         });
         

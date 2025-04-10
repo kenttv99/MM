@@ -4,6 +4,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
 import { FaUser, FaTelegramPlane, FaWhatsapp, FaCamera, FaPencilAlt, FaLock, FaTrash } from "react-icons/fa";
 import Image from "next/image";
 import InputField from "@/components/common/InputField";
@@ -17,6 +18,7 @@ import UserEventTickets from "@/components/UserEventTickets";
 
 const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
+  const { setStage, detectAndFixLoadingInconsistency } = useLoading();
   const router = useRouter();
 
   // Создаем мемоизированный компонент с билетами заранее
@@ -70,6 +72,49 @@ const ProfilePage: React.FC = () => {
         return;
       }
       
+      // Проверяем данные из localStorage
+      const storedData = localStorage.getItem('userData');
+      if (storedData) {
+        try {
+          const parsedData = JSON.parse(storedData);
+          console.log('ProfilePage: Данные из localStorage:', {
+            id: parsedData.id,
+            email: parsedData.email,
+            avatarUrl: parsedData.avatar_url,
+            rawData: parsedData
+          });
+        } catch (e) {
+          console.error('ProfilePage: Ошибка при разборе данных из localStorage:', e);
+        }
+      } else {
+        console.log('ProfilePage: Данные в localStorage отсутствуют');
+      }
+      
+      console.log('ProfilePage: Инициализация профиля с данными пользователя:', { 
+        id: userData.id,
+        email: userData.email,
+        avatarUrl: userData.avatar_url
+      });
+      
+      // Тестовая загрузка изображения для отладки
+      if (userData.avatar_url) {
+        console.log('ProfilePage: Тестовая загрузка аватарки:', userData.avatar_url);
+        // Используем стандартный DOM API вместо Next.js Image
+        const testImg = document.createElement('img');
+        testImg.onload = () => console.log('ProfilePage: Тест загрузки аватарки успешен');
+        testImg.onerror = () => console.error('ProfilePage: Тест загрузки аватарки провален');
+        testImg.src = userData.avatar_url;
+        
+        // Тест загрузки аватарки через fetch для проверки сетевого доступа
+        fetch(userData.avatar_url)
+          .then(response => {
+            console.log('ProfilePage: Fetch тест аватарки - статус:', response.status);
+            return response.blob();
+          })
+          .then(() => console.log('ProfilePage: Fetch тест аватарки успешен'))
+          .catch(error => console.error('ProfilePage: Fetch тест аватарки провален:', error));
+      }
+      
       const initialData = {
         fio: userData.fio || "",
         telegram: userData.telegram || "",
@@ -77,6 +122,12 @@ const ProfilePage: React.FC = () => {
         avatarPreview: userData.avatar_url || null,
         email: userData.email || "",
       };
+      
+      console.log('ProfilePage: Установлены начальные данные формы:', {
+        avatarPreview: initialData.avatarPreview,
+        fio: initialData.fio
+      });
+      
       setFormState(initialData);
       setInitialFormState(initialData);
       validateForm(initialData);
@@ -121,16 +172,37 @@ const ProfilePage: React.FC = () => {
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setSelectedFile(file);
-      const reader = new FileReader();
-      reader.onloadend = () => setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
-      reader.readAsDataURL(file);
-    } else {
+    if (!file) {
       setSelectedFile(null);
       setFormState((prev) => ({ ...prev, avatarPreview: initialFormState?.avatarPreview || null }));
+      return;
     }
-  }, [initialFormState]);
+    
+    // Проверка типа файла
+    const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!validImageTypes.includes(file.type)) {
+      setFetchError("Пожалуйста, выберите изображение в формате JPEG, PNG, GIF или WebP.");
+      return;
+    }
+    
+    // Проверка размера файла (ограничение 5MB)
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    if (file.size > maxSize) {
+      setFetchError("Размер изображения не должен превышать 5MB.");
+      return;
+    }
+    
+    setSelectedFile(file);
+    
+    const reader = new FileReader();
+    reader.onloadend = () => setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
+    reader.onerror = () => {
+      console.error("Ошибка чтения файла аватарки");
+      setFetchError("Не удалось прочитать выбранный файл.");
+      setSelectedFile(null);
+    };
+    reader.readAsDataURL(file);
+  }, [initialFormState, setFetchError]);
 
   const handleRemoveAvatar = useCallback(() => {
     setSelectedFile(null);
@@ -147,21 +219,91 @@ const ProfilePage: React.FC = () => {
     setUpdateSuccess(null);
 
     try {
+      detectAndFixLoadingInconsistency();
+      
+      setStage(LoadingStage.STATIC_CONTENT);
+      
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Получаем токен из localStorage
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setFetchError("Токен авторизации не найден. Пожалуйста, войдите в систему снова.");
+        isSubmitting.current = false;
+        return;
+      }
+      
+      // Убедимся, что у нас есть userData с id
+      if (!userData || !userData.id) {
+        setFetchError("Данные пользователя не найдены.");
+        isSubmitting.current = false;
+        return;
+      }
+
+      // Формируем полные данные пользователя для обновления
+      const userDataToUpdate = {
+        id: userData.id,
+        fio: formState.fio,
+        telegram: formState.telegram,
+        whatsapp: formState.whatsapp,
+        email: userData.email, // Сохраняем текущий email, чтобы не потерять его
+      };
+      
+      console.log("Отправляемые данные профиля:", userDataToUpdate);
+      
       const profileResponse = await apiFetch<UserData>("/user_edits/me", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        data: JSON.stringify({
-          fio: formState.fio,
-          telegram: formState.telegram,
-          whatsapp: formState.whatsapp,
-        }),
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        data: userDataToUpdate,
+        bypassLoadingStageCheck: true
       });
+
+      // Проверяем наличие ошибок в ответе
+      if (profileResponse && 'error' in profileResponse) {
+        // Если ошибка авторизации, выполняем выход и перенаправляем на страницу входа
+        if (profileResponse.status === 401 || profileResponse.status === 403) {
+          console.error("Ошибка авторизации при обновлении профиля:", profileResponse);
+          // Очищаем данные сессии
+          localStorage.removeItem("token");
+          localStorage.removeItem("userData");
+          // Перенаправляем на страницу входа
+          router.push("/login");
+          throw new Error("Сессия истекла или недействительна. Пожалуйста, войдите снова.");
+        }
+        throw new Error(`Ошибка обновления профиля: ${profileResponse.error || 'Неизвестная ошибка'}`);
+      }
 
       let updatedUser = profileResponse;
       if (selectedFile) {
-        const formData = new FormData();
-        formData.append("file", selectedFile);
-        updatedUser = await apiFetch<UserData>("/user_edits/upload-avatar", { method: "POST", data: formData });
+        try {
+          const formData = new FormData();
+          formData.append("file", selectedFile);
+          // Добавляем id пользователя в FormData
+          formData.append("user_id", userData.id.toString());
+          
+          const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
+            method: "POST", 
+            data: formData,
+            headers: {
+              "Authorization": `Bearer ${token}`
+            },
+            bypassLoadingStageCheck: true
+          });
+          
+          // Проверяем наличие ошибок в ответе
+          if ('error' in avatarResponse) {
+            console.error("Ошибка загрузки аватарки:", avatarResponse);
+            // Продолжаем с обновлением профиля, даже если аватарка не загрузилась
+          } else if (!('aborted' in avatarResponse)) {
+            updatedUser = avatarResponse;
+          }
+        } catch (avatarError) {
+          console.error("Ошибка при загрузке аватарки:", avatarError);
+          // Продолжаем с обновлением профиля, даже если аватарка не загрузилась
+        }
       }
 
       if (updatedUser && !('aborted' in updatedUser) && 'fio' in updatedUser) {
@@ -172,6 +314,7 @@ const ProfilePage: React.FC = () => {
           avatarPreview: updatedUser.avatar_url || null,
           email: updatedUser.email || "",
         };
+        
         setFormState(updatedData);
         setInitialFormState(updatedData);
         updateUserData(updatedUser as UserData, false);
@@ -182,10 +325,12 @@ const ProfilePage: React.FC = () => {
           setIsEditing(false);
           isSubmitting.current = false;
         }, 1500);
+      } else {
+        throw new Error("Не удалось обновить данные профиля. Пожалуйста, попробуйте снова.");
       }
     } catch (err) {
       setFetchError(err instanceof Error ? err.message : "Ошибка обновления профиля");
-      setTimeout(() => setFetchError(null), 1500);
+      setTimeout(() => setFetchError(null), 3000); // Увеличено время показа ошибки
       isSubmitting.current = false;
     }
   };
@@ -219,7 +364,26 @@ const ProfilePage: React.FC = () => {
                   width={96}
                   height={96}
                   className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
-                  onError={() => setFormState((prev) => ({ ...prev, avatarPreview: null }))}
+                  onLoad={() => {
+                    console.log("ProfilePage: Аватарка успешно загружена:", formState.avatarPreview);
+                  }}
+                  onError={() => {
+                    console.error("Ошибка загрузки изображения аватарки в профиле:", formState.avatarPreview);
+                    console.error("Текущее состояние формы:", { 
+                      fio: formState.fio,
+                      hasAvatar: !!formState.avatarPreview 
+                    });
+                    // Пытаемся загрузить изображение напрямую для проверки доступности
+                    if (typeof window !== 'undefined' && formState.avatarPreview) {
+                      const testImg = document.createElement('img');
+                      testImg.onload = () => console.log("Тест прямой загрузки аватарки успешен");
+                      testImg.onerror = () => console.error("Тест прямой загрузки аватарки провален");
+                      testImg.src = formState.avatarPreview;
+                    }
+                    setFormState((prev) => ({ ...prev, avatarPreview: null }));
+                  }}
+                  unoptimized
+                  priority
                 />
               ) : (
                 <div className="w-full h-full bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-3xl font-bold group-hover:bg-orange-200 transition-colors">

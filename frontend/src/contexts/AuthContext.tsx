@@ -136,7 +136,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (storedUserData) {
           try {
             const parsedUserData = JSON.parse(storedUserData);
-            console.log('AuthContext: Found user data in localStorage');
+            console.log('AuthContext: Found user data in localStorage:', parsedUserData);
+            
+            // Проверка на правильность полей и добавление аватара если отсутствует
+            if (parsedUserData && !parsedUserData.avatar_url && parsedUserData.id) {
+              console.log('AuthContext: Аватар отсутствует в данных, проверяем API');
+              
+              // Добавляем запрос на получение актуальных данных в фоне
+              fetch('/auth/me', {
+                method: 'GET',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}`
+                }
+              })
+                .then(response => response.json())
+                .then(updatedUserData => {
+                  console.log('AuthContext: Получены обновленные данные пользователя:', updatedUserData);
+                  if (updatedUserData && updatedUserData.avatar_url) {
+                    console.log('AuthContext: Обновляем аватар пользователя:', updatedUserData.avatar_url);
+                    setUser(updatedUserData);
+                    localStorage.setItem('userData', JSON.stringify(updatedUserData));
+                  }
+                })
+                .catch(err => console.error('AuthContext: Ошибка получения обновленных данных:', err));
+            }
+            
             setUser(parsedUserData);
             setIsAuthenticated(true);
             setIsAuthCheckedState(true);
@@ -245,6 +270,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUserData = useCallback((data: UserData, resetLoading = true) => {
     if (!isMounted.current) return;
     
+    console.log('AuthContext: Обновление данных пользователя:', { 
+      id: data.id,
+      fio: data.fio,
+      avatarUrl: data.avatar_url
+    });
+    
     setUser(data);
     if (resetLoading) {
       setIsAuthenticated(false);
@@ -253,6 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const handleLoginSuccess = useCallback((token: string, userData: any) => {
     console.log('AuthContext: Login success, updating state with token and user data');
+    console.log('AuthContext: User data avatar:', userData.avatar_url);
     
     // Update authentication state
     setIsAuthenticated(true);

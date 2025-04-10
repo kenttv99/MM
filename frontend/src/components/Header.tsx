@@ -70,6 +70,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   const [imgError, setImgError] = useState(false);
 
   useEffect(() => {
+    // Remove frequent console log
     setImgError(false);
   }, [avatarUrl]);
 
@@ -82,7 +83,12 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
       width={40}
       height={40}
       className={`${sizeClasses} rounded-full object-cover hover:opacity-90`}
-      onError={() => setImgError(true)}
+      onError={(e) => {
+        console.error("Ошибка загрузки изображения аватарки в Header:", avatarUrl);
+        setImgError(true);
+      }}
+      priority
+      unoptimized
     />
   ) : (
     <div
@@ -213,8 +219,26 @@ const Header: React.FC = () => {
         isAuthChecked,
         currentStage
       });
+      
+      // Проверка данных пользователя и аватарки при монтировании
+      if (userData) {
+        console.log('Header: Проверка данных пользователя при монтировании:', {
+          id: userData.id,
+          email: userData.email,
+          hasAvatar: !!userData.avatar_url,
+          avatarUrl: userData.avatar_url
+        });
+        
+        // Используем DOM API вместо конструктора Image()
+        if (userData.avatar_url) {
+          const testImg = document.createElement('img');
+          testImg.onload = () => console.log('Header: Тест загрузки аватарки успешен:', userData.avatar_url);
+          testImg.onerror = () => console.error('Header: Тест загрузки аватарки провален:', userData.avatar_url);
+          testImg.src = userData.avatar_url;
+        }
+      }
     }
-  }, [authLoading, isAuthChecked, currentStage]);
+  }, [authLoading, isAuthChecked, currentStage, userData]);
 
   // Эффект для отслеживания прокрутки
   useEffect(() => {

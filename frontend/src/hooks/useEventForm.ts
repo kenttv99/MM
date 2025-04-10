@@ -85,8 +85,8 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, []);
 
-  const loadEvent = useCallback(async (eventId: string): Promise<void> => {
-    if (loadedEventId.current === eventId) {
+  const loadEvent = useCallback(async (eventId: string, forceRefresh = false): Promise<void> => {
+    if (loadedEventId.current === eventId && !forceRefresh) {
       console.log(`Event ${eventId} already loaded, skipping fetch`);
       return;
     }
@@ -98,11 +98,29 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
 
     isFetching.current = true;
     
-    if (eventCache[eventId]) {
+    if (forceRefresh && eventCache[eventId]) {
+      console.log(`Force refreshing event ${eventId}, clearing cache`);
+      delete eventCache[eventId];
+    } else if (eventCache[eventId] && !forceRefresh) {
       console.log(`Loading event ${eventId} from cache`);
       const cachedData = eventCache[eventId];
       const startDate = new Date(cachedData.start_date);
       const endDate = cachedData.end_date ? new Date(cachedData.end_date) : undefined;
+      
+      // Извлекаем слаг без года и ID (формат: slug-год-ID)
+      let cleanSlug = '';
+      if (cachedData.url_slug) {
+        // Разбиваем по дефисам и удаляем две последние части (год и ID)
+        const slugParts = cachedData.url_slug.split('-');
+        if (slugParts.length > 2) {
+          cleanSlug = slugParts.slice(0, -2).join('-');
+        } else {
+          // Если частей меньше 3, используем как есть (возможно, это уже чистый слаг)
+          cleanSlug = cachedData.url_slug;
+        }
+        console.log(`Processing slug: ${cachedData.url_slug} -> ${cleanSlug}`);
+      }
+      
       const mappedData: EventFormData = {
         ...cachedData,
         start_date: startDate.toISOString().split("T")[0],
@@ -115,7 +133,9 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         registrations_count: cachedData.registrations_count || 0,
         image_file: null,
         remove_image: false,
-        url_slug: cachedData.url_slug ? cachedData.url_slug.split('-').slice(0, -2).join('-') : '',
+        url_slug: cleanSlug,
+        status: cachedData.status || 'draft',
+        published: !!cachedData.published,
       };
       
       if (mounted.current) {
@@ -174,6 +194,21 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       const eventData = response.event;
       const startDate = new Date(eventData.start_date);
       const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
+      
+      // Извлекаем слаг без года и ID (формат: slug-год-ID)
+      let cleanSlug = '';
+      if (eventData.url_slug) {
+        // Разбиваем по дефисам и удаляем две последние части (год и ID)
+        const slugParts = eventData.url_slug.split('-');
+        if (slugParts.length > 2) {
+          cleanSlug = slugParts.slice(0, -2).join('-');
+        } else {
+          // Если частей меньше 3, используем как есть (возможно, это уже чистый слаг)
+          cleanSlug = eventData.url_slug;
+        }
+        console.log(`Processing slug from server: ${eventData.url_slug} -> ${cleanSlug}`);
+      }
+      
       const mappedData: EventFormData = {
         ...eventData,
         start_date: startDate.toISOString().split("T")[0],
@@ -186,7 +221,9 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         registrations_count: eventData.registrations_count || 0,
         image_file: null,
         remove_image: false,
-        url_slug: eventData.url_slug ? eventData.url_slug.split('-').slice(0, -2).join('-') : '',
+        url_slug: cleanSlug,
+        status: eventData.status || 'draft',
+        published: !!eventData.published,
       };
       
       setFormData(mappedData);
@@ -273,8 +310,26 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         cleanedFormData.url_slug = cleanedFormData.url_slug.replace(/^\-|\-$/g, '');
       }
       
+      // Убедимся, что URL slug не пустой
+      if (!cleanedFormData.url_slug || cleanedFormData.url_slug.trim() === '') {
+        // Генерируем URL slug из названия, если он не задан
+        const titleSlug = cleanedFormData.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-') // заменяем все не букво-цифровые символы на дефис
+          .replace(/^\-+|\-+$/g, '');   // убираем начальные и конечные дефисы
+        
+        if (titleSlug) {
+          cleanedFormData.url_slug = titleSlug;
+          console.log('useEventForm: Generated URL slug from title:', titleSlug);
+        } else {
+          cleanedFormData.url_slug = `event-${Date.now()}`;
+          console.log('useEventForm: Generated fallback URL slug:', cleanedFormData.url_slug);
+        }
+      }
+
       console.log(`useEventForm: Submitting ${formData.id ? 'update' : 'create'} request`);
       console.log('useEventForm: FormData keys:', Object.keys(cleanedFormData));
+      console.log('useEventForm: URL slug:', cleanedFormData.url_slug);
       
       const result = formData.id
         ? await updateEvent(formData.id, cleanedFormData)

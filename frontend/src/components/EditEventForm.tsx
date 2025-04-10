@@ -7,7 +7,7 @@ import { motion } from "framer-motion";
 import {
   FaCalendarAlt, FaMapMarkerAlt, FaMoneyBillWave, FaTicketAlt,
   FaImage, FaTrash, FaEye, FaBold, FaItalic, FaLink, FaListUl,
-  FaListOl, FaHeading, FaQuoteRight
+  FaListOl, FaHeading, FaQuoteRight, FaSync
 } from "react-icons/fa";
 import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
@@ -34,6 +34,7 @@ interface EditEventFormProps {
   setIsPageLoading: (isLoading: boolean) => void;
   setError: (error: string | null) => void;
   setSuccess: (success: string | null) => void;
+  refreshEventData?: () => void;
 }
 
 // Вспомогательная функция для проверки токена локально
@@ -64,6 +65,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   setIsPageLoading,
   setError,
   setSuccess,
+  refreshEventData,
 }) => {
   const router = useRouter();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -515,12 +517,33 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 text-center sm:text-left">
               {isNewEvent ? "Создание мероприятия" : "Редактирование мероприятия"}
             </h1>
-            <button
-              onClick={() => router.push("/dashboard")}
-              className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] min-h-[44px] shrink-0"
-            >
-              Назад к списку
-            </button>
+            <div className="flex flex-col sm:flex-row gap-4">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] min-h-[44px]"
+              >
+                Отмена
+              </button>
+              {!isNewEvent && refreshEventData && (
+                <button
+                  type="button"
+                  onClick={refreshEventData}
+                  className="flex items-center justify-center px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors min-w-[120px] min-h-[44px]"
+                >
+                  <FaSync className="mr-2" />
+                  Обновить
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handlePreview}
+                className="flex items-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors min-w-[120px] min-h-[44px]"
+              >
+                <FaEye className="mr-2" />
+                Предпросмотр
+              </button>
+            </div>
           </div>
 
           {localError && <ErrorDisplay error={localError} />}
@@ -814,11 +837,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   value={formData.url_slug || ""}
                   onChange={handleChange}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
-                  placeholder="например: kirtan-mela-2023"
+                  placeholder="например: kirtan-mela"
                 />
               </div>
               <p className="mt-1 text-xs text-gray-500">
                 Формат: {formData.url_slug ? `${formData.url_slug}-${new Date(formData.start_date).getFullYear()}-ID` : "kirtan-mela-2023-ID"} (год и ID добавляются автоматически)
+              </p>
+              <p className="mt-1 text-xs text-gray-500 italic">
+                URL мероприятия будет отображаться на сайте как: <strong>/events/{formData.url_slug || "kirtan-mela"}-{new Date(formData.start_date).getFullYear()}-{formData.id || "ID"}</strong>
               </p>
             </div>
 

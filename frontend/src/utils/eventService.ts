@@ -53,6 +53,8 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   if (eventData.url_slug) {
     formData.append("url_slug", eventData.url_slug);
     console.log("eventService: Added url_slug:", eventData.url_slug);
+  } else {
+    console.warn("eventService: URL slug is empty or undefined!");
   }
   
   // Добавляем created_at и updated_at с текущей датой в формате ISO
@@ -75,69 +77,77 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   return formData;
 };
 
+// Helper function to prepare URL slug with year and ID suffix
+export const prepareUrlSlug = (slug: string | undefined, eventId?: number, startDate?: string): string | undefined => {
+  if (!slug || slug.trim() === '') {
+    console.log("prepareUrlSlug: slug is empty, returning undefined");
+    return undefined;
+  }
+  
+  // Очищаем слаг от возможных уже добавленных суффиксов
+  const slugParts = slug.split('-');
+  let cleanSlug = slug;
+  
+  // Если слаг содержит больше 2 частей, пробуем убрать потенциальный год и ID
+  if (slugParts.length > 2) {
+    // Проверяем, является ли предпоследняя часть годом (4 цифры)
+    const potentialYear = slugParts[slugParts.length - 2];
+    if (/^\d{4}$/.test(potentialYear)) {
+      cleanSlug = slugParts.slice(0, -2).join('-');
+    }
+  }
+  
+  // Получаем год из даты начала события или используем текущий год
+  let year = new Date().getFullYear().toString();
+  if (startDate) {
+    const eventDate = new Date(startDate);
+    year = eventDate.getFullYear().toString();
+  }
+  
+  // Если есть ID события, добавляем его как суффикс
+  let result;
+  if (eventId) {
+    result = `${cleanSlug}-${year}-${eventId}`;
+  } else {
+    // Для новых событий не добавляем ID (будет добавлен сервером)
+    result = `${cleanSlug}-${year}`;
+  }
+  
+  console.log(`prepareUrlSlug: Input slug "${slug}" processed to "${result}"`);
+  return result;
+};
+
 export const createEvent = async (eventData: EventFormData): Promise<EventResponse> => {
   console.log("eventService: Starting createEvent");
-  const adminToken = localStorage.getItem("admin_token");
-  
-  if (!adminToken) {
-    console.log("eventService: No admin token found");
-    return {
+  const token = localStorage.getItem("admin_token");
+  if (!token) {
+    console.log("eventService: No admin token found for createEvent");
+    return { 
       success: false,
-      message: "Отсутствует админ-токен. Необходимо войти в систему.",
-      authError: true
+      message: "Необходима авторизация администратора",
+      authError: true 
     };
   }
 
   try {
-    // Проверяем обязательные поля
-    if (!eventData.title) {
-      console.error("eventService: Missing required field: title");
-      return {
-        success: false, 
-        message: "Не заполнено обязательное поле: Название"
-      };
-    }
-    
-    if (!eventData.start_date) {
-      console.error("eventService: Missing required field: start_date");
+    // Проверка сессии на сервере
+    const isSessionValid = await ensureAdminSession();
+    if (!isSessionValid) {
+      console.log("eventService: Admin session is invalid");
       return {
         success: false,
-        message: "Не заполнено обязательное поле: Дата начала"
-      };
-    }
-
-    // Проверка сессии на сервере через выделенный эндпоинт /admin/me
-    try {
-      const sessionCheckResponse = await fetch('/admin/me', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${adminToken}`,
-          'Content-Type': 'application/json'
-        },
-        credentials: 'include'
-      });
-      
-      if (sessionCheckResponse.status !== 200) {
-        console.error(`eventService: Session check failed with status ${sessionCheckResponse.status}`);
-        return {
-          success: false,
-          message: "Ошибка авторизации. Пожалуйста, войдите снова.",
-          authError: true
-        };
-      }
-      
-      console.log("eventService: Session check passed successfully");
-    } catch (sessionError) {
-      console.error("eventService: Error checking session:", sessionError);
-      return {
-        success: false,
-        message: "Ошибка проверки сессии. Проверьте соединение.",
+        message: "Сессия администратора истекла. Необходимо войти заново.",
         authError: true
       };
     }
-
-    // Подготовка FormData для отправки на сервер
-    const formData = prepareEventFormData(eventData);
+    
+    console.log("eventService: Preparing event data for creation");
+    
+    // Prepare form data for upload
+    const formData = prepareEventFormData({
+      ...eventData,
+      url_slug: prepareUrlSlug(eventData.url_slug, undefined, eventData.start_date)
+    });
     
     // Логируем данные формы (без файла, если он есть)
     const formDataDebug = Object.fromEntries(
@@ -155,7 +165,7 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
     const createResponse = await fetch(createUrl, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${adminToken}`
+        'Authorization': `Bearer ${token}`
         // НЕ устанавливаем Content-Type вручную для FormData с файлами!
       },
       // Используем same-origin вместо include, это решает проблему с перенаправлением и cookies
@@ -259,15 +269,46 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
   }
 };
 
-export const updateEvent = async (
-  id: string,
-  data: EventFormData,
-  token?: string
-): Promise<{ success: boolean; event?: Event; message?: string; authError?: boolean }> => {
-  console.log("eventService: Starting updateEvent", { id, data });
+export const updateEvent = async (id: number | string, data: EventFormData): Promise<EventResponse> => {
+  console.log(`eventService: Updating event with ID ${id}`);
+  
+  if (!id) {
+    console.error("eventService: No event ID provided for update");
+    return {
+      success: false,
+      message: "Не указан ID события для обновления",
+    };
+  }
+  
+  const adminToken = localStorage.getItem("admin_token");
+  if (!adminToken) {
+    console.log("eventService: No admin token found");
+    return { 
+      success: false,
+      message: "Отсутствует админ-токен. Необходимо войти в систему.",
+      authError: true 
+    };
+  }
 
   try {
-    // Проверяем сессию на сервере
+    // Проверяем обязательные поля
+    if (!data.title) {
+      console.error("eventService: Missing required field: title");
+      return {
+        success: false, 
+        message: "Не заполнено обязательное поле: Название"
+      };
+    }
+    
+    if (!data.start_date) {
+      console.error("eventService: Missing required field: start_date");
+      return {
+        success: false,
+        message: "Не заполнено обязательное поле: Дата начала"
+      };
+    }
+
+    // Проверка сессии на сервере
     const isSessionValid = await ensureAdminSession();
     if (!isSessionValid) {
       console.log("eventService: Admin session is invalid");
@@ -278,40 +319,46 @@ export const updateEvent = async (
       };
     }
     
-    // Prepare form data
-    const formData = prepareEventFormData(data);
-
-    // Получаем токен из localStorage, если он не передан
-    const adminToken = token || localStorage.getItem("admin_token");
-    if (!adminToken) {
-      console.log("eventService: No admin token found");
-      return {
-        success: false,
-        message: "Отсутствует админ-токен. Необходимо войти в систему.",
-        authError: true
-      };
-    }
-
-    // Убедимся, что URL точно заканчивается слешем для избежания перенаправления
-    const updateUrl = `/admin_edits/${id}/`;
+    console.log(`eventService: Preparing event data for update, event ID: ${id}`);
     
-    // Send PUT request to update the event
+    // Prepare form data for upload
+    const formData = prepareEventFormData({
+      ...data,
+      url_slug: prepareUrlSlug(data.url_slug, typeof id === 'string' ? parseInt(id) : id, data.start_date)
+    });
+    
+    // Логируем данные формы (без файла, если он есть)
+    const formDataForLog = { ...data };
+    if (formDataForLog.image_file) {
+      formDataForLog.image_file = `[File object: ${(formDataForLog.image_file as File).name}]` as any;
+    }
+    console.log("eventService: Sending update form data:", formDataForLog);
+    
+    // Определяем URL для запроса
+    // Убедимся, что URL заканчивается слешем для избежания перенаправления
+    const updateUrl = id.toString().endsWith('/') 
+      ? `/admin_edits/${id}` 
+      : `/admin_edits/${id}/`;
+    
+    console.log(`eventService: Sending update request to ${updateUrl}`);
+    
+    // Отправляем запрос
     const response = await fetch(updateUrl, {
       method: "PUT",
       headers: {
         'Authorization': `Bearer ${adminToken}`
         // НЕ устанавливаем Content-Type вручную для FormData с файлами!
       },
-      credentials: 'same-origin',
-      body: formData
+      body: formData,
+      credentials: 'same-origin'
     });
 
     // Проверяем наличие обновленного токена в заголовках
     handleTokenRefresh(response);
-
+    
     console.log(`eventService: Update response status: ${response.status}`);
     
-    // Обработка ошибок
+    // Обработка ошибок аутентификации
     if (response.status === 401) {
       console.log("eventService: Authentication error 401 in updateEvent, clearing session");
       localStorage.removeItem("admin_token");
@@ -323,7 +370,6 @@ export const updateEvent = async (
       };
     }
     
-    // Для ошибки 403 Forbidden сохраняем данные сессии, но возвращаем ошибку с флагом авторизации
     if (response.status === 403) {
       console.log("eventService: Authorization error 403 in updateEvent, NOT clearing session");
       

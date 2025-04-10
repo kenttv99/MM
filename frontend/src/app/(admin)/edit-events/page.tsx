@@ -2,7 +2,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useMemo, Suspense, useState } from "react";
+import { useEffect, useRef, useMemo, Suspense, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useEventForm } from "@/hooks/useEventForm";
@@ -60,6 +60,16 @@ function EditEventsPageContent() {
     onError: (err) => console.error("Error in useEventForm:", err),
   });
 
+  // Add this function to force reload data from server
+  const refreshEventData = useCallback(() => {
+    if (!initialEventId) return;
+    setIsPageLoading(true);
+    loadEvent(initialEventId, true)
+      .finally(() => {
+        setIsPageLoading(false);
+      });
+  }, [initialEventId, loadEvent, setIsPageLoading]);
+
   useEffect(() => {
     if (initialized.current) return;
     initialized.current = true;
@@ -70,7 +80,8 @@ function EditEventsPageContent() {
     }
 
     if (!isNewEvent && initialEventId) {
-      loadEvent(initialEventId);
+      // Always force refresh to get the latest data from server
+      loadEvent(initialEventId, true);
     }
   }, [isAuthenticated, isNewEvent, initialEventId, loadEvent, router]);
 
@@ -91,6 +102,7 @@ function EditEventsPageContent() {
       setIsPageLoading={setIsPageLoading}
       setError={setError}
       setSuccess={setSuccess}
+      refreshEventData={refreshEventData}
     />
   );
 }

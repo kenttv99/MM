@@ -709,7 +709,8 @@ async def get_admin_event(
             "published": event.published,
             "created_at": event.created_at,
             "updated_at": event.updated_at,
-            "status": event.status
+            "status": event.status,
+            "url_slug": event.url_slug
         }
         if event.tickets:
             ticket = event.tickets[0]

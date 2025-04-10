@@ -21,10 +21,55 @@ const ProfilePage: React.FC = () => {
   const { setStage, detectAndFixLoadingInconsistency } = useLoading();
   const router = useRouter();
 
-  // Создаем мемоизированный компонент с билетами заранее
-  const userTicketsComponent = React.useMemo(() => (
-    userData ? <UserEventTickets key={`tickets-${userData?.id || 'guest'}`} /> : null
-  ), [userData?.id]);
+  // Add a ref to track ticket updates for UserEventTickets component
+  const ticketsNeedRefresh = useRef(false);
+  const ticketsComponentRef = useRef<{ refreshTickets: () => void }>(null);
+  
+  // Function to force refresh tickets
+  const refreshTickets = useCallback(() => {
+    console.log('ProfilePage: Forcing tickets refresh');
+    ticketsNeedRefresh.current = true;
+    setForceUpdate(prev => prev + 1);
+    
+    // Use the ref method if available
+    if (ticketsComponentRef.current) {
+      console.log('ProfilePage: Using direct refreshTickets method');
+      ticketsComponentRef.current.refreshTickets();
+    }
+  }, []);
+
+  // Check for notification about ticket updates - just log them
+  useEffect(() => {
+    const handleTicketUpdate = (event: Event) => {
+      console.log('ProfilePage: Received ticket update event');
+      
+      // Mark that tickets need refreshing
+      ticketsNeedRefresh.current = true;
+      
+      // If the event has detail data, log it
+      if (event instanceof CustomEvent && event.detail) {
+        const { source, action, ticketId, eventId } = event.detail;
+        console.log('ProfilePage: Ticket update details:', { 
+          source, 
+          action, 
+          ticketId,
+          eventId,
+          needsRefresh: ticketsNeedRefresh.current
+        });
+      }
+      
+      // Force a rerender to ensure UserEventTickets notices the change
+      setForceUpdate(prev => prev + 1);
+    };
+    
+    window.addEventListener('ticket-update', handleTicketUpdate);
+    return () => {
+      window.removeEventListener('ticket-update', handleTicketUpdate);
+    };
+  }, []);
+  
+  // Add a state to force updates when needed
+  const [forceUpdate, setForceUpdate] = useState(0);
 
   const [formState, setFormState] = useState<FormState>({
     fio: "",
@@ -348,6 +393,14 @@ const ProfilePage: React.FC = () => {
     setFetchError(null);
   }, [initialFormState, validateForm]);
 
+  // Force refresh tickets when user data changes
+  useEffect(() => {
+    if (userData && !authLoading) {
+      console.log('ProfilePage: User data loaded, refreshing tickets');
+      refreshTickets();
+    }
+  }, [userData, authLoading, refreshTickets]);
+
   if (!isAuth) return null;
 
   return (
@@ -501,7 +554,11 @@ const ProfilePage: React.FC = () => {
         </div>
         <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-          {userTicketsComponent}
+          {userData && <UserEventTickets 
+            ref={ticketsComponentRef}
+            needsRefresh={ticketsNeedRefresh} 
+            forceUpdateTrigger={forceUpdate} 
+          />}
         </div>
         {isChangePasswordOpen && <ChangePasswordForm
           isOpen={isChangePasswordOpen}

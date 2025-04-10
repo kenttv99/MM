@@ -1,7 +1,7 @@
 // frontend/src/components/EventRegistration.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
@@ -85,6 +85,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [success, setSuccess] = useState<string | undefined>(undefined);
   const [userTicket, setUserTicket] = useState<UserTicket | null>(null);
   const [isCheckingTicket, setIsCheckingTicket] = useState(false);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
 
   const remainingQuantity = availableQuantity - soldQuantity;
   const maxVisibleSeats = 10;
@@ -96,82 +97,259 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const isRegistrationClosedOrCompleted =
     displayStatus === "Регистрация закрыта" || displayStatus === "Мероприятие завершено";
 
-  // Проверяем, есть ли у пользователя уже билет на это мероприятие
+  // Функция для получения и отображения отладочной информации
+  const showDebugInfo = useCallback(async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setDebugInfo("Нет токена авторизации");
+        return;
+      }
+
+      const response = await apiFetch<any>('/user_edits/my-tickets', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        bypassLoadingStageCheck: true,
+        params: {
+          _nocache: Date.now()
+        }
+      });
+
+      let tickets: UserTicket[] = [];
+      
+      if (Array.isArray(response)) {
+        tickets = response;
+      } else if (response) {
+        if (response.data) {
+          tickets = Array.isArray(response.data) ? response.data : [response.data];
+        } else if (response.items) {
+          tickets = Array.isArray(response.items) ? response.items : [response.items];
+        } else if (response.tickets) {
+          tickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
+        }
+      }
+
+      // Фильтруем билеты для текущего мероприятия
+      const currentEventId = parseInt(eventId.toString());
+      const eventTickets = tickets.filter(ticket => ticket.event.id === currentEventId);
+      
+      // Формируем отладочную информацию
+      if (eventTickets.length === 0) {
+        setDebugInfo(`Билетов для мероприятия ${eventId} не найдено. Всего билетов: ${tickets.length}`);
+      } else {
+        const ticketInfo = eventTickets.map(t => 
+          `ID: ${t.id}, Статус: ${t.status}, Дата: ${new Date(t.registration_date).toLocaleString()}`
+        ).join('\n');
+        setDebugInfo(`Билеты для мероприятия ${eventId}:\n${ticketInfo}`);
+      }
+    } catch (err) {
+      setDebugInfo(`Ошибка получения билетов: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
+    }
+  }, [eventId]);
+
+  // Effect to check for user's ticket when authenticated
   useEffect(() => {
     if (isAuth && userData) {
+      // Define function to check if the user has a ticket for this event
       const checkUserTicket = async () => {
-        setIsCheckingTicket(true);
         try {
+          setIsCheckingTicket(true);
           const token = localStorage.getItem('token');
-          if (!token) return;
-
-          const response = await apiFetch<any>('/user_edits/my-tickets', {
-            method: 'GET',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            bypassLoadingStageCheck: true
-          });
-
-          // Проверяем на ошибку 401
-          if (response && 'status' in response && response.status === 401) {
-            console.log('EventRegistration: Получена ошибка 401, сбрасываем авторизацию');
-            // Сбрасываем авторизацию как при выходе из системы
-            localStorage.removeItem('token');
-            localStorage.removeItem('userData');
-            // Не делаем перенаправление на главную страницу
+          if (!token) {
+            console.log('EventRegistration: No token found, user needs to login');
             return;
           }
 
-          let tickets: UserTicket[] = [];
+          // First try the dedicated check-ticket endpoint
+          let response = await apiFetch<any>(`/registration/check-ticket?event_id=${eventId}&user_id=${userData.id}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            bypassLoadingStageCheck: true,
+            params: {
+              _nocache: Date.now() // Prevent caching
+            }
+          }).catch(error => {
+            console.log('EventRegistration: check-ticket endpoint failed, will try fallback:', error);
+            return { error: 'Not Found', status: 404 };
+          });
+
+          // If the check-ticket endpoint fails, fallback to getting all tickets and filtering
+          if (response && (response.error || response.status === 404)) {
+            console.log('EventRegistration: Falling back to my-tickets endpoint');
+            
+            response = await apiFetch<any>('/user_edits/my-tickets', {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              bypassLoadingStageCheck: true,
+              params: {
+                _nocache: Date.now() // Prevent caching
+              }
+            });
+            
+            // If we get all tickets, filter for the current event
+            if (response) {
+              console.log('EventRegistration: Got all tickets, filtering for current event', response);
+              
+              let allTickets: UserTicket[] = [];
           
-          // Обработка различных форматов ответа
+              // Parse the response based on its structure
           if (Array.isArray(response)) {
-            tickets = response;
-          } else if (response) {
-            if (response.data) {
-              tickets = Array.isArray(response.data) ? response.data : [response.data];
+                allTickets = response;
+              } else if (response.data) {
+                allTickets = Array.isArray(response.data) ? response.data : [response.data];
             } else if (response.items) {
-              tickets = Array.isArray(response.items) ? response.items : [response.items];
+                allTickets = Array.isArray(response.items) ? response.items : [response.items];
             } else if (response.tickets) {
-              tickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
+                allTickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
+            }
+          
+              // Filter for tickets matching this event and not cancelled
+          const currentEventId = parseInt(eventId.toString());
+              const eventTickets = allTickets.filter(ticket => 
+                ticket.event.id === currentEventId && ticket.status !== 'cancelled'
+              );
+              
+              console.log(`EventRegistration: Found ${eventTickets.length} active tickets for event ${currentEventId}`);
+              
+              // Use the first valid ticket if found
+              if (eventTickets.length > 0) {
+                response = eventTickets[0];
+              } else {
+                console.log('EventRegistration: No active tickets found for this event');
+                setUserTicket(null);
+                setIsCheckingTicket(false);
+                return;
+              }
             }
           }
 
-          // Ищем билет на это мероприятие
-          const eventTicket = tickets.find(
-            ticket => 
-              ticket.event.id === parseInt(eventId.toString()) && 
-              ticket.status !== "cancelled"
-          );
+          console.log('EventRegistration: Ticket check response:', response);
 
-          if (eventTicket) {
-            setUserTicket(eventTicket);
+          // Process the response based on its structure
+          if (response && ((Array.isArray(response) && response.length > 0) || 
+              response.data || response.ticket || response.result || response.id)) {
+            
+            // Handle different response formats
+            let ticketData;
+            if (Array.isArray(response)) {
+              ticketData = response[0];
+            } else if (response.data) {
+              ticketData = Array.isArray(response.data) ? response.data[0] : response.data;
+            } else if (response.ticket) {
+              ticketData = response.ticket;
+            } else {
+              ticketData = response;
+            }
+
+            // Ensure we have the basic ticket data structure
+            const processedTicket = {
+              id: ticketData.id || 0,
+              event: {
+                id: parseInt(eventId.toString()),
+                title: eventTitle,
+                start_date: ticketData.event?.start_date || eventDate || new Date().toISOString(),
+                end_date: ticketData.event?.end_date || undefined,
+                location: ticketData.event?.location || eventLocation
+              },
+              ticket_type: ticketData.ticket_type || "standart",
+              registration_date: ticketData.registration_date || ticketData.created_at || new Date().toISOString(),
+              status: ticketData.status || "confirmed",
+              ticket_number: ticketData.ticket_number || ticketData.id?.toString()
+            };
+
+            console.log('EventRegistration: Processed ticket data:', processedTicket);
+          
+            // Skip cancelled tickets - don't display them
+            if (processedTicket.status === 'cancelled') {
+              console.log('EventRegistration: Ticket is cancelled, not showing');
+              setUserTicket(null);
+              return;
+            }
+            
+            // Set the user ticket for UI display
+            setUserTicket(processedTicket);
+          } else {
+            // No ticket found or it's cancelled
+            console.log('EventRegistration: No active ticket found for this event');
+            setUserTicket(null);
           }
         } catch (err) {
-          console.error('Error checking user ticket:', err);
-          
-          // Проверяем на ошибку 401 в исключении
-          if (err instanceof Error && (
-            err.message.includes('401') || 
-            err.message.includes('Unauthorized') || 
-            err.message.toLowerCase().includes('авториз')
-          )) {
-            console.log('EventRegistration: Получена ошибка 401 в исключении, сбрасываем авторизацию');
-            // Сбрасываем авторизацию как при выходе из системы
-            localStorage.removeItem('token');
-            localStorage.removeItem('userData');
-            // Не делаем перенаправление на главную страницу
-          }
+          console.error('EventRegistration: Error checking user ticket:', err);
+          setUserTicket(null);
         } finally {
           setIsCheckingTicket(false);
         }
       };
 
+      // Check for ticket on component mount and userData change
       checkUserTicket();
+      
+      // Listen for ticket-update events to refresh ticket status
+      const handleTicketUpdate = (event: Event) => {
+        try {
+          // Check if the event is a CustomEvent with detail data
+        if (event instanceof CustomEvent && event.detail) {
+            const { source, ticketId, eventId: receivedEventId, action, newTicket } = event.detail;
+          const currentEventId = parseInt(eventId.toString());
+          
+          console.log(`EventRegistration: Received ticket-update event with details:`, {
+            source,
+            ticketId,
+            receivedEventId,
+            currentEventId,
+            action,
+              hasNewTicket: !!newTicket,
+            matchesThisEvent: receivedEventId === currentEventId
+          });
+          
+          // Check if this event update is for the current event we're displaying
+          if (receivedEventId === currentEventId) {
+            if (action === 'cancel') {
+                // If ticket was cancelled, update our local state immediately
+                console.log('EventRegistration: Ticket was cancelled, updating state');
+              setUserTicket(null);
+              } else if (action === 'register' && newTicket) {
+                // If it's a registration with complete ticket data, use it directly
+                console.log('EventRegistration: Direct ticket update with new data');
+                setUserTicket(newTicket);
+              } else {
+                // For other actions or incomplete data, recheck ticket status from the server
+                console.log('EventRegistration: Ticket was updated, rechecking status');
+                setTimeout(() => checkUserTicket(), 100); // Small delay to allow other components to update
+              }
+            }
+          } else {
+            // If it's a simple event without details, recheck tickets if we're currently showing one
+            // or if we're not but it's a fresh update
+            console.log('EventRegistration: Received simple ticket update event, rechecking status');
+            setTimeout(() => checkUserTicket(), 100);
+          }
+        } catch (error) {
+          // Catch any errors to prevent event handler from breaking
+          console.error('EventRegistration: Error handling ticket update event:', error);
+          // Still try to check tickets as a fallback
+          setTimeout(() => checkUserTicket(), 300);
+        }
+      };
+      
+      window.addEventListener('ticket-update', handleTicketUpdate);
+      
+      return () => {
+        window.removeEventListener('ticket-update', handleTicketUpdate);
+      };
+    } else {
+      // Если пользователь не авторизован, сбрасываем состояние билета
+      setUserTicket(null);
     }
-  }, [isAuth, userData, eventId]);
+  }, [isAuth, userData, eventId, eventTitle, eventDate, eventLocation]);
 
   const handleConfirmBooking = async () => {
     setError(undefined);
@@ -194,7 +372,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       }
 
       console.log('Sending registration request with data:', {
-        event_id: parseInt(eventId),
+        event_id: parseInt(eventId.toString()),
         user_id: userData!.id
       });
 
@@ -206,7 +384,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({
-          event_id: parseInt(eventId),
+          event_id: parseInt(eventId.toString()),
           user_id: userData!.id
         })
       });
@@ -264,10 +442,64 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         }
       }
 
-      const data = await response.json();
+      // Parse response data
+      let data;
+      try {
+        data = await response.json();
       console.log('Success response:', data);
+      } catch (jsonError) {
+        console.error('Error parsing JSON response:', jsonError);
+        // Create a basic response if parsing fails
+        data = { id: Date.now() }; // Use timestamp as fallback ID
+      }
 
       setSuccess("Вы успешно забронировали билет!");
+      
+      // Always create a complete ticket object with all necessary data,
+      // filling in missing fields with sensible defaults
+        const newTicket = {
+        id: data?.id || Date.now(), // Fallback to timestamp if no ID
+          event: {
+          id: parseInt(eventId.toString()),
+          title: eventTitle || "Мероприятие",
+          start_date: eventDate ? new Date(eventDate).toISOString() : new Date().toISOString(),
+          end_date: eventDate ? new Date(eventDate).toISOString() : undefined,
+          location: eventLocation || "Не указано"
+          },
+        ticket_type: data?.ticket_type || "standart",
+          registration_date: new Date().toISOString(),
+        status: "confirmed", // Always set as confirmed
+        ticket_number: data?.ticket_number || String(data?.id || Date.now()),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+        };
+        
+      // Immediately update the local state to show the ticket
+        setUserTicket(newTicket);
+        
+      // Dispatch both a full custom event and a simple event for backward compatibility
+        if (typeof window !== 'undefined') {
+        // Detailed event with full ticket data
+        const ticketEvent = new CustomEvent('ticket-update', {
+            detail: {
+              source: 'event-registration',
+              action: 'register',
+            eventId: parseInt(eventId.toString()),
+            ticketId: newTicket.id,
+            newTicket: newTicket // Pass the complete ticket object
+            }
+          });
+        window.dispatchEvent(ticketEvent);
+        console.log('EventRegistration: Dispatched detailed ticket-update event with new ticket data', newTicket);
+        
+        // Also dispatch a simple event for legacy components
+        setTimeout(() => {
+          window.dispatchEvent(new Event('ticket-update'));
+          console.log('EventRegistration: Also dispatched simple ticket-update event for compatibility');
+        }, 50);
+      }
+      
+      // Close the modal after a short delay for better UX
       setTimeout(() => {
         setIsModalOpen(false);
         if (onBookingSuccess) onBookingSuccess();
@@ -291,6 +523,28 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   // Перенаправление в профиль пользователя при нажатии на кнопку "Активная бронь"
   const handleGoToProfile = () => {
     router.push("/profile");
+  };
+
+  // Добавляем кнопку для отладки (только в режиме разработки)
+  const renderDebugButton = () => {
+    if (process.env.NODE_ENV !== 'production') {
+      return (
+        <div className="mt-4 w-full">
+          <button 
+            onClick={showDebugInfo}
+            className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-800 py-1 px-2 rounded"
+          >
+            Проверить билеты
+          </button>
+          {debugInfo && (
+            <pre className="mt-2 p-2 bg-gray-100 text-xs overflow-auto max-h-40 rounded whitespace-pre-wrap">
+              {debugInfo}
+            </pre>
+          )}
+        </div>
+      );
+    }
+    return null;
   };
 
   // Рендер компонента, если у пользователя уже есть билет
@@ -336,6 +590,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             </div>
           </div>
         )}
+        
+        {renderDebugButton()}
       </div>
     );
   }
@@ -364,15 +620,20 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 whileTap={{ scale: 0.95 }}
                 onClick={handleButtonClick}
                 disabled={remainingQuantity === 0}
-                className={`px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-sm sm:text-base ${
-                  remainingQuantity === 0
-                    ? "bg-gray-300 text-gray-500 cursor-not-allowed"
-                    : "bg-orange-500 text-white hover:bg-orange-600 hover:shadow-lg"
-                }`}
+                className={`
+                  px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md
+                  min-w-[120px] min-h-[44px] text-sm sm:text-base
+                  ${remainingQuantity === 0
+                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
+                    : "bg-orange-500 text-white hover:bg-orange-600"}
+                `}
               >
                 Забронировать
               </motion.button>
             </div>
+            
+            {renderDebugButton()}
+
             {!isRegistrationClosedOrCompleted && remainingQuantity > 0 ? (
               <div className="flex flex-wrap gap-2 justify-center">
                 <AnimatePresence>

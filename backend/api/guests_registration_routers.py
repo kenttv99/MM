@@ -134,6 +134,8 @@ async def cancel_registration(
     current_user = await get_current_user(token, db)
     event_id = data.event_id
     user_id = data.user_id
+    
+    logger.info(f"Cancellation request received: event_id={event_id}, user_id={user_id}")
 
     # Проверка существующей регистрации
     registration_query = await db.execute(
@@ -146,6 +148,7 @@ async def cancel_registration(
     registration = registration_query.scalars().first()
     
     if not registration:
+        logger.warning(f"Active registration not found for user_id={user_id}, event_id={event_id}")
         raise HTTPException(status_code=404, detail="Активная регистрация не найдена")
     
     # Получаем информацию о билете и мероприятии
@@ -153,11 +156,15 @@ async def cancel_registration(
     event = await db.get(Event, event_id)
     
     if not ticket or not event:
+        logger.error(f"Ticket or event not found: ticket_id={registration.ticket_type_id}, event_id={event_id}")
         raise HTTPException(status_code=404, detail="Билет или мероприятие не найдены")
     
     # Проверяем, можно ли отменить регистрацию
     if event.status.value == "completed":
+        logger.warning(f"Cannot cancel registration for completed event: event_id={event_id}")
         raise HTTPException(status_code=400, detail="Нельзя отменить регистрацию на завершенное мероприятие")
+    
+    logger.info(f"Processing cancellation for registration_id={registration.id}")
     
     # Уменьшаем счетчик проданных билетов
     ticket.sold_quantity -= 1
@@ -174,4 +181,5 @@ async def cancel_registration(
     await log_user_activity(db, current_user.id, request, action="cancel_registration")
     
     await db.commit()
+    logger.info(f"Registration successfully cancelled: id={registration.id}, event_id={event_id}, user_id={user_id}")
     return RegistrationResponse(message="Регистрация успешно отменена")

@@ -624,6 +624,19 @@ export async function apiFetch<T>(
           }
           
           logError(`Error response for ${endpoint}: ${response.status} ${response.statusText}`);
+          
+          // Dispatch event for 401 Unauthorized responses
+          if (response.status === 401 && typeof window !== 'undefined') {
+            logWarn('API: Dispatching auth-unauthorized event due to 401 response');
+            window.dispatchEvent(new CustomEvent('auth-unauthorized', {
+              detail: {
+                endpoint,
+                status: response.status,
+                statusText: response.statusText
+              }
+            }));
+          }
+          
           return errorData;
         }
       } catch (error: unknown) {

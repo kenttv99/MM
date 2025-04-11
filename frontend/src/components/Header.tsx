@@ -68,24 +68,172 @@ const HeaderSkeleton = () => (
 
 const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: string; email: string }) => {
   const [imgError, setImgError] = useState(false);
-  const [cacheBuster, setCacheBuster] = useState(() => Date.now());
+  const [key, setKey] = useState(0);
+  const preloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [forceUpdate, setForceUpdate] = useState(0);
+  const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | undefined>(undefined);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const avatarLoadedRef = useRef(false);
 
-  // Reset error state and update cache buster when avatar URL changes
+  // Effect to handle initial load and localStorage check
   useEffect(() => {
-    setImgError(false);
-    setCacheBuster(Date.now());
+    if (typeof window === 'undefined') return;
     
-    // Pre-load avatar to check for errors
+    // First, check if we have a direct avatarUrl prop
     if (avatarUrl) {
+      console.log("AvatarDisplay: Using avatarUrl prop", avatarUrl);
+      setCurrentAvatarUrl(avatarUrl);
+      
+      // Cache the avatar URL in localStorage
+      localStorage.setItem('cached_avatar_url', avatarUrl);
+      
+      // Preload the avatar
+      preloadAvatar(avatarUrl);
+      return;
+    }
+    
+    // If no avatarUrl prop, check localStorage
+    if (isInitialLoad) {
+      const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
+      const cachedAvatarTimestamp = localStorage.getItem('avatar_cache_buster');
+      
+      console.log("AvatarDisplay: Initial load check", { 
+        cachedAvatarUrl, 
+        cachedAvatarTimestamp,
+        avatarUrl 
+      });
+      
+      if (cachedAvatarUrl) {
+        console.log("AvatarDisplay: Using cached avatar URL from localStorage");
+        setCurrentAvatarUrl(cachedAvatarUrl);
+        
+        // Preload the cached avatar
+        preloadAvatar(cachedAvatarUrl, cachedAvatarTimestamp);
+      }
+      
+      setIsInitialLoad(false);
+    }
+  }, [avatarUrl, isInitialLoad]);
+
+  // Helper function to preload avatar
+  const preloadAvatar = (url: string, timestamp?: string | null) => {
+    if (!url || url.startsWith('data:')) return;
+    
+    // Clear any existing preload timeout
+    if (preloadTimeoutRef.current) {
+      clearTimeout(preloadTimeoutRef.current);
+    }
+    
+    // Use the provided timestamp or get from localStorage or generate new one
+    const cacheBuster = timestamp || 
+      (typeof window !== 'undefined' ? localStorage.getItem('avatar_cache_buster') : null) || 
+      Date.now().toString();
+    
+    console.log("AvatarDisplay: Preloading avatar", { url, cacheBuster });
+    
+    // Delay preload slightly to avoid race conditions
+    preloadTimeoutRef.current = setTimeout(() => {
       const testImg = document.createElement('img');
-      testImg.onload = () => console.log('Header: Avatar preload successful:', avatarUrl);
+      testImg.onload = () => {
+        console.log('AvatarDisplay: Avatar preloaded successfully:', url);
+        avatarLoadedRef.current = true;
+        setForceUpdate(prev => prev + 1);
+      };
       testImg.onerror = () => {
-        console.error('Header: Avatar preload failed:', avatarUrl);
+        console.error('AvatarDisplay: Failed to preload avatar:', url);
         setImgError(true);
       };
-      testImg.src = `${avatarUrl}?t=${cacheBuster}`;
-    }
-  }, [avatarUrl]);
+      
+      testImg.src = `${url}?t=${cacheBuster}`;
+    }, 50);
+  };
+
+  // Effect to listen for avatar update events
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleAvatarUpdate = (event: CustomEvent) => {
+      console.log("AvatarDisplay: Received avatar update event", event.detail);
+      
+      // Force a re-render when avatar is updated
+      setKey(prev => prev + 1);
+      setForceUpdate(prev => prev + 1);
+      
+      // If we have a new avatar URL, update the current avatar URL state
+      if (event.detail && event.detail.newAvatarUrl) {
+        const newUrl = event.detail.newAvatarUrl;
+        const timestamp = event.detail.timestamp || Date.now();
+        
+        console.log("AvatarDisplay: Updating to new avatar", { newUrl, timestamp });
+        
+        // Update the current avatar URL state
+        setCurrentAvatarUrl(newUrl);
+        
+        // Cache the new avatar URL in localStorage
+        localStorage.setItem('cached_avatar_url', newUrl);
+        localStorage.setItem('avatar_cache_buster', timestamp.toString());
+        
+        // Preload the new avatar
+        preloadAvatar(newUrl, timestamp.toString());
+      }
+    };
+    
+    // Add event listener for avatar updates
+    window.addEventListener('avatar-updated', handleAvatarUpdate as EventListener);
+    
+    return () => {
+      window.removeEventListener('avatar-updated', handleAvatarUpdate as EventListener);
+    };
+  }, []);
+
+  // Effect to handle userDataChanged events
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    const handleUserDataChange = (event: CustomEvent) => {
+      const { userData, avatarRemoved } = event.detail;
+      
+      if (!userData) return;
+      
+      console.log("AvatarDisplay: Received userDataChanged event", { 
+        hasAvatar: !!userData.avatar_url,
+        avatarRemoved
+      });
+      
+      // If avatar was removed, clear the current avatar
+      if (avatarRemoved) {
+        console.log("AvatarDisplay: Avatar removed, clearing display");
+        setCurrentAvatarUrl(undefined);
+        localStorage.removeItem('cached_avatar_url');
+        setImgError(false);
+        return;
+      }
+      
+      // If we have a new avatar URL, update the current avatar URL state
+      if (userData.avatar_url) {
+        console.log("AvatarDisplay: New avatar detected in userData", userData.avatar_url);
+        
+        // Update the current avatar URL state
+        setCurrentAvatarUrl(userData.avatar_url);
+        
+        // Cache the avatar URL in localStorage
+        localStorage.setItem('cached_avatar_url', userData.avatar_url);
+        
+        // Get cache buster from localStorage or generate new one
+        const timestamp = localStorage.getItem('avatar_cache_buster') || Date.now().toString();
+        
+        // Preload the new avatar
+        preloadAvatar(userData.avatar_url, timestamp);
+      }
+    };
+    
+    // Add event listener for user data changes
+    window.addEventListener('userDataChanged', handleUserDataChange as EventListener);
+    
+    return () => {
+      window.removeEventListener('userDataChanged', handleUserDataChange as EventListener);
+    };
+  }, []);
 
   const sizeClasses = "w-10 h-10 min-w-[40px] min-h-[40px]";
   
@@ -94,26 +242,49 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
     localStorage.getItem('avatar_cache_buster') : null;
   
   // Determine the src with cache busting
-  const avatarSrc = avatarUrl 
-    ? `${avatarUrl}?t=${storageAvatarCacheBuster || cacheBuster}` 
+  const avatarSrc = currentAvatarUrl 
+    ? `${currentAvatarUrl}?t=${storageAvatarCacheBuster || Date.now()}` 
     : '';
   
-  return avatarUrl && !imgError ? (
-    <Image
-      src={avatarSrc}
-      alt="User Avatar"
-      width={40}
-      height={40}
-      className={`${sizeClasses} rounded-full object-cover hover:opacity-90`}
-      onError={(e) => {
-        console.error("Ошибка загрузки изображения аватарки в Header:", avatarUrl);
-        setImgError(true);
-      }}
-      priority
-      unoptimized
-    />
+  // Check if avatar URL is a data URI
+  const isDataUri = currentAvatarUrl && currentAvatarUrl.startsWith('data:');
+  
+  // Use a unique key for each render to force re-render
+  const uniqueKey = `avatar-${key}-${forceUpdate}`;
+  
+  return currentAvatarUrl && !imgError ? (
+    isDataUri ? (
+      // Use plain img tag for data URIs
+      <img
+        key={`data-uri-${uniqueKey}`}
+        src={currentAvatarUrl}
+        alt="User Avatar"
+        className={`${sizeClasses} rounded-full object-cover hover:opacity-90`}
+        onError={() => {
+          console.error("Ошибка загрузки data URI аватарки в Header");
+          setImgError(true);
+        }}
+      />
+    ) : (
+      // Use Next.js Image for normal URLs
+      <Image
+        key={`url-${uniqueKey}`}
+        src={avatarSrc}
+        alt="User Avatar"
+        width={40}
+        height={40}
+        className={`${sizeClasses} rounded-full object-cover hover:opacity-90`}
+        onError={(e) => {
+          console.error("Ошибка загрузки изображения аватарки в Header:", currentAvatarUrl);
+          setImgError(true);
+        }}
+        priority
+        unoptimized
+      />
+    )
   ) : (
     <div
+      key={`fallback-${uniqueKey}`}
       className={`${sizeClasses} bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-xl font-bold hover:bg-orange-200`}
     >
       {(fio || email).charAt(0).toUpperCase()}
@@ -275,20 +446,36 @@ const Header: React.FC = () => {
           avatarRemoved
         });
         
+        // Cache the avatar URL in localStorage if available
+        if (updatedUserData.avatar_url && typeof window !== 'undefined') {
+          localStorage.setItem('cached_avatar_url', updatedUserData.avatar_url);
+        }
+        
         // Force immediate UI update
         const forceUIUpdate = () => {
           // Force update of user data in this component by using the Auth context
           if (updateUserData && typeof updateUserData === 'function') {
-            updateUserData({...updatedUserData}, false);
+            // Create a fresh copy to ensure React detects the change
+            const freshUserData = {...updatedUserData};
+            updateUserData(freshUserData, false);
             
             // Also trigger a React state update to force re-render
             forceUpdate({});
+            
+            // Force a re-render of the entire header
+            setForceShowHeader(prev => !prev);
+            setTimeout(() => setForceShowHeader(prev => !prev), 0);
           }
         };
         
         // If avatar was removed, make sure to clear any cached versions
         if (avatarRemoved) {
           logInfo('Header: Avatar removed, clearing cache');
+          
+          // Clear cached avatar URL from localStorage
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('cached_avatar_url');
+          }
           
           // Force immediate UI update
           forceUIUpdate();
@@ -309,22 +496,24 @@ const Header: React.FC = () => {
             localStorage.getItem('avatar_cache_buster') || Date.now().toString() :
             Date.now().toString();
             
-          // Force immediate UI update with timeout to ensure DOM is ready
-          setTimeout(forceUIUpdate, 0);
+          // Force immediate UI update
+          forceUIUpdate();
           
-          // Pre-load the new avatar
-          const cachedBusterUrl = updatedUserData.avatar_url.includes('?') 
-            ? `${updatedUserData.avatar_url}&t=${timestamp}` 
-            : `${updatedUserData.avatar_url}?t=${timestamp}`;
-            
-          const testImg = document.createElement('img');
-          testImg.onload = () => {
-            console.log('Header: Updated avatar loaded successfully:', cachedBusterUrl);
-            // Force another update after successful load
-            setTimeout(forceUIUpdate, 50);
-          };
-          testImg.onerror = () => console.error('Header: Failed to load updated avatar:', cachedBusterUrl);
-          testImg.src = cachedBusterUrl;
+          // Pre-load the new avatar with a slight delay to ensure DOM is ready
+          setTimeout(() => {
+            const cachedBusterUrl = updatedUserData.avatar_url.includes('?') 
+              ? `${updatedUserData.avatar_url}&t=${timestamp}` 
+              : `${updatedUserData.avatar_url}?t=${timestamp}`;
+              
+            const testImg = document.createElement('img');
+            testImg.onload = () => {
+              console.log('Header: Updated avatar loaded successfully:', cachedBusterUrl);
+              // Force another update after successful load
+              forceUIUpdate();
+            };
+            testImg.onerror = () => console.error('Header: Failed to load updated avatar:', cachedBusterUrl);
+            testImg.src = cachedBusterUrl;
+          }, 50);
         } else {
           // No avatar changes, just update normally
           forceUIUpdate();
@@ -342,6 +531,12 @@ const Header: React.FC = () => {
           timestamp
         });
         
+        // Cache the new avatar URL in localStorage
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('cached_avatar_url', newAvatarUrl);
+          localStorage.setItem('avatar_cache_buster', timestamp.toString());
+        }
+        
         // Immediately update user data with the new avatar
         if (updateUserData && typeof updateUserData === 'function') {
           // Create a fresh copy to ensure React detects the change
@@ -349,16 +544,28 @@ const Header: React.FC = () => {
           
           // Force immediate render
           updateUserData(freshUserData, false);
+          
+          // Force a re-render of the entire header
+          setForceShowHeader(prev => !prev);
+          setTimeout(() => setForceShowHeader(prev => !prev), 0);
+          
+          // Also trigger a React state update to force re-render
           forceUpdate({});
           
-          // Preload the image
-          const img = document.createElement('img');
-          img.src = `${newAvatarUrl}?t=${timestamp}`;
-          img.onload = () => {
-            logInfo('Header: New avatar preloaded successfully');
-            // Force another update after successful load
-            setTimeout(() => forceUpdate({}), 50);
-          };
+          // Preload the image with a slight delay
+          setTimeout(() => {
+            const img = document.createElement('img');
+            img.src = `${newAvatarUrl}?t=${timestamp}`;
+            img.onload = () => {
+              logInfo('Header: New avatar preloaded successfully');
+              // Force another update after successful load
+              forceUpdate({});
+              
+              // Force a re-render of the entire header again
+              setForceShowHeader(prev => !prev);
+              setTimeout(() => setForceShowHeader(prev => !prev), 0);
+            };
+          }, 50);
         }
       }
     };

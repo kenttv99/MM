@@ -391,6 +391,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.removeEventListener('admin-logout', handleAdminLogout);
     };
   }, [isAuthenticated, logout]);
+  
+  // Add event listener for 401 Unauthorized responses
+  useEffect(() => {
+    const handleUnauthorized = (event: CustomEvent) => {
+      console.log('AuthContext: Detected 401 Unauthorized response', event.detail);
+      if (isAuthenticated) {
+        console.log('AuthContext: Currently authenticated, performing logout due to 401');
+        logout();
+      }
+    };
+
+    window.addEventListener('auth-unauthorized', handleUnauthorized as EventListener);
+    return () => {
+      window.removeEventListener('auth-unauthorized', handleUnauthorized as EventListener);
+    };
+  }, [isAuthenticated, logout]);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     if (!isMounted.current) return false;
@@ -457,6 +473,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if ('error' in response) {
         console.error('AuthContext: API error:', response.error);
+        
+        // Check for 401 Unauthorized error specifically
+        if (response.status === 401) {
+          console.log('AuthContext: Received 401 Unauthorized, performing logout');
+          if (isMounted.current) {
+            logout();
+          }
+          return false;
+        }
+        
         console.log('AuthContext: API error - explicitly moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
         throw new Error(typeof response.error === 'string' ? response.error : 'API Error');
@@ -478,10 +504,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     } catch (error) {
       console.error("AuthContext: Error checking auth:", error);
-      if (isMounted.current) {
-        logout();
-        setDynamicLoading(false);
+      
+      // Check if the error contains a status property indicating 401
+      if (error instanceof Error && 'status' in error && (error as any).status === 401) {
+        console.log('AuthContext: 401 Unauthorized error detected in error object');
+        if (isMounted.current) {
+          logout();
+        }
+      } else {
+        // For other errors, just reset loading state
+        if (isMounted.current) {
+          setDynamicLoading(false);
+        }
       }
+      
       setIsAuthCheckedState(true);
       console.log('AuthContext: Auth check error - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);

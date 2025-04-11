@@ -41,6 +41,8 @@ const nextConfig = {
         pathname: '/images/users_avatars/**',
       },
     ],
+    // Next.js doesn't support data URLs in Image component by design
+    // We're using regular <img> tags for data URLs instead
     // Включаем отладку для Next.js Image Optimization
     dangerouslyAllowSVG: true,
     contentDispositionType: 'attachment',

@@ -861,6 +861,17 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         timestamp: Date.now()
       }];
     };
+    
+    // Add event listener for unauthorized responses
+    const handleUnauthorized = () => {
+      console.log('LoadingContext: Unauthorized response detected, resetting to AUTHENTICATION stage');
+      // Force reset to authentication stage
+      stageChangeHistoryRef.current = [{
+        stage: LoadingStage.AUTHENTICATION,
+        timestamp: Date.now()
+      }];
+      updateStage(LoadingStage.AUTHENTICATION);
+    };
 
     window.addEventListener('popstate', handleNavigation);
     window.addEventListener('load', handlePageReload);
@@ -869,11 +880,13 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
         handleLogout();
       }
     });
+    window.addEventListener('auth-unauthorized', handleUnauthorized);
     
     return () => {
       window.removeEventListener('popstate', handleNavigation);
       window.removeEventListener('load', handlePageReload);
       window.removeEventListener('authStateChanged', handleLogout as EventListener);
+      window.removeEventListener('auth-unauthorized', handleUnauthorized);
     };
   }, [stage, loadingStateRef.current.isStaticLoading, loadingStateRef.current.isDynamicLoading, activeRequestsCount, updateStage]);
 

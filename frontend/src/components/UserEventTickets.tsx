@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, forwardRef } from "react";
+import { useEffect, useState, useRef, useCallback, forwardRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTimesCircle, FaFilter, FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaClock, FaRegCalendarCheck } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
@@ -7,21 +7,18 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import React from "react";
 
-// ========================================================================
-// ОПТИМИЗИРОВАННОЕ ЛОГИРОВАНИЕ
-// ========================================================================
-// Принципы логирования:
-// 1. Группировать логи по категориям: Lifecycle, Filters, API, Rendering
-// 2. Минимизировать количество логов в рабочих версиях (только в dev-режиме)
-// 3. Сокращать избыточную информацию, концентрироваться на ключевых данных
-// 4. Избегать дублирования похожих логов на разных этапах
-// 5. Обеспечить единый формат для удобного фильтрования в консоли
-// ========================================================================
+// Простой логгер
 const debugLog = (category: string, message: string, data?: unknown) => {
   const isDevMode = process.env.NODE_ENV === 'development';
   if (!isDevMode) return;
   
   const prefix = `UserEventTickets [${category}]:`;
+  
+  // Ограничиваем повторяющиеся логи, особенно при загрузке страницы
+  if (message.includes('Recomputing filtered tickets') || message.includes('Applying all filters') || message.includes('Applying filters')) {
+    // Пропускаем эти логи, чтобы не засорять консоль
+    return;
+  }
   
   if (data !== undefined) {
     console.log(`${prefix} ${message}`, data);
@@ -43,7 +40,7 @@ interface UserTicket {
   event: EventData;
   ticket_type: string;
   registration_date: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed" | "approved";
+  status: "pending" | "cancelled" | "completed" | "approved";
   cancellation_count?: number;
   ticket_number?: string;
 }
@@ -55,19 +52,8 @@ interface TicketFilters {
   dateTo: string | null;
 }
 
-// Define interfaces for context and component props
-interface FiltersContextType {
-  filters: TicketFilters;
-  setFilters: React.Dispatch<React.SetStateAction<TicketFilters>>;
-}
-
-// Create context
-const FiltersContext = React.createContext<FiltersContextType>({
-  filters: { status: ['confirmed'], dateFrom: null, dateTo: null },
-  setFilters: () => {}
-});
-
 // API response interface needed for requests
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface APIResponse<T> {
   data?: T;
   items?: T;
@@ -140,26 +126,28 @@ const TicketSkeleton = () => (
   </>
 );
 
-// Helper functions (moved outside components to be accessible everywhere)
-// Unified handler for filter changes
+// Helper function for filter changes
 const handleFilterChangeType = (type: 'status' | 'dateFrom' | 'dateTo', value: string | null, localFilters: TicketFilters, setLocalFilters: React.Dispatch<React.SetStateAction<TicketFilters>>) => {
   if (type === 'status') {
-    const newStatus = [...localFilters.status];
-    const index = newStatus.indexOf(value as string);
-    
-    if (index === -1) {
-      newStatus.push(value as string);
-    } else if (newStatus.length > 1) { // Prevent unselecting the last status
-      newStatus.splice(index, 1);
-    }
-    
-    setLocalFilters({...localFilters, status: newStatus});
+    setLocalFilters({...localFilters, status: [value as string]});
   } else if (type === 'dateFrom' || type === 'dateTo') {
     setLocalFilters({...localFilters, [type]: value});
   }
 };
 
-// Компонент панели фильтров (модернизированная версия)
+// Define interfaces for context and component props
+interface FiltersContextType {
+  filters: TicketFilters;
+  setFilters: React.Dispatch<React.SetStateAction<TicketFilters>>;
+}
+
+// Create context
+const FiltersContext = React.createContext<FiltersContextType>({
+  filters: { status: ['approved'], dateFrom: null, dateTo: null },
+  setFilters: () => {}
+});
+
+// Компонент панели фильтров
 const FilterPanel: React.FC<{ 
   isOpen: boolean; 
   onClose: () => void;
@@ -167,22 +155,22 @@ const FilterPanel: React.FC<{
   refreshTickets: () => void;
   filters: TicketFilters;
 }> = ({ isOpen, onClose, setFilters, refreshTickets, filters }) => {
-  // Local filters state - no longer using context
+  // Локальное состояние фильтров
   const [localFilters, setLocalFilters] = useState<TicketFilters>({ 
-    status: ['confirmed'], 
-    dateFrom: null, 
-    dateTo: null 
+    status: filters.status, 
+    dateFrom: filters.dateFrom, 
+    dateTo: filters.dateTo 
   });
   
-  // При открытии модального окна синхронизируем локальные фильтры с глобальными
+  // Синхронизация с глобальными фильтрами при открытии
   useEffect(() => {
     if (isOpen) {
-      // Синхронизируем локальные фильтры с глобальными вместо сброса на значения по умолчанию
+      debugLog('FilterPanel', 'Modal opened, syncing filters from global state', filters);
       setLocalFilters(filters);
     }
   }, [isOpen, filters]);
 
-  // Unified handler for filter changes
+  // Обработка изменения фильтров
   const handleFilterChange = (type: 'status' | 'dateFrom' | 'dateTo', value: string | null) => {
     handleFilterChangeType(type, value, localFilters, setLocalFilters);
   };
@@ -192,20 +180,21 @@ const FilterPanel: React.FC<{
     debugLog('Filters', 'Applying filters', localFilters);
     setFilters(localFilters);
     onClose();
-    // Use the refreshTickets function to ensure the API call uses the latest filters
+    setTimeout(() => {
     refreshTickets();
+    }, 0);
   };
   
   // Сброс фильтров
   const resetFilters = () => {
-    const resetValues = { status: ['confirmed'], dateFrom: null, dateTo: null };
-    setLocalFilters(resetValues);
-    setFilters(resetValues); // Немедленно обновляем глобальные фильтры
-    debugLog('FilterPanel', 'Filters reset', resetValues);
-    // Закрываем модальное окно
+    const resetFilterValues = { status: ['approved'], dateFrom: null, dateTo: null };
+    setLocalFilters(resetFilterValues);
+    setFilters(resetFilterValues);
+    debugLog('FilterPanel', 'Filters reset', resetFilterValues);
     onClose();
-    // Инициируем подгрузку билетов с обновленными фильтрами
+    setTimeout(() => {
     refreshTickets();
+    }, 0);
   };
 
   if (!isOpen) return null;
@@ -216,7 +205,7 @@ const FilterPanel: React.FC<{
     exit: { opacity: 0, y: -20, transition: { duration: 0.2 } },
   };
 
-  // Create filter option component to avoid repetition
+  // Filter option component
   const FilterOption = ({ label, value, isSelected }: { label: string, value: string, isSelected: boolean }) => (
     <div 
       className={`rounded-lg p-3 cursor-pointer transition-all ${
@@ -231,7 +220,7 @@ const FilterPanel: React.FC<{
         {isSelected && <span className="text-orange-500">✓</span>}
       </div>
       <div className={`h-2 w-full ${
-        value === 'confirmed' ? 'bg-green-200' :
+        value === 'approved' ? 'bg-green-200' :
         value === 'completed' ? 'bg-gray-300' :
         value === 'cancelled' ? 'bg-red-200' : 'bg-yellow-200'
       } rounded-full`}></div>
@@ -272,8 +261,8 @@ const FilterPanel: React.FC<{
               <div className="grid grid-cols-2 gap-2">
                 <FilterOption 
                   label="Подтвержденные" 
-                  value="confirmed" 
-                  isSelected={localFilters.status.includes('confirmed')} 
+                  value="approved" 
+                  isSelected={localFilters.status.includes('approved')} 
                 />
                 <FilterOption 
                   label="Завершенные" 
@@ -351,71 +340,42 @@ const FilterPanel: React.FC<{
   );
 };
 
-// Unified ticket filtering utility
-const applyFiltersToTickets = (ticketsToFilter: UserTicket[], filterSettings: TicketFilters) => {
-  if (!ticketsToFilter.length) return [];
+// Функция фильтрации билетов по статусу и дате
+const applyFiltersToTickets = (tickets: UserTicket[], filters: TicketFilters): UserTicket[] => {
+  debugLog('applyFiltersToTickets', 'Applying filters', filters);
   
-  debugLog('applyFiltersToTickets', 'Applying filters', filterSettings);
+  // Если нет фильтров или они не заданы, возвращаем исходный массив
+  if (!filters || (!filters.status.length && !filters.dateFrom && !filters.dateTo)) {
+    return tickets;
+  }
   
-  // First filter by status
-  let result = ticketsToFilter.filter(ticket => {
-    if (!ticket || !ticket.event) return false;
-    
-    // Determine effective status considering event status
-    let effectiveStatus = ticket.status;
-    
-    // If event is completed and ticket not cancelled, mark as completed
-    if (ticket.event.status === "completed" && ticket.status !== "cancelled") {
-      effectiveStatus = "completed";
+  return tickets.filter(ticket => {
+    // Проверяем статус билета
+    if (filters.status.length > 0 && !filters.status.includes(ticket.status)) {
+      return false;
     }
     
-    // Check status filter match
-    if (filterSettings.status.length === 0) return true;
-    
-    let matches = filterSettings.status.includes(effectiveStatus);
-    
-    // Special handling for "approved" status (treat as "confirmed")
-    if (effectiveStatus === "approved" && filterSettings.status.includes("confirmed")) {
-      matches = true;
+    // Проверяем даты бронирования
+    const registrationDate = new Date(ticket.registration_date);
+    if (filters.dateFrom) {
+      const dateFrom = new Date(filters.dateFrom);
+      dateFrom.setHours(0, 0, 0, 0);
+      if (registrationDate < dateFrom) {
+        return false;
+      }
     }
     
-    return matches;
+    if (filters.dateTo) {
+      const dateTo = new Date(filters.dateTo);
+      dateTo.setHours(23, 59, 59, 999);
+      if (registrationDate > dateTo) {
+        return false;
+      }
+    }
+    
+    return true;
   });
-  
-  // Then filter by date range if needed
-  if (filterSettings.dateFrom) {
-    const fromDate = new Date(filterSettings.dateFrom);
-    result = result.filter(ticket => {
-      if (!ticket || !ticket.registration_date) return false;
-      const regDate = new Date(ticket.registration_date);
-      return regDate >= fromDate;
-    });
-  }
-
-  if (filterSettings.dateTo) {
-    const toDate = new Date(filterSettings.dateTo);
-    // Set time to end of day
-    toDate.setHours(23, 59, 59, 999);
-    result = result.filter(ticket => {
-      if (!ticket || !ticket.registration_date) return false;
-      const regDate = new Date(ticket.registration_date);
-      return regDate <= toDate;
-    });
-  }
-  
-  return result;
 };
-
-// Restore required interfaces
-interface APIResponse<T> {
-  data?: T;
-  items?: T;
-  tickets?: T;
-  error?: string;
-  status?: number;
-  aborted?: boolean;
-  reason?: string;
-}
 
 // Re-add the ConfirmModal component
 interface ConfirmModalProps {
@@ -516,72 +476,101 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
 // Convert to forwardRef with imperative handle
 const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(() => {
-  const { isLoading: authLoading, isAuthChecked } = useAuth();
+  const { isAuth: _isAuth, isLoading: authLoading, isAuthChecked } = useAuth();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _isAuthUnused = _isAuth; // Suppress unused warning
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const router = useRouter(); // Suppress unused warning
+  const [isLoading, setIsLoading] = useState(true);
   const [tickets, setTickets] = useState<UserTicket[]>([]);
   const [filteredTickets, setFilteredTickets] = useState<UserTicket[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedTicket, setSelectedTicket] = useState<UserTicket | null>(null);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [cancelLoading, setCancelLoading] = useState(false);
+  const [selectedTicket, setSelectedTicket] = useState<UserTicket | null>(null);
+  const [cancelRegistrationLoading, setCancelRegistrationLoading] = useState(false);
+  const [cancelledTicketIds, setCancelledTicketIds] = useState<Set<string>>(new Set());
   const [cancelError, setCancelError] = useState<string | undefined>();
   const [cancelSuccess, setCancelSuccess] = useState<string | undefined>();
-  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
-  const [cancelledTicketIds, setCancelledTicketIds] = useState<Set<number>>(() => {
-    const stored = localStorage.getItem('cancelledTicketIds');
-    debugLog('Initialization', 'Loading cancelledTicketIds from localStorage', stored);
-    return stored ? new Set(JSON.parse(stored)) : new Set();
-  });
-
-  // Настройки фильтров - по умолчанию показываем подтвержденные билеты
+  const [retryCount, setRetryCount] = useState(0);
+  const [isFetching, setIsFetching] = useState(false); // Используем состояние вместо ref для управления загрузкой
+  
+  // Фильтры билетов
   const [filters, setFilters] = useState<TicketFilters>({
-    status: ['confirmed'],
+    status: ['approved'], // По умолчанию показываем только подтвержденные билеты
     dateFrom: null,
     dateTo: null
   });
 
-  const { userData } = useAuth();
-  const router = useRouter();
-  const ticketsPerPage = 10;
+  // Число билетов на страницу
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const ticketsPerPage = 50;
   
+  // Refs для отслеживания состояния компонента
   const isMounted = useRef(true);
-  const fetchAttempted = useRef(false);
-  const refreshCounter = useRef(0);
-  const isInitialFetchDone = useRef(false);
   const hasInitialData = useRef(false);
-  const isTicketBeingCancelled = useRef(false);
+  const isInitialFetchDone = useRef(false);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const lastCheckTime = useRef(0);
+  const fetchAttempted = useRef(false);
   const ticketsContainerRef = useRef<HTMLDivElement>(null);
-  const previousPath = useRef<string | null>(null);
-  const isFetching = useRef(false); // Track ongoing fetch
-
+  const isTicketBeingCancelled = useRef(false);
+  const previousPath = useRef<string>('');
+  const activeAbortController = useRef<AbortController | null>(null); // Для отслеживания активного запроса
+  const lastFetchTime = useRef<number>(0); // Для предотвращения частых запросов
+  const lastUnmountTime = useRef<number>(0); // Для отслеживания времени последнего размонтирования
+  const pendingFetchResult = useRef<UserTicket[] | null>(null); // Для хранения результатов запроса, если компонент размонтирован
+  
   // Создаем значение контекста
   const filtersContextValue = { filters, setFilters };
+  
+  // Загрузка отмененных билетов из localStorage
+  useEffect(() => {
+    try {
+      const storedTickets = localStorage.getItem('cancelledTickets');
+      if (storedTickets) {
+        const ticketsArray = JSON.parse(storedTickets) as string[];
+        setCancelledTicketIds(new Set(ticketsArray));
+        debugLog('UserEventTickets', 'Loaded cancelled tickets from localStorage', { count: ticketsArray.length });
+      }
+    } catch (error) {
+      console.error('Error loading cancelled tickets from localStorage:', error);
+    }
+  }, []);
+  
+  // Функция отмены билета
+  const cancelTicket = useCallback((ticketId: string) => {
+    setCancelledTicketIds(prev => {
+      const newSet = new Set(prev);
+      newSet.add(ticketId);
+      return newSet;
+    });
+  }, []);
 
   // Функция для сортировки билетов по статусу и дате
   const sortByStatusAndDate = useCallback((tickets: UserTicket[]): UserTicket[] => {
     if (!tickets || !tickets.length) return [];
     
-    // Приоритет статусов (от высшего к низшему)
+    // Status priority (highest to lowest)
     const statusPriority: Record<string, number> = {
-      "confirmed": 0,
-      "approved": 0, // Same priority as confirmed
+      "approved": 0, // Highest priority
       "pending": 1,
       "cancelled": 2,
       "completed": 3
     };
     
     return [...tickets].sort((a, b) => {
-      // Validate data before sorting
+      // Проверка данных перед сортировкой
       if (!a || !b || !a.event || !b.event) return 0;
       
-      // First sort by status priority
+      // Сначала сортируем по приоритету статуса
       const aStatus = a.status || 'pending';
       const bStatus = b.status || 'pending';
       const statusDiff = (statusPriority[aStatus] ?? 999) - (statusPriority[bStatus] ?? 999);
       
       if (statusDiff !== 0) return statusDiff;
       
-      // Then sort by event start date (closest first)
+      // Затем сортируем по дате начала события (ближайшие сначала)
       try {
         const dateA = new Date(a.event.start_date || Date.now());
         const dateB = new Date(b.event.start_date || Date.now());
@@ -593,128 +582,292 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     });
   }, []);
 
-  // Common function to extract ticket data from API response
-  const extractTicketsFromResponse = useCallback((response: APIResponse<UserTicket[]> | UserTicket[]): UserTicket[] => {
-    let ticketsData: UserTicket[] = [];
-    
-    if (Array.isArray(response)) {
-      debugLog('API', 'Response in direct array format');
-      ticketsData = response;
-    } else if (response && !("aborted" in response)) {
-      if ("data" in response && response.data) {
-        debugLog('API', 'Response in {data: [...]} format');
-        ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
-      } else if ("items" in response && response.items) {
-        debugLog('API', 'Response in {items: [...]} format');
-        ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
-      } else if ("tickets" in response && response.tickets) {
-        debugLog('API', 'Response in {tickets: [...]} format');
-        ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
-      }
-    }
-    
-    return ticketsData;
-  }, []);
-  
-  // Create params for API requests
-  const createApiParams = useCallback((page: number = 1, refresh: number = 0): Record<string, string | number> => {
-    const cacheKey = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    
-    const params: Record<string, string | number> = {
-      _nocache: cacheKey,
-      page,
-      per_page: ticketsPerPage
-    };
-    
-    if (refresh) {
-      params._refresh = refresh;
-    }
-    
-    // Add filter parameters if set
-    if (filters.dateFrom) {
-      params.date_from = filters.dateFrom;
-    }
-    if (filters.dateTo) {
-      params.date_to = filters.dateTo;
-    }
-    if (filters.status.length > 0) {
-      params.status = filters.status.join(',');
-    }
-    
-    return params;
-  }, [filters, ticketsPerPage]);
-  
-  // Helper function to determine if a new ticket should replace existing one
-  const shouldReplaceTicket = useCallback((existing: UserTicket, newTicket: UserTicket): boolean => {
-    // Status priority (higher to lower)
-    const statusPriority: Record<string, number> = {
-      "confirmed": 0,
-      "approved": 0, // Same priority as confirmed
-      "pending": 1,
-      "cancelled": 2,
-      "completed": 3
-    };
-    
-    // Compare status priorities
-    return (statusPriority[newTicket.status] ?? 999) < (statusPriority[existing.status] ?? 999);
-  }, []);
-  
-  // Process and deduplicate tickets
+  // Обработка и удаление дубликатов билетов
   const processTickets = useCallback((ticketsData: UserTicket[]): UserTicket[] => {
     if (!ticketsData || ticketsData.length === 0) return [];
     
     debugLog('Processing', 'Processing tickets', { count: ticketsData.length });
     
-    // Create Map to guarantee uniqueness by ID
+    // Создаем Map для гарантии уникальности по ID
     const uniqueTicketsMap = new Map<number, UserTicket>();
     
-    // Add only tickets with priority status
+    // Добавляем только билеты с приоритетным статусом
     ticketsData.forEach(ticket => {
       if (!ticket || !ticket.event) return;
       
-      // Skip tickets that have been cancelled by the user
-      if (cancelledTicketIds.has(ticket.id)) {
+      // Пропускаем билеты, которые пользователь отменил
+      if (cancelledTicketIds.has(ticket.id.toString())) {
         debugLog('Processing', `Skipping cancelled ticket ID: ${ticket.id}`);
         return;
       }
       
-      // Deep copy to prevent mutation
+      // Глубокое копирование для предотвращения мутаций
       const ticketCopy = { ...ticket, event: { ...ticket.event } };
       
-      // Update ticket status based on event status
-      // But don't change cancelled tickets
+      // Обновляем статус билета на основе статуса события
+      // Но не меняем отмененные билеты
       if (ticketCopy.event.status === "completed" && ticketCopy.status !== "cancelled") {
         ticketCopy.status = "completed";
       }
       
-      const existingTicket = uniqueTicketsMap.get(ticketCopy.id);
-      
-      // If ticket doesn't exist or has higher priority status
-      if (!existingTicket || shouldReplaceTicket(existingTicket, ticketCopy)) {
         uniqueTicketsMap.set(ticketCopy.id, ticketCopy);
-      }
     });
     
-    // Extract unique tickets
+    // Извлекаем уникальные билеты
     return Array.from(uniqueTicketsMap.values());
-  }, [shouldReplaceTicket, cancelledTicketIds]);
+  }, [cancelledTicketIds]);
 
-  // Integrated filter function using both utilities
+  // Применение всех фильтров
   const applyAllFilters = useCallback((ticketsToFilter: UserTicket[]) => {
     if (!ticketsToFilter.length) return [];
     
     debugLog('Filters', 'Applying all filters', { count: ticketsToFilter.length, filters });
     
-    // Apply status and date filtering
+    // Применяем фильтрацию по статусу и дате
     const filtered = applyFiltersToTickets(ticketsToFilter, filters);
     
-    // Then sort the filtered tickets
+    // Затем сортируем отфильтрованные билеты
     return sortByStatusAndDate(filtered);
   }, [filters, sortByStatusAndDate]);
   
-  // Add refreshTickets for use with the ref
+  // Define fetchTickets with useCallback before it's used
+  const fetchTickets = useCallback(async () => {
+    debugLog('API', 'fetchTickets started');
+    console.log('🔍 DIRECT CONSOLE: fetchTickets is executing now');
+
+    // Проверка на наличие сетевого соединения
+    if (!navigator.onLine) {
+      debugLog('API', 'No internet connection detected');
+      if (isMounted.current) {
+        setError('Нет соединения с интернетом. Проверьте подключение и попробуйте снова.');
+        setIsLoading(false);
+      }
+      setIsFetching(false);
+      fetchAttempted.current = false;
+      return;
+    }
+
+    // Предотвращаем повторный запрос если процесс уже идет
+    if (isFetching) {
+      debugLog('Lifecycle', 'Request already in progress, duplicate prevented');
+      return;
+    }
+
+    // Добавляем защиту от частых запросов (дебounce 3 секунды, увеличено для учета размонтирования)
+    const currentTime = Date.now();
+    const timeSinceLastFetch = currentTime - lastFetchTime.current;
+    const timeSinceLastUnmount = currentTime - lastUnmountTime.current;
+    if (timeSinceLastFetch < 3000 || (timeSinceLastUnmount < 1000 && timeSinceLastFetch < 5000)) {
+      debugLog('Lifecycle', 'Fetch request throttled due to recent activity', { timeSinceLastFetch, timeSinceLastUnmount });
+      // Если компонент смонтирован, можно показать сообщение о задержке
+      if (isMounted.current && timeSinceLastUnmount < 1000) {
+        setIsLoading(true); // Показываем загрузку, чтобы пользователь знал, что процесс идет
+      }
+      return;
+    }
+    lastFetchTime.current = currentTime;
+    
+    try {
+      // Mark request attempt
+      setIsFetching(true);
+      fetchAttempted.current = true;
+      if (isMounted.current) {
+        setIsLoading(true);
+      }
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        debugLog('Auth', 'Token not found');
+        if (isMounted.current) {
+          setError("Необходима авторизация");
+          setIsLoading(false);
+        }
+        setIsFetching(false);
+        fetchAttempted.current = false;
+        return;
+      }
+      
+      // Создаем контроллер для возможности отмены запроса
+      const controller = new AbortController();
+      activeAbortController.current = controller; // Сохраняем для возможности отмены при размонтировании
+      
+      // Задаем таймаут для запроса - 20 секунд
+      const timeoutId = setTimeout(() => {
+        controller.abort('Timeout after 20 seconds');
+        debugLog('API', 'Request aborted due to timeout');
+        
+        // После отмены запроса, сразу сбрасываем состояние загрузки
+        if (isMounted.current) {
+          setIsLoading(false);
+          setError("Не удалось загрузить билеты. Пожалуйста, проверьте соединение с интернетом.");
+        }
+        setIsFetching(false);
+        fetchAttempted.current = false; // Сбрасываем для повторной попытки
+        hasInitialData.current = true;
+        isInitialFetchDone.current = true;
+        // Инициируем повторную попытку загрузки через эффект, а не прямой вызов
+        debugLog('API', 'Initiating retry after timeout abort');
+        if (isMounted.current) {
+          setRetryCount(prev => prev + 1); // Увеличиваем счетчик для инициирования повторной попытки через эффект
+        }
+      }, 20000); // Таймаут 20 секунд
+      
+      // Получаем параметры для запроса
+      const cacheKey = `${Date.now()}_${Math.random().toString(36).substring(2)}`;
+      
+      // Формируем URL с параметрами как строку запроса
+      let url = `${process.env.NEXT_PUBLIC_API_URL || ''}/user_edits/my-tickets?_nocache=${cacheKey}`;
+      
+      // Добавляем фильтры
+      if (filters.status.length > 0) {
+        url += `&status=${filters.status[0]}`;
+      }
+      
+      if (filters.dateFrom) {
+        url += `&date_from=${filters.dateFrom}`;
+      }
+      
+      if (filters.dateTo) {
+        url += `&date_to=${filters.dateTo}`;
+      }
+      
+      // Выполняем запрос
+      debugLog('API', 'Sending network request', { url });
+      console.log('🔍 DIRECT CONSOLE: Sending request to', url);
+      try {
+        const response = await fetch(url, {
+          method: 'GET',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'Cache-Control': 'no-cache'
+          },
+          signal: controller.signal
+        });
+        
+        // Очищаем таймаут сразу после получения ответа
+        clearTimeout(timeoutId);
+        activeAbortController.current = null; // Сбрасываем после завершения запроса
+        
+        if (!response.ok) {
+          // Обработка ошибок HTTP
+          debugLog('API', `HTTP error: ${response.status} ${response.statusText}`);
+          
+          // Особая обработка для 401 - unauthorized
+          if (response.status === 401) {
+            debugLog('API', 'Unauthorized access, redirecting to login');
+            if (isMounted.current) {
+              setError("Требуется авторизация");
+            }
+            localStorage.removeItem('token');
+            localStorage.removeItem('userData');
+            return;
+          }
+          
+          // Для других ошибок просто показываем сообщение
+          throw new Error(`Ошибка сервера: ${response.status} ${response.statusText}`);
+        }
+        
+        const jsonData = await response.json();
+        debugLog('API', 'Network request completed', { ticketCount: Array.isArray(jsonData) ? jsonData.length : (jsonData.data?.length || jsonData.tickets?.length || jsonData.items?.length || 0) });
+        
+        // Нормализуем данные
+        let ticketsData: UserTicket[] = [];
+        if (Array.isArray(jsonData)) {
+          ticketsData = jsonData;
+        } else if (jsonData.data && Array.isArray(jsonData.data)) {
+          ticketsData = jsonData.data;
+        } else if (jsonData.tickets && Array.isArray(jsonData.tickets)) {
+          ticketsData = jsonData.tickets;
+        } else if (jsonData.items && Array.isArray(jsonData.items)) {
+          ticketsData = jsonData.items;
+        } else {
+          // Неизвестный формат данных
+          debugLog('API', 'Unknown data format', jsonData);
+          throw new Error('Неизвестный формат данных от сервера');
+        }
+        
+        debugLog('API', `Received ${ticketsData.length} tickets`);
+        
+        // Обработка билетов
+        const processedTickets = processTickets(ticketsData);
+        const filteredResults = applyAllFilters(processedTickets);
+        
+        // Сохраняем результат запроса, даже если компонент размонтирован
+        pendingFetchResult.current = processedTickets;
+        
+        // Обновляем состояние только если компонент все еще смонтирован
+        if (isMounted.current) {
+          setTickets(processedTickets);
+          setFilteredTickets(filteredResults);
+          setError(null);
+          setIsLoading(false);
+          pendingFetchResult.current = null; // Очищаем после применения
+        }
+        
+        // Обновляем флаги
+        hasInitialData.current = true;
+        isInitialFetchDone.current = true;
+        
+        debugLog('API', 'Tickets fetch completed successfully');
+      } catch (fetchError) {
+        // Ошибка запроса
+        if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
+          debugLog('API', 'Request was aborted');
+          if (isMounted.current) {
+            setError("Запрос был отменен. Попробуйте снова.");
+          }
+        } else {
+          console.error('Error fetching tickets:', fetchError);
+          debugLog('API', 'Error fetching tickets', fetchError);
+          if (isMounted.current) {
+            setError("Ошибка при загрузке билетов: " + (fetchError instanceof Error ? fetchError.message : 'Неизвестная ошибка'));
+          }
+        }
+        
+        // Сбрасываем состояние только если компонент смонтирован
+        if (isMounted.current) {
+          setIsLoading(false);
+        }
+        setIsFetching(false);
+        activeAbortController.current = null; // Сбрасываем после ошибки
+      }
+    } catch (err) {
+      // Любая другая ошибка
+      console.error('🔍 DIRECT CONSOLE: Error in fetchTickets', err);
+      debugLog('API', 'Error in fetchTickets', err);
+      if (isMounted.current) {
+        setError(err instanceof Error ? err.message : 'Ошибка при загрузке билетов');
+      }
+      
+      // В случае ошибки устанавливаем пустые билеты только если компонент смонтирован
+      if (isMounted.current) {
+        setTickets([]);
+        setFilteredTickets([]);
+      }
+      
+      // Обновляем флаги и состояние
+      hasInitialData.current = true;
+      isInitialFetchDone.current = true;
+      if (isMounted.current) {
+        setIsLoading(false);
+      }
+      activeAbortController.current = null; // Сбрасываем после ошибки
+    } finally {
+      debugLog('API', 'fetchTickets completed');
+      setIsFetching(false); // Гарантируем сброс флага в любом случае
+    }
+  }, [filters, processTickets, applyAllFilters, tickets.length, retryCount, isFetching]);
+  
+  // Add refreshTickets for use with the ref - moved after fetchTickets definition
   const refreshTickets = useCallback(() => {
     debugLog('UserEventTickets', 'Manual refresh requested via ref');
+    
+    // Защита от множественных вызовов
+    if (isFetching) {
+      debugLog('UserEventTickets', 'Refresh already in progress, skipping');
+      return;
+    }
     
     // Don't set loading state again if already loading
     if (!isLoading) {
@@ -727,239 +880,89 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     // setPage(1); // Commented out as setPage is not defined
     // setHasMore(true); // Commented out as setHasMore is not defined
     
-    // Increment counter to trigger refresh
-    refreshCounter.current += 1;
-    
     // Directly call fetchTickets to ensure data refresh
-    // Will be handled after fetchTickets is defined
-    console.log('Refresh requested, will be handled after fetchTickets is defined');
-  }, [isLoading]);
+    debugLog('UserEventTickets', 'Initiating direct fetch for refresh');
+    fetchTickets();
+  }, [isLoading, isFetching, fetchTickets]);
   
-  // Define fetchTickets with useCallback before it's used
-  const fetchTickets = useCallback(async () => {
-    debugLog('API', 'fetchTickets function called - starting fetch process');
-    // Prevent request if component not mounted
-    if (!isMounted.current) {
-      debugLog('Lifecycle', 'Component not mounted, but proceeding with fetch to ensure data refresh');
-      // Proceed with fetch even if not mounted to ensure data refresh on remount
-    }
-    
-    // If request already in progress, don't start a new one
-    if (isFetching.current) {
-      debugLog('Lifecycle', 'Request already in progress, duplicate prevented');
-      return;
-    }
-    
-    // Mark request attempt
-    isFetching.current = true;
-    fetchAttempted.current = true;
-    setIsLoading(true);
-    debugLog('API', 'Starting ticket fetch, refreshCounter=', refreshCounter.current);
-    
-    try {
-      debugLog('API', 'Preparing to make API call for tickets');
-      const token = localStorage.getItem('token');
-      if (!token) {
-        debugLog('Auth', 'Token not found');
-        setError("Необходима авторизация");
-        setIsLoading(false);
-        isFetching.current = false;
-        fetchAttempted.current = false;
-        router.push('/');
-        return;
-      }
-      
-      // Get parameters for API request with stronger cache-busting
-      const paramBase = createApiParams(1, refreshCounter.current);
-      const params = {
-        ...paramBase,
-        _nocache: Date.now() + '_' + Math.random().toString(36).substring(2)
-      };
-      
-      debugLog('API', 'Making API call to fetch tickets', params);
-      debugLog('API', 'Before API call to /user_edits/my-tickets');
-      // Add timeout to apiFetch to prevent hanging
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('API request timed out after 10 seconds')), 10000);
-      });
-      const responsePromise = apiFetch<APIResponse<UserTicket[]>>('/user_edits/my-tickets', {
-        method: 'GET',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache'
-        },
-        bypassLoadingStageCheck: true,
-        params
-      });
-      const response = await Promise.race([responsePromise, timeoutPromise]);
-      
-      debugLog('API', 'After API call to /user_edits/my-tickets, response received', response);
-      // Correct the type issue with response
-      const typedResponse = response as APIResponse<UserTicket[]> & { aborted?: boolean; reason?: unknown };
-      if ('aborted' in typedResponse && typedResponse.aborted) {
-        console.log('[fetchTickets] Fetch was aborted');
-        if (typedResponse.reason) {
-          console.log('[fetchTickets] Abort reason:', typedResponse.reason);
-        }
-        isFetching.current = false;
-        return;
-      }
-        
-      debugLog('API', 'Tickets response received');
-      
-      // Extract ticket data from response using our utility
-      const ticketsData = extractTicketsFromResponse(response as APIResponse<UserTicket[]> | UserTicket[]);
-      
-      if (!ticketsData || ticketsData.length === 0) {
-        debugLog('API', 'Tickets not found or empty response');
-        setTickets([]);
-        setFilteredTickets([]);
-        setError(null);
-        hasInitialData.current = true;
-        isInitialFetchDone.current = true;
-        setIsLoading(false);
-        isFetching.current = false;
-        fetchAttempted.current = false;
-        return;
-      }
-        
-      debugLog('API', `${ticketsData.length} tickets received`);
-      
-      // Process tickets with our utility
-      const processedTickets = processTickets(ticketsData);
-      
-      debugLog('API', `${processedTickets.length} unique tickets after processing`);
-      
-      // Apply filters immediately
-      const filteredResults = applyAllFilters(processedTickets);
-      
-      // Set both states in one batch
-      setTickets(processedTickets);
-      setFilteredTickets(filteredResults);
-      setError(null);
-      
-      // Update flags to prevent repeat requests
-      hasInitialData.current = true;
-      isInitialFetchDone.current = true;
-      
-      // Clear loading state immediately
-      setIsLoading(false);
-      
-      debugLog('API', 'Tickets load completed successfully');
-    } catch (err) {
-      debugLog('Error', 'Error loading tickets', err);
-      setError(err instanceof Error ? err.message : 'Ошибка при загрузке данных');
-      setIsLoading(false);
-      isInitialFetchDone.current = true;
-    } finally {
-      // Reset request marker in any case
-      debugLog('API', 'Fetch operation interrupted or aborted, resetting fetch state');
-      isFetching.current = false;
-      fetchAttempted.current = false;
-    }
-  }, [router, createApiParams, extractTicketsFromResponse, processTickets, applyAllFilters]);
-  
-  // Modified refreshCounter hook to avoid using .current in dependencies
-  useEffect(() => {
-    if (!isMounted.current) return;
-    
-    // Create a local copy of the counter to prevent re-triggers
-    const currentRefreshCount = refreshCounter.current;
-    
-    // Only fetch if refreshCounter has been explicitly incremented
-    if (currentRefreshCount > 0) {
-      debugLog('UserEventTickets', `Handling refresh #${currentRefreshCount}`);
-      
-      // Ensure not already fetching
-      if (!fetchAttempted.current) {
-        // Выполняем запрос
-        fetchTickets();
-      } else {
-        debugLog('UserEventTickets', 'Fetch already in progress, will retry in 500ms');
-        setTimeout(() => {
-          if (isMounted.current && !fetchAttempted.current) {
-            fetchTickets();
-          }
-        }, 500);
-      }
-    }
-  }, [fetchTickets]); // Remove refreshCounter.current from dependencies
-
   // Modified ticket update event listener to better handle external events
   useEffect(() => {
     const handleTicketUpdate = (event: Event) => {
-      // Skip if this event was triggered by this component
+      // Пропускаем наши собственные события
       if (event instanceof CustomEvent && event.detail && event.detail.source === 'user-event-tickets') {
         debugLog('UserEventTickets', 'Ignoring our own ticket-update event');
         return;
       }
       
-      // Do not process events while a ticket is being cancelled
+      // Не обрабатываем события во время отмены билета
       if (isTicketBeingCancelled.current) {
         debugLog('UserEventTickets', 'Skipping ticket-update event during active cancellation');
         return;
       }
       
+      // Проверяем, инициализирован ли компонент
+      if (!isMounted.current || isFetching) {
+        debugLog('UserEventTickets', 'Component not mounted or fetch in progress, skipping event');
+        return;
+      }
+      
       debugLog('UserEventTickets', 'External ticket-update event received');
       
-      // Handle event with detailed ticket data
+      // Обработка события с детальной информацией
       if (event instanceof CustomEvent && event.detail) {
         const { source, action, newTicket, ticketId, preventRefresh } = event.detail;
         
         debugLog('UserEventTickets', 'Event details', { source, action, preventRefresh });
         
-        // Skip refresh if explicitly prevented
+        // Пропускаем обновление, если явно указано
         if (preventRefresh) {
           debugLog('UserEventTickets', 'Skipping refresh as requested by event');
           return;
         }
         
-        // If the refresh flag is modified elsewhere and this is an external cancel event,
-        // we should still refresh
+        // Для событий отмены билета удаляем билет из списка без полного обновления
         if (source !== 'user-event-tickets' && action === 'cancel' && ticketId) {
           debugLog('UserEventTickets', `External cancel received for ticket ${ticketId} - removing from list`);
           
-          // Just remove the cancelled ticket without full refresh
+          // Удаляем отмененный билет без полного обновления
           setTickets(prevTickets => prevTickets.filter(t => t.id !== ticketId));
           setFilteredTickets(prevFiltered => prevFiltered.filter(t => t.id !== ticketId));
           return;
         }
         
-        // Handle registration events with complete ticket data
+        // Обработка события регистрации с полными данными билета
         if ((source === 'event-registration' || source === 'event-page') && action === 'register') {
           debugLog('UserEventTickets', 'Received registration event, source:', source);
           
-          // Store a flag in sessionStorage to detect navigation from registration
+          // Сохраняем флаг в sessionStorage для обнаружения навигации после регистрации
           sessionStorage.setItem('recent_registration', 'true');
           
-          // If we have the complete ticket data, add it directly
+          // Если у нас есть полные данные билета, добавляем его напрямую
           if (newTicket) {
             debugLog('UserEventTickets', 'Received new ticket data, adding to list', newTicket);
             
-            // Add the new ticket directly to the state without a full reload
+            // Добавляем новый билет напрямую в состояние без полной перезагрузки
             setTickets(prev => {
-              // Check if we already have this ticket
+              // Проверяем, есть ли уже такой билет
               if (prev.some(t => t.id === newTicket.id)) {
                 debugLog('UserEventTickets', 'Ticket already exists, not adding duplicate');
                 return prev;
               }
               
-              // Add the new ticket and process it
-              debugLog('UserEventTickets', 'Adding new ticket to state');
+              // Добавляем новый билет и применяем фильтры
               const updatedTickets = [...prev, newTicket];
               
-              // Also update filtered tickets based on current filters
-              setFilteredTickets(() => {
-                // Apply filters to the new combined array
-                return applyAllFilters(updatedTickets);
-              });
+              // Обновляем отфильтрованные билеты
+              setTimeout(() => {
+                if (isMounted.current) {
+                  setFilteredTickets(applyAllFilters(updatedTickets));
+                }
+              }, 0);
               
               return updatedTickets;
             });
             
-            // Mark data as loaded
+            // Отмечаем, что данные загружены
             hasInitialData.current = true;
             isInitialFetchDone.current = true;
             return;
@@ -967,10 +970,13 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         }
       }
       
-      // For other events, do a full refresh
-      debugLog('UserEventTickets', 'External event requires refresh - will fetchTickets()');
-      refreshCounter.current += 1;
-      fetchTickets();
+      // Для других событий выполняем полное обновление только если нет текущих запросов
+      if (!isFetching && !fetchAttempted.current) {
+        debugLog('UserEventTickets', 'External event requires refresh - will fetchTickets()');
+        fetchTickets();
+      } else {
+        debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
+      }
     };
     
     window.addEventListener('ticket-update', handleTicketUpdate);
@@ -978,7 +984,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     return () => {
       window.removeEventListener('ticket-update', handleTicketUpdate);
     };
-  }, [fetchTickets, applyAllFilters]);
+  }, [fetchTickets, applyAllFilters, isFetching]); // Remove isLoading from dependencies to prevent overfetching
 
   // Add scroll event listener for infinite scrolling
   useEffect(() => {
@@ -1002,87 +1008,50 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
 
   // Effect to fetch tickets when the component mounts or remounts
   useEffect(() => {
-    if (!isMounted.current) {
-      isMounted.current = true; // Reset mounted flag on remount
-      debugLog('UserEventTickets', 'Component remounted, resetting isMounted to true');
-    }
+    // Устанавливаем флаг монтирования
+    isMounted.current = true;
+    debugLog('UserEventTickets', 'Component mounted', { authLoading, isAuthChecked, ticketsLoaded: tickets.length });
     
-    debugLog('UserEventTickets', 'Component mounted or remounted, checking fetch necessity');
-    
-    // Fetch only if we don't have data yet and auth is checked
-    if (tickets.length === 0 && isAuthChecked) {
-      debugLog('UserEventTickets', 'No data loaded, triggering fetch on mount', { authLoading, isAuthChecked });
-      setIsLoading(true);
-      isFetching.current = false; // Force reset to allow fetch
-      debugLog('UserEventTickets', 'Fetch operation started - setting isFetching to true');
-      fetchTickets();
-      
-      // Add a safety timeout to reset isFetching if it gets stuck
-      setTimeout(() => {
-        if (isMounted.current && isFetching.current && tickets.length === 0) {
-          debugLog('UserEventTickets', 'Fetch operation timed out after 5 seconds, resetting isFetching to allow retry');
-          isFetching.current = false;
-          setIsLoading(true); // Keep loading state to show skeleton
-          fetchTickets(); // Retry fetch
-        }
-      }, 5000);
-    } else if (tickets.length > 0) {
-      debugLog('UserEventTickets', 'Data already loaded, skipping fetch');
+    // Проверяем, есть ли сохраненные данные из предыдущего запроса
+    if (pendingFetchResult.current && pendingFetchResult.current.length > 0 && isMounted.current) {
+      debugLog('UserEventTickets', 'Applying pending fetch results on mount', { ticketCount: pendingFetchResult.current.length });
+      setTickets(pendingFetchResult.current);
+      setFilteredTickets(applyAllFilters(pendingFetchResult.current));
+      setError(null);
       setIsLoading(false);
-    } else {
-      debugLog('UserEventTickets', 'Fetch in progress, auth not checked, or data pending, skipping duplicate fetch', { isFetching: isFetching.current, ticketsLength: tickets.length, isAuthChecked, authLoading });
-    }
-
-    // Устанавливаем таймер для автоматического сброса состояния загрузки
-    const timer = setTimeout(() => {
-      if (isMounted.current) {
-        debugLog('UserEventTickets', 'Loading timeout triggered, resetting loading state');
-        setIsLoading(false);
-        if (!tickets.length && !isFetching.current) {
-          debugLog('UserEventTickets', 'No data after timeout, resetting fetch state to allow retry');
-          isFetching.current = false;
-          isInitialFetchDone.current = false;
-        }
-      } else {
-        debugLog('UserEventTickets', 'Loading timeout triggered, but component unmounted, resetting fetch state');
-        isFetching.current = false;
-      }
-    }, 3000); // Таймаут 3 секунды для быстрого сброса
-    
-    return () => {
-      clearTimeout(timer);
-      debugLog('UserEventTickets', 'Component unmounting, marking as unmounted');
-      isMounted.current = false;
-      isFetching.current = false; // Reset fetching flag on unmount to allow retry on remount
-      debugLog('UserEventTickets', 'Fetch flag reset on unmount - isFetching set to false');
-    };
-  }, [fetchTickets, tickets.length, isAuthChecked, authLoading]); // Depend on tickets.length, isAuthChecked, and authLoading
-
-  // Separate effect to monitor auth changes for fetching
-  useEffect(() => {
-    if (isAuthChecked && !authLoading && tickets.length === 0 && !isFetching.current && isMounted.current) {
-      debugLog('UserEventTickets', 'Auth conditions met, triggering fetch', { authLoading, isAuthChecked });
+      hasInitialData.current = true;
+      isInitialFetchDone.current = true;
+      pendingFetchResult.current = null; // Очищаем после применения
+    } else if (tickets.length === 0 && isAuthChecked && !isFetching && !authLoading) {
+      // Простая логика: если данные не загружены, загружаем их, но только если нет текущего запроса и authLoading завершено
+      debugLog('UserEventTickets', 'Initiating ticket fetch on mount', { authLoading, isAuthChecked });
       setIsLoading(true);
-      isFetching.current = true;
+      setIsFetching(true);
       fetchTickets();
+    } else if (tickets.length > 0) {
+      debugLog('UserEventTickets', 'Data already loaded, skipping fetch', { ticketsLoaded: tickets.length });
+      setIsLoading(false);
+    } else if (authLoading) {
+      debugLog('UserEventTickets', 'Auth still loading, delaying fetch until stable', { authLoading, isAuthChecked });
+      setIsLoading(true); // Показываем загрузку, пока ждем стабильности
+    } else {
+      debugLog('UserEventTickets', 'Fetch already in progress or not needed', { isFetching: isFetching });
     }
-  }, [isAuthChecked, authLoading, tickets.length, fetchTickets]);
 
-  // Additional effect to detect stuck fetches and retry
-  useEffect(() => {
-    if (isFetching.current && isMounted.current && tickets.length === 0) {
-      const stuckFetchTimer = setTimeout(() => {
-        if (isMounted.current && isFetching.current && tickets.length === 0) {
-          debugLog('UserEventTickets', 'Fetch appears stuck after 5 seconds, resetting to retry');
-          isFetching.current = false;
-          setIsLoading(true); // Keep loading state to show skeleton
-          fetchTickets();
-        }
-      }, 5000); // Retry after 5 seconds if fetch is stuck
-      return () => clearTimeout(stuckFetchTimer);
-    }
-  }, [fetchTickets, tickets.length]);
-
+    return () => {
+      debugLog('UserEventTickets', 'Component unmounting', { ticketsLoaded: tickets.length });
+      isMounted.current = false; // Устанавливаем флаг, что компонент размонтирован
+      lastUnmountTime.current = Date.now(); // Запоминаем время размонтирования
+      // Не отменяем активный запрос, чтобы он мог завершиться и сохранить данные
+      // if (activeAbortController.current) {
+      //   debugLog('Lifecycle', 'Aborting active fetch request on unmount');
+      //   activeAbortController.current.abort('Component unmounted');
+      //   activeAbortController.current = null;
+      // }
+      // Не сбрасываем isFetching, чтобы сохранить состояние для возможного повторного монтирования
+    };
+  }, [fetchTickets, isAuthChecked, tickets.length, authLoading, isFetching, applyAllFilters]); // Добавляем applyAllFilters для обработки сохраненных данных
+  
   // Add effect to detect route changes and refresh tickets
   useEffect(() => {
     const handleRouteChange = () => {
@@ -1104,25 +1073,31 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
             debugLog('UserEventTickets', 'Found recent registration in sessionStorage', regData);
             sessionStorage.removeItem('recent_registration');
             
-            // Force a refresh since we might have new registration data
-            refreshCounter.current += 1;
-            
-            // Use small delay to avoid concurrent requests
-            setTimeout(() => {
-              if (isMounted.current && !fetchAttempted.current) {
-                fetchTickets();
-              }
-            }, 100);
+            // Force a refresh since we might have new registration data only if no ongoing fetch
+            if (!isFetching && !fetchAttempted.current) {
+              debugLog('UserEventTickets', 'Initiating fetch after recent registration');
+              fetchTickets();
+            } else {
+              debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
+            }
           } else {
-            // Still refresh, but with lower priority if no recent registration
-            refreshCounter.current += 1;
-            fetchTickets();
+            // Only refresh if component is still mounted and no ongoing fetch
+            if (isMounted.current && !isFetching && !fetchAttempted.current) {
+              debugLog('UserEventTickets', 'Initiating fetch on navigation to profile page');
+              fetchTickets();
+            } else {
+              debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
+            }
           }
         } catch (error) {
           // Default to regular refresh if sessionStorage access fails
           debugLog('Error', 'Error accessing sessionStorage:', error);
-          refreshCounter.current += 1;
-          fetchTickets();
+          if (isMounted.current && !isFetching && !fetchAttempted.current) {
+            debugLog('UserEventTickets', 'Initiating fetch despite sessionStorage error');
+            fetchTickets();
+          } else {
+            debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
+          }
         }
       }
       // Update the previous path
@@ -1142,167 +1117,217 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           // Only clear if we're going to use it
           sessionStorage.removeItem('recent_registration'); 
           
-          // Force refresh right away on initial mount
-          refreshCounter.current += 1;
-          fetchTickets();
+          // Force refresh right away on initial mount only if no ongoing fetch
+          if (!isFetching && !fetchAttempted.current) {
+            debugLog('UserEventTickets', 'Initiating fetch on initial load with recent registration');
+            fetchTickets();
+          } else {
+            debugLog('UserEventTickets', 'Skipping initial refresh due to ongoing fetch or attempt');
+          }
         }
       }
     }
 
     // For Next.js App Router, add event listeners
-    // Change from focus event to only popstate to prevent refreshes on clicks
     window.addEventListener('popstate', handleRouteChange);
     
     return () => {
       window.removeEventListener('popstate', handleRouteChange);
     };
-  }, [fetchTickets, isLoading]); // Add isLoading as a dependency
+  }, [fetchTickets, isFetching]); // Remove isLoading from dependencies to prevent overfetching
 
-  // New effect to handle focus/visibility changes (when user returns to the tab)
+  // Обработка изменений в localStorage и visibility
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && hasInitialData.current) {
-        debugLog('UserEventTickets', 'Tab became visible, but not refreshing tickets');
-        // Do not refresh automatically on tab visibility
-        // refreshCounter.current += 1;
-        // fetchTickets();
+      const lastHiddenTime = Date.now(); // Moved outside useRef to avoid hook inside callback issue
+      if (document.visibilityState === 'visible' && !isLoading) {
+        // Check if we were hidden for a meaningful amount of time (e.g., 5+ seconds)
+        const now = Date.now();
+        const lastHiddenAt = lastHiddenTime;
+        
+        if (lastHiddenAt && (now - lastHiddenAt > 5000)) {
+          debugLog('UserEventTickets', `Page became visible after being hidden for ${(now - lastHiddenAt)/1000} seconds`);
+          
+          // Check if there's a user session before fetching
+          if (isAuthChecked && !authLoading && !isFetching) {
+            debugLog('UserEventTickets', 'Initiating fetch on page visibility after long hidden period');
+            fetchTickets();
+          } else {
+            debugLog('UserEventTickets', 'Skipping fetch on visibility due to auth check or ongoing fetch', { isAuthChecked, authLoading, isFetching });
+          }
+        }
+      } else if (document.visibilityState === 'hidden') {
+        // Record when the page was hidden
+        debugLog('UserEventTickets', 'Page hidden at', new Date(lastHiddenTime).toLocaleTimeString());
       }
     };
 
+    // Handle localStorage changes that might affect our tickets
+    const handleStorageChange = (e: StorageEvent) => {
+      // Only react to changes relevant to us
+      if (e.key === 'cancelled_ticket_ids' && e.newValue !== null) {
+        try {
+          // Use a try-catch since JSON parsing can fail
+          const parsedIds = JSON.parse(e.newValue);
+          debugLog('UserEventTickets', 'Detected localStorage update for cancelled_ticket_ids', parsedIds);
+          
+          // If we have tickets loaded, update our local state
+          if (tickets.length > 0 && !isLoading) {
+            // Convert to a Set for efficient lookups
+            const cancelledIds = new Set(parsedIds);
+            
+            // Update both tickets arrays by filtering out cancelled tickets
+            const updatedTickets = tickets.filter(ticket => !cancelledIds.has(ticket.id.toString()));
+            const updatedFilteredTickets = filteredTickets.filter(ticket => !cancelledIds.has(ticket.id.toString()));
+            
+            // Only update if there's an actual change
+            if (updatedTickets.length !== tickets.length) {
+              debugLog('UserEventTickets', 'Updating local tickets based on localStorage change');
+              setTickets(updatedTickets);
+              setFilteredTickets(updatedFilteredTickets);
+              
+              // Update our local cancelled IDs set
+              setCancelledTicketIds(new Set(parsedIds));
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing cancelled_ticket_ids from localStorage:', error);
+        }
+      }
+    };
+
+    // Register event listeners
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    
+    window.addEventListener('storage', handleStorageChange);
+
+    // Clean up function
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('storage', handleStorageChange);
+      
+      // Save cancelled IDs to localStorage when component unmounts
+      if (cancelledTicketIds.size > 0) {
+        const idsArray = Array.from(cancelledTicketIds);
+        try {
+          localStorage.setItem('cancelled_ticket_ids', JSON.stringify(idsArray));
+          debugLog('UserEventTickets', 'Updated localStorage with cancelled ticket IDs', idsArray);
+        } catch (error) {
+          console.error('Error updating localStorage with cancelled ticket IDs:', error);
+        }
+      }
     };
-  }, [fetchTickets]);
+  }, [tickets, filteredTickets, cancelledTicketIds, isLoading, isAuthChecked, authLoading, fetchTickets]);
 
-  // Update localStorage whenever cancelledTicketIds changes
+  // Мемоизированная фильтрация билетов
+  const filteredTicketsData = useMemo(() => {
+    if (!tickets || tickets.length === 0) {
+      return [];
+    }
+
+    debugLog('UserEventTickets', 'Recomputing filtered tickets', { 
+      ticketsCount: tickets.length 
+    });
+
+    // Применяем фильтры к билетам
+    const result = applyAllFilters(tickets);
+    return result;
+  }, [tickets, filters, sortByStatusAndDate]); // Более точные зависимости для минимизации пересчетов
+
+  // Обновляем отфильтрованные билеты при изменении результатов мемоизации
   useEffect(() => {
-    const arrayToStore = Array.from(cancelledTicketIds);
-    debugLog('UserEventTickets', 'Saving cancelledTicketIds to localStorage', arrayToStore);
-    localStorage.setItem('cancelledTicketIds', JSON.stringify(arrayToStore));
+    setFilteredTickets(filteredTicketsData);
+  }, [filteredTicketsData]);
+
+  // Сохранение отмененных билетов при изменении
+  useEffect(() => {
+    if (cancelledTicketIds.size > 0) {
+      const idsArray = Array.from(cancelledTicketIds);
+      try {
+        localStorage.setItem('cancelledTickets', JSON.stringify(idsArray));
+        debugLog('UserEventTickets', 'Updated localStorage with cancelled ticket IDs', idsArray);
+      } catch (error) {
+        console.error('Error updating localStorage with cancelled ticket IDs:', error);
+      }
+    }
   }, [cancelledTicketIds]);
 
-  // Add back the cancel functionality
-  const handleCancelConfirm = async () => {
-    // Set the flag to prevent event handling during cancellation
-    isTicketBeingCancelled.current = true;
+  // Инициализация отмененных билетов при загрузке компонента
+  useEffect(() => {
+    try {
+      const storedTickets = localStorage.getItem('cancelledTickets');
+      if (storedTickets) {
+        const ticketsArray = JSON.parse(storedTickets) as string[];
+        setCancelledTicketIds(new Set(ticketsArray));
+        debugLog('UserEventTickets', 'Loaded cancelled tickets from localStorage', { count: ticketsArray.length });
+      }
+    } catch (error) {
+      console.error('Error loading cancelled tickets from localStorage:', error);
+    }
+  }, []);
+
+  // Add handleCancelConfirm function to handle ticket cancellation
+  const handleCancelConfirm = useCallback(async () => {
+    if (!selectedTicket) return;
     
-    // Reset states and set loading
+    // Mark that we're in the process of cancelling
+    isTicketBeingCancelled.current = true;
+    setCancelRegistrationLoading(true);
     setCancelError(undefined);
     setCancelSuccess(undefined);
-    setCancelLoading(true);
     
     try {
-      if (!selectedTicket) {
-        throw new Error('No ticket selected or user not authorized');
+      // Get the auth token
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setCancelError('Необходима авторизация');
+        return;
       }
       
-      debugLog('UserEventTickets', 'Cancelling ticket:', selectedTicket.id);
-      
-      // Проверяем наличие userData и id пользователя
-      if (!userData?.id) {
-        throw new Error('Не удалось определить ID пользователя. Пожалуйста, обновите страницу или войдите заново.');
-      }
-
-      // Подготавливаем данные для запроса
-      const requestData = {
-        event_id: Number(selectedTicket.event.id),
-        user_id: Number(userData.id)
-      };
-
-      // Проверяем, что оба значения корректны
-      if (isNaN(requestData.event_id) || isNaN(requestData.user_id)) {
-        throw new Error(`Неверный формат ID: event_id=${selectedTicket.event.id}, user_id=${userData.id}`);
-      }
-
-      const response = await apiFetch(`/registration/cancel`, {
+      // Make API call to cancel ticket
+      const response = await apiFetch<{error?: string}>(`/user_edits/tickets/${selectedTicket.id}/cancel`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        bypassLoadingStageCheck: true,
-        data: requestData
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
-      // Handle successful cancellation
-      debugLog('UserEventTickets', 'Ticket cancelled successfully:', response);
-      setCancelSuccess('Билет успешно отменен!');
+      if ('error' in response) {
+        setCancelError(response.error || 'Ошибка при отмене регистрации');
+        return;
+      }
       
-      // Save ticket info before we lose the reference
-      const ticketId = selectedTicket.id;
-      const eventId = selectedTicket.event.id;
+      // Success - add to cancelled IDs and update UI
+      cancelTicket(selectedTicket.id.toString());
       
-      // Add the ticket ID to cancelledTicketIds to prevent it from being re-added
-      setCancelledTicketIds(prev => {
-        const newSet = new Set(prev).add(ticketId);
-        debugLog('UserEventTickets', 'Added ticket to cancelledTicketIds', ticketId);
-        return newSet;
-      });
+      // Display success message
+      setCancelSuccess('Регистрация успешно отменена');
       
-      // Local updates to UI - optimistic update
-      // We remove the ticket from both states immediately
-      const updatedTickets = tickets.filter(t => t.id !== ticketId);
-      const updatedFilteredTickets = filteredTickets.filter(t => t.id !== ticketId);
+      // Update tickets list by removing the cancelled ticket
+      setTickets(prev => prev.filter(t => t.id !== selectedTicket.id));
+      setFilteredTickets(prev => prev.filter(t => t.id !== selectedTicket.id));
       
-      setTickets(updatedTickets);
-      setFilteredTickets(updatedFilteredTickets);
-      
-      // Dispatch custom event to notify other components
-      const ticketUpdateEvent = new CustomEvent('ticket-update', {
+      // Dispatch event for other components
+      const event = new CustomEvent('ticket-update', {
         detail: {
           source: 'user-event-tickets',
           action: 'cancel',
-          ticketId: ticketId,
-          eventId: eventId,
-          preventRefresh: true // Add flag to prevent child components from triggering a refresh
+          ticketId: selectedTicket.id
         }
       });
-      debugLog('UserEventTickets', 'Dispatching ticket-update event with preventRefresh flag');
-      window.dispatchEvent(ticketUpdateEvent);
+      window.dispatchEvent(event);
       
-      // Close modal after a short delay to show success message
+      // Close modal after delay
       setTimeout(() => {
         setIsModalOpen(false);
         setSelectedTicket(null);
-        setCancelLoading(false);
-        // Clear the flag after modal is closed
         isTicketBeingCancelled.current = false;
-      }, 1500);
+      }, 2000);
       
-    } catch (error: unknown) {
-      console.error('CANCEL REQUEST - ERROR:');
-      console.error('Error object:', error);
-      
-      // Try to extract more details from the error
-      if (error && typeof error === 'object' && 'response' in error) {
-        const apiError = error as { response?: { status?: number, data?: unknown } };
-        console.error('Error status:', apiError.response?.status);
-        console.error('Error data:', apiError.response?.data);
-      }
-      
-      // Log error message if available
-      if (error instanceof Error) {
-        console.error('Error message:', error.message);
-      }
-      
-      // Reset states and set error
-      const errorMsg = error instanceof Error 
-        ? error.message 
-        : 'Не удалось отменить билет. Пожалуйста, попробуйте снова.';
-      
-      setCancelError(errorMsg);
-      setCancelLoading(false);
-      
-      // Clear the flag on error
-      isTicketBeingCancelled.current = false;
+    } catch (error) {
+      console.error('Error cancelling ticket:', error);
+      setCancelError('Произошла ошибка при отмене регистрации');
+    } finally {
+      setCancelRegistrationLoading(false);
     }
-  };
-
-  useEffect(() => {
-    debugLog('Rendering', 'Rendering UserEventTickets UI, including filter panel');
-  }, []); // Log once on mount
+  }, [selectedTicket, cancelTicket]);
 
   if (error) {
     return (
@@ -1343,7 +1368,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                 <FaFilter /> Фильтры
                 {filters.status.length > 0 || filters.dateFrom || filters.dateTo ? (
                   <span className="bg-orange-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center ml-1">
-                    {filters.status.length + (filters.dateFrom ? 1 : 0) + (filters.dateTo ? 1 : 0)}
+                    {(filters.status.length > 0 ? 1 : 0) + (filters.dateFrom ? 1 : 0) + (filters.dateTo ? 1 : 0)}
                   </span>
                 ) : null}
               </button>
@@ -1383,8 +1408,8 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                   const isEventCompleted = ticket.event.status === "completed";
                   
                   // Don't show cancel button for completed tickets or events
-                  const showCancelButton = ticket.status !== "completed" && 
-                                           ticket.status !== "cancelled" && 
+                  const showCancelButton = effectiveStatus !== "completed" && 
+                                           effectiveStatus !== "cancelled" && 
                                            !isEventCompleted;
                                           
                   // Get status text and color
@@ -1394,7 +1419,6 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                     }
                     
                     switch (ticket.status) {
-                      case "confirmed": return "Подтвержденный";
                       case "approved": return "Подтвержденный";
                       case "cancelled": return "Отмененный";
                       case "completed": return "Завершенный";
@@ -1404,8 +1428,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                   })();
                   
                   const statusColor = (() => {
-                    switch (effectiveStatus) {
-                      case "confirmed": return "bg-green-100 text-green-800";
+                    switch (effectiveStatus as "pending" | "cancelled" | "completed" | "approved") {
                       case "approved": return "bg-green-100 text-green-800";
                       case "cancelled": return "bg-red-100 text-red-800";
                       case "completed": return "bg-gray-100 text-gray-800";
@@ -1561,9 +1584,9 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                 <p className="text-gray-600">Нет билетов, соответствующих выбранным фильтрам</p>
                 <button 
                   onClick={() => {
-                    const resetValues = { status: ['confirmed'], dateFrom: null, dateTo: null };
-                    setFilters(resetValues);
-                    debugLog('UserEventTickets', 'Filters reset from no-results button', resetValues);
+                    const resetButtonValues = { status: ['approved'], dateFrom: null, dateTo: null };
+                    setFilters(resetButtonValues);
+                    debugLog('UserEventTickets', 'Filters reset from no-results button', resetButtonValues);
                     // Инициируем подгрузку билетов с обновленными фильтрами
                     refreshTickets();
                   }}
@@ -1587,17 +1610,10 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           onConfirm={handleCancelConfirm}
           title="Отмена регистрации"
           message={selectedTicket ? `Вы уверены, что хотите отменить регистрацию на мероприятие "${selectedTicket.event.title}"?` : ''}
-          isLoading={cancelLoading}
+          isLoading={cancelRegistrationLoading}
           error={cancelError}
           success={cancelSuccess}
         />
-        
-        {/* Loading indicator */}
-        {isLoading && (
-          <div className="p-4 text-center">
-            <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-orange-400 border-r-transparent align-[-0.125em]" />
-          </div>
-        )}
       </div>
     </FiltersContext.Provider>
   );

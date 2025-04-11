@@ -567,6 +567,43 @@ export async function apiFetch<T>(
             : {}),
         });
         
+        // Дополнительное логирование специально для отладки запроса отмены билета
+        if (endpoint.includes('/registration/cancel')) {
+          console.log('CANCEL REQUEST - API LAYER:');
+          console.log('Request method:', fetchOptions.method);
+          console.log('Request headers:', fetchOptions.headers);
+          console.log('Request data:', fetchOptions.data);
+          
+          if (fetchOptions.data) {
+            try {
+              const reqBody = fetchOptions.data instanceof FormData
+                ? Object.fromEntries((fetchOptions.data as FormData).entries())
+                : fetchOptions.data;
+              console.log('Request body:', reqBody);
+            } catch (e) {
+              console.error('Error logging request body:', e);
+            }
+          }
+          
+          console.log('Response status:', response.status);
+          console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+          
+          // Попытка получить тело ответа
+          try {
+            const clonedResponse = response.clone();
+            const text = await clonedResponse.text();
+            console.log('Response body:', text);
+            try {
+              const json = JSON.parse(text);
+              console.log('Response JSON:', json);
+            } catch {
+              // Если не JSON, оставляем как текст
+            }
+          } catch (e) {
+            console.error('Error logging response body:', e);
+          }
+        }
+        
         // Clear timeout
         clearTimeout(timeoutId);
         

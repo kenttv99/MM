@@ -619,12 +619,25 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       setTimeout(() => {
         setIsModalOpen(false);
         
+        // Create a safety timeout to reset booking flag in case the fetch fails
+        const safetyTimeout = setTimeout(() => {
+          if (isActiveBooking.current) {
+            console.log('EventRegistration: Safety timeout triggered - resetting active booking flag');
+            isActiveBooking.current = false;
+          }
+        }, 10000); // 10 second safety timeout
+        
         // After modal closes, fetch the actual ticket data from server
         setTimeout(async () => {
           try {
             console.log('EventRegistration: Fetching actual ticket data after registration');
             const token = localStorage.getItem('token');
-            if (!token) return;
+            if (!token) {
+              console.log('EventRegistration: No token available for fetching actual ticket');
+              isActiveBooking.current = false;
+              clearTimeout(safetyTimeout);
+              return;
+            }
             
             const actualTicketData = await apiFetch<any>('/user_edits/my-tickets', {
               method: 'GET',
@@ -671,13 +684,18 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 });
                 window.dispatchEvent(updatedEvent);
                 console.log('EventRegistration: Dispatched update with actual ticket data');
+              } else {
+                console.log('EventRegistration: No actual ticket found for event', currentEventId);
               }
             }
           } catch (err) {
             console.error('EventRegistration: Error fetching actual ticket data', err);
           } finally {
-            // Clear the booking flag no matter what
+            // Reset the active booking flag no matter what
+            console.log('EventRegistration: Resetting active booking flag');
             isActiveBooking.current = false;
+            // Cancel safety timeout since we're done
+            clearTimeout(safetyTimeout);
           }
         }, 500); // Wait a bit after modal closes
       }, 1500);
@@ -686,6 +704,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       console.error('Booking error:', err);
       // Clear the active booking flag on error
       isActiveBooking.current = false;
+      console.log('EventRegistration: Reset active booking flag to false (error path)');
     }
   };
 

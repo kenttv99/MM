@@ -518,7 +518,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       dateTo: null
     });
 
-    const { /* userData, */ } = useAuth();
+    const { userData, } = useAuth();
     const router = useRouter();
     const { /* currentStage */ } = useLoading();
     const ticketsPerPage = 10;
@@ -992,18 +992,30 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         
         debugLog('UserEventTickets', 'Cancelling ticket:', selectedTicket.id);
         
-        // Make the API call to cancel the ticket
-        const token = localStorage.getItem('token');
+        // Проверяем наличие userData и id пользователя
+        if (!userData?.id) {
+          throw new Error('Не удалось определить ID пользователя. Пожалуйста, обновите страницу или войдите заново.');
+        }
+
+        // Подготавливаем данные для запроса
+        const requestData = {
+          event_id: Number(selectedTicket.event.id),
+          user_id: Number(userData.id)
+        };
+
+        // Проверяем, что оба значения корректны
+        if (isNaN(requestData.event_id) || isNaN(requestData.user_id)) {
+          throw new Error(`Неверный формат ID: event_id=${selectedTicket.event.id}, user_id=${userData.id}`);
+        }
+
         const response = await apiFetch(`/registration/cancel`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
           },
           bypassLoadingStageCheck: true,
-          data: JSON.stringify({
-            event_id: selectedTicket.event.id
-          })
+          data: requestData
         });
         
         // Handle successful cancellation
@@ -1045,10 +1057,29 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         }, 1500);
         
       } catch (err: unknown) {
-        debugLog('UserEventTickets', 'Error cancelling ticket', err);
-        const errorMsg = err instanceof Error ? err.message : 'Не удалось отменить билет. Пожалуйста, попробуйте снова.';
+        console.error('CANCEL REQUEST - ERROR:');
+        console.error('Error object:', err);
+        
+        // Try to extract more details from the error
+        if (err && typeof err === 'object' && 'response' in err) {
+          const apiError = err as any; // Type assertion for logging purposes
+          console.error('Error status:', apiError.response?.status);
+          console.error('Error data:', apiError.response?.data);
+        }
+        
+        // Log error message if available
+        if (err instanceof Error) {
+          console.error('Error message:', err.message);
+        }
+        
+        // Reset states and set error
+        const errorMsg = err instanceof Error 
+          ? err.message 
+          : 'Не удалось отменить билет. Пожалуйста, попробуйте снова.';
+        
         setCancelError(errorMsg);
         setCancelLoading(false);
+        
         // Clear the flag on error
         isTicketBeingCancelled.current = false;
       }

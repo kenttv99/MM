@@ -1,7 +1,7 @@
 # backend/schemas_enums.schemas.py
 from datetime import datetime
-from typing import Optional, List, ForwardRef
-from pydantic import BaseModel, EmailStr
+from typing import Optional, List, ForwardRef, Union
+from pydantic import BaseModel, EmailStr, validator, root_validator
 from backend.schemas_enums.enums import EventStatus, TicketTypeEnum, Status
 
 #------------------------
@@ -167,8 +167,9 @@ class RegistrationRequest(BaseModel):
     user_id: int
 
 class CancelRegistrationRequest(BaseModel):
-    event_id: int
-    user_id: int
+    event_id: Union[int, str]
+    user_id: Union[int, str]
+    
 
 class RegistrationResponse(BaseModel):
     message: str

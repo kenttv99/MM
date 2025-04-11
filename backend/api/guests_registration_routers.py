@@ -130,12 +130,15 @@ async def cancel_registration(
     db: AsyncSession = Depends(get_async_db),
     request: Request = None
 ):
+    # Basic logging
+    logger.info(f"Processing cancellation request for event_id={data.event_id}, user_id={data.user_id}")
+    
     token = credentials.credentials
     current_user = await get_current_user(token, db)
+    
+    # IDs have been validated and converted by the Pydantic model
     event_id = data.event_id
     user_id = data.user_id
-    
-    logger.info(f"Cancellation request received: event_id={event_id}, user_id={user_id}")
 
     # Проверка существующей регистрации
     registration_query = await db.execute(

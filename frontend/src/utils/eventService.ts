@@ -1,6 +1,5 @@
 // frontend/src/utils/eventService.ts
-import { EventFormData, EventData, EventResponse } from '@/types/events';
-import { apiFetch } from '@/utils/api';
+import { EventFormData, EventResponse } from '@/types/events';
 
 export const prepareEventFormData = (eventData: EventFormData): FormData => {
   const formData = new FormData();
@@ -96,26 +95,8 @@ export const prepareEventFormData = (eventData: EventFormData): FormData => {
   return formData;
 };
 
-// Функция для транслитерации кириллицы в латиницу
-const transliterate = (text: string): string => {
-  const charMap: { [key: string]: string } = {
-    'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'е': 'e', 'ё': 'e',
-    'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
-    'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
-    'ф': 'f', 'х': 'h', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'sch', 'ъ': '',
-    'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
-    'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'E',
-    'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
-    'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
-    'Ф': 'F', 'Х': 'H', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Sch', 'Ъ': '',
-    'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya'
-  };
-  
-  return text.split('').map(char => charMap[char] || char).join('');
-};
-
 // Helper function to prepare URL slug with year and ID suffix
-export const prepareUrlSlug = (slug: string | undefined, eventId?: number, startDate?: string): string | undefined => {
+export const prepareUrlSlug = (slug: string | undefined, eventId?: number): string | undefined => {
   if (!slug || slug.trim() === '') {
     console.log("prepareUrlSlug: slug is empty, returning undefined");
     return undefined;
@@ -248,13 +229,13 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
     // Prepare form data for upload
     const formData = prepareEventFormData({
       ...eventData,
-      url_slug: prepareUrlSlug(eventData.url_slug, undefined, eventData.start_date)
+      url_slug: prepareUrlSlug(eventData.url_slug, undefined)
     });
     
     // Логируем данные формы (без файла, если он есть)
     const formDataDebug = Object.fromEntries(
       Array.from(formData.entries())
-        .filter(([key, value]) => !(value instanceof File))
+        .filter(entry => !(entry[1] instanceof File))
     );
     console.log("eventService: Prepared form data:", formDataDebug);
 
@@ -371,17 +352,24 @@ export const createEvent = async (eventData: EventFormData): Promise<EventRespon
   }
 };
 
-// Вспомогательная функция для удаления временных префиксов URL
-const stripTempUrlPrefix = (url: string | undefined): string | undefined => {
-  if (!url) return url;
-  
-  // Удаляем временные префиксы, которые мы могли добавить
-  if (url.startsWith('x-') || url.startsWith('y-')) {
-    return url.substring(2);
-  }
-  
-  return url;
-};
+// Define a type for event data - used for type consistency
+interface EventUpdateData {
+  id?: number;
+  title: string;
+  description?: string;
+  start_date?: string;
+  end_date?: string;
+  location?: string;
+  price?: number;
+  published?: boolean;
+  status?: string;
+  ticket_type_name?: string;
+  ticket_type_available_quantity?: number;
+  image_file?: File;
+  remove_image?: boolean;
+  url_slug?: string;
+  [key: string]: string | number | boolean | File | undefined; // More specific index signature
+}
 
 // Helper function to log the content of FormData for debugging
 function logFormDataContent(formData: FormData, label: string): void {
@@ -397,7 +385,7 @@ function logFormDataContent(formData: FormData, label: string): void {
     else if (pair[0] === 'url_slug') {
       const value = pair[1] as string;
       console.log(`  ${pair[0]}: "${value}"`);
-      console.log(`  ${pair[0]} character codes:`, value.split('').map(c => c + ` (${c.charCodeAt(0)})`).join(', '));
+      console.log(`  ${pair[0]} character codes:`, value.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
     } 
     // For everything else, show the value
     else {
@@ -563,7 +551,7 @@ async function fixUrlSlug(eventId: string, correctSlug: string): Promise<boolean
 }
 
 // Try updating using a direct JSON approach instead of FormData
-async function updateEventWithJson(eventId: string, eventData: any): Promise<any> {
+async function updateEventWithJson(eventId: string, eventData: EventUpdateData): Promise<Record<string, unknown>> {
   console.log(`eventService: Attempting to update event ${eventId} with JSON request`);
   
   const token = localStorage.getItem("admin_token");
@@ -625,12 +613,12 @@ async function updateEventWithJson(eventId: string, eventData: any): Promise<any
 
 export const updateEvent = async (
   eventId: string,
-  formData: any
+  formData: EventUpdateData
 ): Promise<{
   success: boolean;
   message?: string;
   warningOnly?: boolean;
-  event?: any; // Return the event object with final URL slug
+  event?: Record<string, unknown>; // Using unknown instead of any
 }> => {
   console.log(`eventService: Starting updateEvent for ID: ${eventId}`);
   try {
@@ -693,7 +681,7 @@ export const updateEvent = async (
       
       // Check if the server returned the correct slug
       if (jsonResult && jsonResult.url_slug) {
-        const serverSlug = jsonResult.url_slug;
+        const serverSlug = jsonResult.url_slug as string;
         console.log(`eventService: Server returned URL slug: "${serverSlug}" from JSON update`);
         
         // Check if the slug contains non-ASCII characters
@@ -718,10 +706,10 @@ export const updateEvent = async (
         }
         
         // Create display slug
-        let fullSlug = jsonResult.url_slug;
+        let fullSlug = jsonResult.url_slug as string;
         if (formData.start_date && formData.id) {
           const year = new Date(formData.start_date).getFullYear();
-          fullSlug = `${jsonResult.url_slug}-${year}-${formData.id}`;
+          fullSlug = `${jsonResult.url_slug as string}-${year}-${formData.id}`;
         }
         
         // Return success with the JSON result
@@ -737,7 +725,8 @@ export const updateEvent = async (
         console.warn(`eventService: JSON update completed but no URL slug in response`);
       }
     } catch (jsonError) {
-      console.warn(`eventService: JSON update failed, falling back to FormData: ${jsonError.message}`);
+      const error = jsonError as Error;
+      console.warn(`eventService: JSON update failed, falling back to FormData: ${error.message}`);
       // Continue with FormData approach on failure
     }
 
@@ -746,7 +735,7 @@ export const updateEvent = async (
     console.log(`eventService: Preparing FormData as fallback`);
     
     // Prepare the form data
-    const preparedData = prepareEventFormData(formDataCopy);
+    const preparedData = prepareEventFormData(formDataCopy as EventFormData);
     logFormDataContent(preparedData, "BEFORE SENDING TO SERVER");
     
     // Send the update request to the backend
@@ -801,7 +790,7 @@ export const updateEvent = async (
           success: false,
           message: errorJson.detail || `Ошибка при обновлении мероприятия: ${response.statusText}`,
         };
-      } catch (e) {
+      } catch {
         return {
           success: false,
           message: `Ошибка при обновлении мероприятия: ${response.statusText}. ${errorText}`,
@@ -820,7 +809,7 @@ export const updateEvent = async (
       const endIndex = startIndex + "kirtan-mel".length + 5; // Include a few characters after
       const slugPart = responseText.substring(startIndex, endIndex);
       console.log(`  Extracted part: "${slugPart}"`);
-      console.log(`  Character codes:`, slugPart.split('').map(c => c + ` (${c.charCodeAt(0)})`).join(', '));
+      console.log(`  Character codes:`, slugPart.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
     }
     
     // Parse the successful response
@@ -838,12 +827,12 @@ export const updateEvent = async (
     
     // Check if server returned URL with a non-ASCII character
     if (result && result.url_slug) {
-      const serverSlug = result.url_slug;
+      const serverSlug = result.url_slug as string;
       console.log(`eventService: Server returned URL slug: "${serverSlug}"`);
       
       // Log ASCII codes for each character to detect invisible characters
       console.log("eventService: ASCII codes for server slug:", 
-        serverSlug.split('').map(c => c + ` (${c.charCodeAt(0)})`).join(', '));
+        serverSlug.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
       
       // Force ASCII-only characters in the server response
       const cleanServerSlug = serverSlug.replace(/[^\x00-\x7F]/g, '')
@@ -896,11 +885,12 @@ export const updateEvent = async (
       message: "Мероприятие успешно обновлено",
       event: result,
     };
-  } catch (error: any) {
-    console.error("eventService: Error updating event:", error);
+  } catch (error) {
+    const err = error as Error;
+    console.error("eventService: Error updating event:", err);
     return {
       success: false,
-      message: `Ошибка при обновлении мероприятия: ${error.message || "Неизвестная ошибка"}`,
+      message: `Ошибка при обновлении мероприятия: ${err.message || "Неизвестная ошибка"}`,
     };
   }
 };
@@ -1037,6 +1027,11 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
   }
 };
 
+// Extended Error type with status code
+interface ExtendedError extends Error {
+  status?: number;
+}
+
 // Function to ensure the admin session is valid before making requests
 export const ensureAdminSession = async (): Promise<boolean> => {
   console.log("eventService: Checking admin session validity");
@@ -1069,8 +1064,8 @@ export const checkAdminSession = async (): Promise<boolean> => {
   if (!adminToken) {
     console.log("eventService: No admin token found for checking");
     // Выбрасываем ошибку авторизации с кодом 401
-    const error = new Error("Не авторизован");
-    (error as any).status = 401;
+    const error: ExtendedError = new Error("Не авторизован");
+    error.status = 401;
     throw error;
   }
 
@@ -1116,8 +1111,8 @@ export const checkAdminSession = async (): Promise<boolean> => {
       localStorage.removeItem("admin_data");
       
       // Выбрасываем ошибку авторизации с кодом статуса
-      const error = new Error(`Ошибка авторизации: ${response.status}`);
-      (error as any).status = response.status;
+      const error: ExtendedError = new Error(`Ошибка авторизации: ${response.status}`);
+      error.status = response.status;
       throw error;
     } else {
       console.warn(`eventService: Unexpected response status: ${response.status}`);
@@ -1130,12 +1125,12 @@ export const checkAdminSession = async (): Promise<boolean> => {
           if (errorData && errorData.detail) {
             errorMessage = errorData.detail;
           }
-        } catch (e) {
+        } catch {
           // Игнорируем ошибки при попытке получить JSON
         }
         
-        const error = new Error(errorMessage);
-        (error as any).status = response.status;
+        const error: ExtendedError = new Error(errorMessage);
+        error.status = response.status;
         throw error;
       }
       
@@ -1156,8 +1151,8 @@ export const checkAdminSession = async (): Promise<boolean> => {
     }
     
     // Если локальная валидация не прошла, создаем ошибку авторизации
-    const authError = new Error("Токен недействителен");
-    (authError as any).status = 401;
+    const authError: ExtendedError = new Error("Токен недействителен");
+    authError.status = 401;
     throw authError;
   }
 };

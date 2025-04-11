@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File,
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
-from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType, Registration
+from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType, Registration, Media
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy import select, delete
@@ -536,17 +536,18 @@ async def get_admin_users(
         )
 
 # Маршрут для удаления мероприятия
-# backend/api/admin_edit_routers.py
-from sqlalchemy import delete
-
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_event(
     event_id: int,
+    force: bool = False,
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Удаление мероприятия (только в статусе черновик) с каскадным удалением связанных данных."""
+    """Удаление мероприятия (только в статусе черновик) с каскадным удалением связанных данных.
+    
+    Если параметр force=True, то мероприятие будет удалено вне зависимости от статуса.
+    """
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
@@ -560,14 +561,41 @@ async def delete_event(
         if not event:
             raise HTTPException(status_code=404, detail="Мероприятие не найдено")
 
-        if event.status != EventStatus.draft:
-            raise HTTPException(status_code=400, detail="Мероприятие можно удалить только в статусе 'черновик'")
+        # Проверка статуса (пропускаем, если force=True)
+        if not force and event.status != EventStatus.draft:
+            raise HTTPException(status_code=400, detail="Мероприятие можно удалить только в статусе 'черновик'. Используйте параметр force=true для принудительного удаления.")
 
-        # Удаление связанных записей из ticket_types
+        # 1. Находим и удаляем все NotificationView, связанные с шаблонами уведомлений для этого события
+        logger.info(f"Finding notification templates for event {event_id}")
+        notification_templates_query = select(NotificationTemplate).where(NotificationTemplate.event_id == event_id)
+        notification_templates = (await db.execute(notification_templates_query)).scalars().all()
+        
+        for template in notification_templates:
+            logger.info(f"Deleting notification views for template {template.id}")
+            notification_views_query = delete(NotificationView).where(NotificationView.template_id == template.id)
+            await db.execute(notification_views_query)
+        
+        # 2. Удаляем шаблоны уведомлений для этого события
+        logger.info(f"Deleting notification templates for event {event_id}")
+        notification_templates_query = delete(NotificationTemplate).where(NotificationTemplate.event_id == event_id)
+        await db.execute(notification_templates_query)
+
+        # 3. Удаляем все связанные регистрации
+        logger.info(f"Deleting registrations for event {event_id}")
+        registration_query = delete(Registration).where(Registration.event_id == event_id)
+        await db.execute(registration_query)
+        
+        # 4. Удаляем все связанные медиа
+        logger.info(f"Deleting media for event {event_id}")
+        media_query = delete(Media).where(Media.event_id == event_id)
+        await db.execute(media_query)
+
+        # 5. Удаляем все связанные типы билетов
+        logger.info(f"Deleting ticket types for event {event_id}")
         ticket_query = delete(TicketType).where(TicketType.event_id == event_id)
         await db.execute(ticket_query)
 
-        # Удаление файла изображения, если он существует
+        # 6. Удаляем файл изображения, если он существует
         if event.image_url:
             file_path = event.image_url.replace("/images/", "private_media/")
             if os.path.exists(file_path):
@@ -577,19 +605,21 @@ async def delete_event(
                 except OSError as e:
                     logger.warning(f"Не удалось удалить файл {file_path}: {str(e)}")
 
-        # Удаление самого мероприятия
+        # 7. Удаляем само мероприятие
+        logger.info(f"Deleting event {event_id}")
         await db.delete(event)
         await db.commit()
 
         logger.info(f"Admin {current_admin.email} deleted event {event_id}")
     except HTTPException as e:
+        await db.rollback()
         raise e
     except Exception as e:
         logger.error(f"Error deleting event {event_id}: {str(e)}")
         await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Не удалось удалить мероприятие"
+            detail=f"Не удалось удалить мероприятие: {str(e)}"
         )
         
 # Маршрут для получения данных пользователя

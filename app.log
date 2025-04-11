@@ -1867,3 +1867,23 @@ cancellation_count
 2025-04-11 10:40:49,428 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-11 10:40:49,432 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-11 10:40:49,497 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 11:22:56,599 - root - ERROR - Error deleting event 3: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "ticket_types" нарушает ограничение внешнего ключа "registrations_ticket_type_id_fkey" таблицы "registrations"
+DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "registrations".
+[SQL: DELETE FROM ticket_types WHERE ticket_types.event_id = $1::INTEGER]
+[parameters: (3,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-11 11:25:12,763 - root - ERROR - Error deleting event 3: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "ticket_types" нарушает ограничение внешнего ключа "registrations_ticket_type_id_fkey" таблицы "registrations"
+DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "registrations".
+[SQL: DELETE FROM ticket_types WHERE ticket_types.event_id = $1::INTEGER]
+[parameters: (3,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-11 11:27:47,358 - root - ERROR - Error deleting event 3: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "ticket_types" нарушает ограничение внешнего ключа "registrations_ticket_type_id_fkey" таблицы "registrations"
+DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "registrations".
+[SQL: DELETE FROM ticket_types WHERE ticket_types.event_id = $1::INTEGER]
+[parameters: (3,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-11 11:30:59,657 - root - ERROR - Error deleting event 3: (sqlalchemy.dialects.postgresql.asyncpg.IntegrityError) <class 'asyncpg.exceptions.ForeignKeyViolationError'>: UPDATE или DELETE в таблице "events" нарушает ограничение внешнего ключа "notification_templates_event_id_fkey" таблицы "notification_templates"
+DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "notification_templates".
+[SQL: DELETE FROM events WHERE events.id = $1::INTEGER]
+[parameters: (3,)]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)

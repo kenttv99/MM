@@ -518,7 +518,7 @@ export default function Dashboard() {
           ) : (
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
-              <EventsList events={events} />
+              <EventsList events={events} onEventDeleted={fetchEvents} />
             </div>
           )}
         </div>

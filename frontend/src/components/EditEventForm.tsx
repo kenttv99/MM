@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useRef, useState, useEffect, useCallback, useLayoutEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { EventFormData, TicketTypeEnum } from "@/types/events";
 import {
   FaCalendarAlt, FaMapMarkerAlt, FaMoneyBillWave, FaTicketAlt,
   FaImage, FaTrash, FaEye, FaBold, FaItalic, FaLink, FaListUl,
-  FaListOl, FaHeading, FaQuoteRight, FaSync, FaCheck, FaTimes
+  FaListOl, FaHeading, FaQuoteRight, FaSync
 } from "react-icons/fa";
 import { ModalButton } from "@/components/common/AuthModal";
 import ErrorDisplay from "@/components/common/ErrorDisplay";
@@ -15,7 +15,6 @@ import SuccessDisplay from "@/components/common/SuccessDisplay";
 import Image from "next/image";
 import Switch from "@/components/common/Switch";
 import { createPortal } from "react-dom";
-import { MdLink } from "react-icons/md";
 
 interface EditEventFormProps {
   isNewEvent: boolean;
@@ -25,7 +24,6 @@ interface EditEventFormProps {
   imagePreview: string | null;
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   handleFileChange: (file: File | null, isRemoved?: boolean) => void;
-  handleSubmit: (e: React.FormEvent<HTMLFormElement>) => void;
   setFieldValue: (name: keyof EventFormData, value: unknown) => void;
   isLoading: boolean;
   isPageLoading: boolean;
@@ -56,7 +54,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   imagePreview,
   handleChange,
   handleFileChange,
-  handleSubmit,
   setFieldValue,
   isLoading,
   isPageLoading,
@@ -74,14 +71,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [historyIndex, setHistoryIndex] = useState<number>(0);
   const [isHeadingDropdownOpen, setIsHeadingDropdownOpen] = useState(false);
   const [selectedHeadingLevel, setSelectedHeadingLevel] = useState<number>(2);
-  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
   const [imageError, setImageError] = useState<string | null>(null);
   const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
-  const [ticketTypes, setTicketTypes] = useState<any[]>([]);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [slugStatus, setSlugStatus] = useState<{ isValid: boolean | null; message: string | null }>({ isValid: null, message: null });
-  const formRef = useRef<HTMLFormElement>(null);
   
   // Обновляем локальные состояния при изменении пропсов
   useEffect(() => {
@@ -306,7 +300,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
         console.error("Error restoring form data:", e);
       }
     }
-  }, [isNewEvent, setFieldValue]);
+  }, [isNewEvent, setFieldValue, setImagePreview]);
 
   // Session checking effect that avoids state updates during render
   useEffect(() => {
@@ -456,7 +450,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
       
       // Делаем запрос к API
       let response;
-      if (!isNewEvent) {
+      if (!isNewEvent && formData.id) {
         // Обновляем существующее событие
         response = await fetch(`/admin_edits/${formData.id}/`, {
           method: 'PUT',
@@ -495,18 +489,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
         fullSlug = `${resultData.url_slug}-${year}-${resultData.id}`;
       }
       
-      // Создаем результат для обработки
-      const result = {
-        success: true,
-        message: isNewEvent ? "Мероприятие создано!" : "Мероприятие обновлено!",
-        event: {
-          ...resultData,
-          full_slug: fullSlug
-        }
-      };
-      
       // Показываем успешное сообщение
-      let successMessage = isNewEvent
+      const successMessage = isNewEvent
         ? `Мероприятие создано! URL: ${fullSlug}`
         : `Мероприятие обновлено! URL: ${fullSlug}`;
       
@@ -527,9 +511,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     } catch (error) {
       console.error("Error submitting form:", error);
       if (typeof setError === 'function') {
-        setError("Произошла ошибка при отправке формы");
+        setError(error instanceof Error ? error.message : "Произошла ошибка при отправке формы");
       } else {
-        setLocalError("Произошла ошибка при отправке формы");
+        setLocalError(error instanceof Error ? error.message : "Произошла ошибка при отправке формы");
       }
     } finally {
       setIsPageLoading(false);
@@ -1061,7 +1045,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                         width={128}
                         height={128}
                         className="w-full h-full object-cover"
-                        onError={(e) => {
+                        onError={() => {
                           // If image fails to load, remove it and show error
                           handleRemoveImage();
                           setImageError("Ошибка загрузки изображения. Пожалуйста, выберите другой файл.");

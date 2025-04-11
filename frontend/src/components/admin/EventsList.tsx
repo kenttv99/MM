@@ -20,13 +20,15 @@ interface EventData {
 
 interface EventsListProps {
   events: EventData[];
+  onEventDeleted?: () => void;
 }
 
-const EventsList: React.FC<EventsListProps> = ({ events }) => {
+const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
   const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState(false);
   
   // Фильтрация мероприятий по поисковому запросу
   const filteredEvents = events.filter(event => 
@@ -41,6 +43,8 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
   // Функция для удаления мероприятия
   const handleDeleteEvent = async () => {
     if (!eventToDelete) return;
+    
+    setDeleting(true);
 
     try {
       const token = localStorage.getItem("admin_token");
@@ -57,15 +61,23 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
       });
 
       if (!response.ok) {
-        throw new Error(`Ошибка удаления: ${response.status}`);
+        const errorText = await response.text();
+        console.error(`Ошибка удаления: ${response.status}`, errorText);
+        throw new Error(`Ошибка удаления: ${response.status} - ${errorText}`);
       }
 
+      // Вызываем колбэк об успешном удалении, если он был передан
+      if (onEventDeleted) {
+        onEventDeleted();
+      }
+      
       // Перенаправляем на текущую страницу для обновления данных
       router.refresh();
     } catch (error) {
       console.error("Ошибка при удалении мероприятия:", error);
       alert(error instanceof Error ? error.message : "Не удалось удалить мероприятие");
     } finally {
+      setDeleting(false);
       setShowDeleteModal(false);
       setEventToDelete(null);
     }
@@ -323,14 +335,24 @@ const EventsList: React.FC<EventsListProps> = ({ events }) => {
                   setEventToDelete(null);
                 }}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                disabled={deleting}
               >
                 Отмена
               </button>
               <button
                 onClick={handleDeleteEvent}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
+                className={`px-4 py-2 ${deleting ? 'bg-red-400' : 'bg-red-500 hover:bg-red-600'} text-white rounded-lg transition-colors flex items-center justify-center min-w-[80px]`}
+                disabled={deleting}
               >
-                Удалить
+                {deleting ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Удаление...
+                  </>
+                ) : 'Удалить'}
               </button>
             </div>
           </div>

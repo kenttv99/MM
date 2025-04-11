@@ -11,6 +11,29 @@ import { ru } from "date-fns/locale";
 import { MdCalendarToday, MdLocationOn, MdConfirmationNumber, MdFilterAlt, MdFilterAltOff } from "react-icons/md";
 import React from "react";
 
+// ========================================================================
+// ОПТИМИЗИРОВАННОЕ ЛОГИРОВАНИЕ
+// ========================================================================
+// Принципы логирования:
+// 1. Группировать логи по категориям: Lifecycle, Filters, API, Rendering
+// 2. Минимизировать количество логов в рабочих версиях (только в dev-режиме)
+// 3. Сокращать избыточную информацию, концентрироваться на ключевых данных
+// 4. Избегать дублирования похожих логов на разных этапах
+// 5. Обеспечить единый формат для удобного фильтрования в консоли
+// ========================================================================
+const debugLog = (category: string, message: string, data?: any) => {
+  const isDevMode = process.env.NODE_ENV === 'development';
+  if (!isDevMode) return;
+  
+  const prefix = `UserEventTickets [${category}]:`;
+  
+  if (data !== undefined) {
+    console.log(`${prefix} ${message}`, data);
+  } else {
+    console.log(`${prefix} ${message}`);
+  }
+};
+
 // Define the date formatting function directly
 const formatDateForDisplay = (dateString: string): string => {
   try {
@@ -429,8 +452,8 @@ const FilterPanel: React.FC<{
   
   // Применение фильтров
   const applyFilters = () => {
-    console.log('FilterPanel: Применяем фильтры:', localFilters);
-    console.log('FilterPanel: Активны фильтры по статусам:', localFilters.status);
+    debugLog('FilterPanel', 'Applying filters', localFilters);
+    debugLog('FilterPanel', 'Active filter statuses', localFilters.status);
     setFilters(localFilters);
     
     // Принудительное обновление отфильтрованных билетов
@@ -646,24 +669,24 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     const applyAllFilters = useCallback((ticketsToFilter: UserTicket[]) => {
       if (!ticketsToFilter.length) return [];
       
-      console.log(`UserEventTickets: Применяем фильтры к ${ticketsToFilter.length} билетам`);
+      debugLog('applyAllFilters', 'Applying filters to tickets', ticketsToFilter);
       let result = [...ticketsToFilter];
       
       // Отладочная информация перед фильтрацией
-      console.log('UserEventTickets: Билеты перед фильтрацией:', result.map(t => ({
+      debugLog('applyAllFilters', 'Tickets before filtering', result.map(t => ({
         id: t.id,
         status: t.status,
         event_status: t.event?.status,
         title: t.event?.title
       })));
-      console.log('UserEventTickets: Текущий фильтр статусов:', filters.status);
+      debugLog('applyAllFilters', 'Current filter statuses', filters.status);
       
       // Применяем фильтр по статусу
       if (filters.status.length > 0) {
         result = result.filter(ticket => {
           // Проверяем наличие данных
           if (!ticket || !ticket.event) {
-            console.log('UserEventTickets: Пропускаем билет без данных');
+            debugLog('applyAllFilters', 'Skipping ticket without data');
             return false;
           }
           
@@ -680,18 +703,18 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           
           // Специальная обработка для статуса "approved"
           if (effectiveStatus === "approved" && filters.status.includes("confirmed")) {
-            console.log(`UserEventTickets: Билет ${ticket.id} со статусом approved соответствует фильтру confirmed`);
+            debugLog('applyAllFilters', `Ticket ${ticket.id} matches confirmed filter`);
             matches = true;
           }
           
-          console.log(`UserEventTickets: Билет ${ticket.id} для ${ticket.event.title} статус ${ticket.status} (эффективный: ${effectiveStatus}) соответствует фильтру: ${matches}`);
+          debugLog('applyAllFilters', `Ticket ${ticket.id} for ${ticket.event.title} status ${ticket.status} (effective: ${effectiveStatus}) matches filter: ${matches}`);
           return matches;
         });
       }
       
       // Отладочная информация после фильтрации
-      console.log(`UserEventTickets: После фильтрации по статусу осталось ${result.length} билетов`);
-      console.log('UserEventTickets: Билеты после фильтрации:', result.map(t => ({
+      debugLog('applyAllFilters', 'After filtering by status, remaining tickets', result.length);
+      debugLog('applyAllFilters', 'Tickets after filtering', result.map(t => ({
         id: t.id,
         status: t.status,
         event_status: t.event?.status,
@@ -728,51 +751,51 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       const handleTicketUpdate = (event: Event) => {
         // Skip if this event was triggered by this component
         if (event instanceof CustomEvent && event.detail && event.detail.source === 'user-event-tickets') {
-          console.log('UserEventTickets: Ignoring our own ticket-update event');
+          debugLog('UserEventTickets', 'Ignoring our own ticket-update event');
           return;
         }
         
         // Do not process events while a ticket is being cancelled
         if (isTicketBeingCancelled.current) {
-          console.log('UserEventTickets: Skipping ticket-update event during active cancellation');
+          debugLog('UserEventTickets', 'Skipping ticket-update event during active cancellation');
           return;
         }
         
-        console.log('UserEventTickets: External ticket-update event received');
+        debugLog('UserEventTickets', 'External ticket-update event received');
         
         // Handle event with detailed ticket data
         if (event instanceof CustomEvent && event.detail) {
           const { source, action, newTicket, eventId, ticketId, needsRefresh } = event.detail;
           
-          console.log(`UserEventTickets: Event details - source: ${source}, action: ${action}, needsRefresh: ${needsRefresh}`);
+          debugLog('UserEventTickets', 'Event details', { source, action, needsRefresh });
           
           // Explicitly check the needsRefresh flag and log for debugging
           if (needsRefresh === false) {
-            console.log('UserEventTickets: needsRefresh is explicitly false, skipping refresh');
+            debugLog('UserEventTickets', 'needsRefresh is explicitly false, skipping refresh');
             return;
           }
           
           // If the refresh flag is modified elsewhere and this is an external cancel event,
           // we should still avoid refreshing since we've already handled it locally
           if (source !== 'user-event-tickets' && action === 'cancel' && ticketId) {
-            console.log(`UserEventTickets: External cancel received for ticket ${ticketId} - no refresh needed`);
+            debugLog('UserEventTickets', `External cancel received for ticket ${ticketId} - no refresh needed`);
             return;
           }
           
           // Handle registration events with complete ticket data
           if (source === 'event-registration' && action === 'register' && newTicket) {
-            console.log('UserEventTickets: Received new ticket registration data:', newTicket);
+            debugLog('UserEventTickets', 'Received new ticket registration data', newTicket);
             
             // Add the new ticket directly to the state without a full reload
             setTickets(prev => {
               // Check if we already have this ticket
               if (prev.some(t => t.id === newTicket.id)) {
-                console.log('UserEventTickets: Ticket already exists, not adding duplicate');
+                debugLog('UserEventTickets', 'Ticket already exists, not adding duplicate');
                 return prev;
               }
               
               // Add the new ticket and process it
-              console.log('UserEventTickets: Adding new ticket to state');
+              debugLog('UserEventTickets', 'Adding new ticket to state');
               return [...prev, newTicket];
             });
             
@@ -785,7 +808,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         
         // For other events, we'll do a full refresh only if not in the process of cancelling
         if (!isTicketBeingCancelled.current) {
-          console.log('UserEventTickets: External event requires refresh - will fetchTickets()');
+          debugLog('UserEventTickets', 'External event requires refresh - will fetchTickets()');
           refreshCounter.current += 1;
           fetchTickets();
         }
@@ -801,7 +824,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     // Process tickets when they are fetched - modified to avoid recursion
     useEffect(() => {
       if (tickets.length > 0) {
-        console.log('UserEventTickets: Processing tickets data', { count: tickets.length });
+        debugLog('UserEventTickets', 'Processing tickets data', { count: tickets.length });
         
         // Group tickets by event_id to remove duplicates
         const ticketsByEvent = {};
@@ -816,11 +839,11 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           }
         });
         
-        console.log('UserEventTickets: Grouped tickets by event', { count: Object.keys(ticketsByEvent).length });
+        debugLog('UserEventTickets', 'Grouped tickets by event', { count: Object.keys(ticketsByEvent).length });
         
         // Convert to array
         let uniqueTickets = Object.values(ticketsByEvent);
-        console.log('UserEventTickets: Unique tickets before filtering', { count: uniqueTickets.length });
+        debugLog('UserEventTickets', 'Unique tickets before filtering', { count: uniqueTickets.length });
         
         // Больше не фильтруем здесь отмененные билеты, оставляем это для applyAllFilters
         const sortedTickets = sortByStatusAndDate(uniqueTickets);
@@ -839,9 +862,9 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     // Применяем фильтры при изменении билетов или фильтров
     useEffect(() => {
       if (tickets.length > 0) {
-        console.log('UserEventTickets: Изменились фильтры или список билетов, обновляем фильтрацию');
+        debugLog('UserEventTickets', 'Filters or ticket list changed, refreshing');
         const filtered = applyAllFilters(tickets);
-        console.log(`UserEventTickets: После фильтрации получены билеты: `, 
+        debugLog('UserEventTickets', 'After filtering, tickets obtained', 
           filtered.map(t => ({id: t.id, status: t.status, title: t.event?.title})));
         setFilteredTickets(filtered);
       } else {
@@ -864,11 +887,11 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
 
     // Add logging for component lifecycle
     useEffect(() => {
-      console.log(`UserEventTickets: Component mounted, current stage: ${currentStage}`);
+      debugLog('UserEventTickets', 'Component mounted, current stage', currentStage);
       isMounted.current = true;
       
       return () => {
-        console.log("UserEventTickets: Component unmounted");
+        debugLog('UserEventTickets', 'Component unmounted');
         isMounted.current = false;
         if (retryTimeout.current) {
           clearTimeout(retryTimeout.current);
@@ -880,15 +903,15 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     useEffect(() => {
       if (!isMounted.current) return;
       
-      console.log(`UserEventTickets: Pathname changed to ${pathname}`);
+      debugLog('UserEventTickets', 'Pathname changed', pathname);
       
       // Check if we're on a profile-related page
       if (pathname && (pathname.includes('/profile') || pathname.includes('/account'))) {
-        console.log('UserEventTickets: Detected navigation to profile page');
+        debugLog('UserEventTickets', 'Detected navigation to profile page');
         
         // Only reset state if we haven't fetched data before
         if (!hasInitialData.current && !isInitialFetchDone.current) {
-          console.log('UserEventTickets: First time on profile page - initializing');
+          debugLog('UserEventTickets', 'First time on profile page - initializing');
           setIsLoading(true);
           hasInitialData.current = false;
           isInitialLoad.current = true;
@@ -898,7 +921,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           setTickets([]);
           isInitialFetchDone.current = false;
         } else {
-          console.log('UserEventTickets: Already initialized - avoiding full reset');
+          debugLog('UserEventTickets', 'Already initialized - avoiding full reset');
         }
       }
     }, [pathname]);
@@ -907,7 +930,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     useEffect(() => {
       const token = localStorage.getItem('token');
       if (!token) {
-        console.log("UserEventTickets: No token found on mount, redirecting to home");
+        debugLog('UserEventTickets', 'No token found on mount, redirecting to home');
         router.push('/');
       }
     }, [router]);
@@ -916,20 +939,20 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     useEffect(() => {
       if (!isMounted.current || refreshCounter.current === 0) return;
       
-      console.log(`UserEventTickets: Handling refresh #${refreshCounter.current}`);
+      debugLog('UserEventTickets', `Handling refresh #${refreshCounter.current}`);
       
       // Предотвращаем дублирование запросов, проверяя время с последнего вызова
       const now = Date.now();
       const timeSinceLastFetch = now - lastFetchTime.current;
       
       if (timeSinceLastFetch < minFetchInterval && !isInitialLoad.current) {
-        console.log(`UserEventTickets: Слишком частые запросы, последний запрос был ${timeSinceLastFetch}ms назад. Пропускаем запрос #${refreshCounter.current}`);
+        debugLog('UserEventTickets', `Too frequent requests, last request was ${timeSinceLastFetch}ms ago. Skipping request #${refreshCounter.current}`);
         return;
       }
       
       // Если запрос уже идет, не запускаем новый
       if (fetchAttempted.current) {
-        console.log(`UserEventTickets: Запрос уже выполняется, пропускаем запрос #${refreshCounter.current}`);
+        debugLog('UserEventTickets', `Request already in progress, skipping request #${refreshCounter.current}`);
         return;
       }
       
@@ -942,7 +965,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
 
     // Log stage changes
     useEffect(() => {
-      console.log(`UserEventTickets: Stage changed to ${currentStage}`);
+      debugLog('UserEventTickets', 'Stage changed', currentStage);
     }, [currentStage]);
 
     // Инициализация загрузки при получении userData
@@ -952,23 +975,23 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       
       // Проверяем, есть ли данные userData
       if (!userData) {
-        console.log('UserEventTickets: No user data yet, waiting...');
+        debugLog('UserEventTickets', 'No user data yet, waiting...');
         return;
       }
       
       // Предотвращаем повторные запросы при каждом ре-рендере
       if (isInitialFetchDone.current) {
-        console.log('UserEventTickets: Initial fetch already completed, skipping');
+        debugLog('UserEventTickets', 'Initial fetch already completed, skipping');
         return;
       }
       
       // Если начальная загрузка уже запланирована, не создаем дублирующие таймеры
       if (fetchAttempted.current) {
-        console.log('UserEventTickets: Fetch already scheduled or in progress');
+        debugLog('UserEventTickets', 'Fetch already scheduled or in progress');
         return;
       }
       
-      console.log('UserEventTickets: userData is available, triggering initial fetch');
+      debugLog('UserEventTickets', 'userData is available, triggering initial fetch');
       
       // Инициируем начальную загрузку только один раз при первом получении userData
       refreshCounter.current += 1;
@@ -976,7 +999,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       
       // Небольшая задержка для стабильности
       const timer = setTimeout(() => {
-        console.log(`UserEventTickets: Initial data load with userData, refresh #${refreshCounter.current}`);
+        debugLog('UserEventTickets', 'Initial data load with userData, refresh #', refreshCounter.current);
         // Не используем fetchTickets() напрямую, т.к. был увеличен refreshCounter
         // Это запустит другой useEffect, который вызовет fetchTickets()
       }, initialLoadDelay);
@@ -997,7 +1020,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         // Начинаем подгрузку когда пользователь прокрутил до 80% высоты контента
         // Это обеспечит более плавную подгрузку до того, как пользователь достигнет конца списка
         if (scrollHeight - scrollTop - clientHeight < scrollHeight * 0.2 && !isLoadingMore && hasMore) {
-          console.log('UserEventTickets: Scrolled near bottom, loading more tickets');
+          debugLog('UserEventTickets', 'Scrolled near bottom, loading more tickets');
           loadMoreTickets();
         }
       };
@@ -1010,7 +1033,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
 
     // Force refresh method
     const forceRefresh = useCallback(() => {
-      console.log(`UserEventTickets: Manual refresh triggered`);
+      debugLog('UserEventTickets', 'Manual refresh triggered');
       
       // Reset state
       setIsLoading(true);
@@ -1033,24 +1056,24 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       
       // Проверяем, есть ли данные userData
       if (!userData) {
-        console.log('UserEventTickets: No user data yet, waiting...');
+        debugLog('UserEventTickets', 'No user data yet, waiting...');
         // Если userData еще не загружен, выходим и ждем следующего рендера
         return;
       }
       
       // Предотвращаем повторные запросы при каждом ре-рендере
       if (isInitialFetchDone.current) {
-        console.log('UserEventTickets: Initial fetch already completed, skipping');
+        debugLog('UserEventTickets', 'Initial fetch already completed, skipping');
         return;
       }
       
       // Если начальная загрузка уже запланирована, не создаем дублирующие таймеры
       if (fetchAttempted.current) {
-        console.log('UserEventTickets: Fetch already scheduled or in progress');
+        debugLog('UserEventTickets', 'Fetch already scheduled or in progress');
         return;
       }
       
-      console.log('UserEventTickets: userData is available, triggering initial fetch');
+      debugLog('UserEventTickets', 'userData is available, triggering initial fetch');
       
       // Инициируем начальную загрузку только один раз при первом получении userData
       refreshCounter.current += 1;
@@ -1058,7 +1081,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       
       // Небольшая задержка для стабильности
       const timer = setTimeout(() => {
-        console.log(`UserEventTickets: Initial data load with userData, refresh #${refreshCounter.current}`);
+        debugLog('UserEventTickets', 'Initial data load with userData, refresh #', refreshCounter.current);
         // Не используем fetchTickets() напрямую, а увеличиваем счетчик
         // Это запустит другой useEffect, который вызовет fetchTickets()
         // с полной проверкой на дубликаты
@@ -1075,12 +1098,12 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       
       setIsLoadingMore(true);
       const nextPage = page + 1;
-      console.log(`UserEventTickets: Loading more tickets, page ${nextPage}`);
+      debugLog('UserEventTickets', `Loading more tickets, page ${nextPage}`);
       
       try {
         const token = localStorage.getItem('token');
         if (!token) {
-          console.log("UserEventTickets: No token found in localStorage");
+          debugLog('UserEventTickets', 'No token found in localStorage');
           setError("Необходима авторизация");
           setIsLoadingMore(false);
           router.push('/');
@@ -1089,7 +1112,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         
         // Сохраняем текущие ID билетов перед запросом
         const currentTicketIds = new Set(tickets.map(ticket => ticket.id));
-        console.log(`UserEventTickets: Текущее количество билетов: ${currentTicketIds.size}`);
+        debugLog('UserEventTickets', 'Current ticket count', currentTicketIds.size);
         
         // Создаем параметры для запроса с фильтрами
         const params: Record<string, any> = {
@@ -1120,33 +1143,33 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           params
         });
         
-        console.log('UserEventTickets: Loaded more tickets response:', response);
+        debugLog('UserEventTickets', 'Loaded more tickets response', response);
         
         // Получаем данные в зависимости от формата ответа
         let ticketsData: UserTicket[] = [];
         
         if (Array.isArray(response)) {
           // Если ответ - это прямой массив
-          console.log("UserEventTickets: Ответ в формате прямого массива");
+          debugLog('UserEventTickets', 'Response in direct array format');
           ticketsData = response;
         } else if (response && !("aborted" in response)) {
           if ("data" in response && response.data) {
             // Если ответ в формате {data: [...]}
-            console.log("UserEventTickets: Ответ в формате {data: [...]}");
+            debugLog('UserEventTickets', 'Response in {data: [...]} format');
             ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
           } else if ("items" in response && response.items) {
             // Если ответ в формате {items: [...]}
-            console.log("UserEventTickets: Ответ в формате {items: [...]}");
+            debugLog('UserEventTickets', 'Response in {items: [...]} format');
             ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
           } else if ("tickets" in response && response.tickets) {
             // Если ответ в формате {tickets: [...]}
-            console.log("UserEventTickets: Ответ в формате {tickets: [...]}");
+            debugLog('UserEventTickets', 'Response in {tickets: [...]} format');
             ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
           }
         }
         
         if (!ticketsData || ticketsData.length === 0) {
-          console.log('UserEventTickets: Больше билетов не найдено');
+          debugLog('UserEventTickets', 'No more tickets found');
           setHasMore(false);
           setIsLoadingMore(false);
           return;
@@ -1157,7 +1180,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         
         // Фильтруем только новые билеты, которых еще нет в списке
         const newTickets = processedTickets.filter(ticket => !currentTicketIds.has(ticket.id));
-        console.log(`UserEventTickets: Новых билетов для добавления: ${newTickets.length}`);
+        debugLog('UserEventTickets', 'New tickets to add', newTickets.length);
             
         if (newTickets.length > 0) {
           // Update tickets directly without triggering another processing cycle
@@ -1174,7 +1197,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           // Если получили меньше билетов, чем запрашивали, значит больше нет
           setHasMore(newTickets.length >= ticketsPerPage);
         } else {
-          console.log('UserEventTickets: Больше новых билетов не найдено');
+          debugLog('UserEventTickets', 'No new tickets found');
           setHasMore(false);
         }
         
@@ -1184,7 +1207,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           setIsLoadingMore(false);
         }, 300);
       } catch (err) {
-        console.error("UserEventTickets: Error loading more tickets", err);
+        debugLog('UserEventTickets', 'Error loading more tickets', err);
         setIsLoadingMore(false);
       }
     };
@@ -1217,7 +1240,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           const dateB = new Date(b.event.start_date || Date.now());
           return dateA.getTime() - dateB.getTime();
         } catch (err) {
-          console.error('Error sorting tickets by date:', err);
+          debugLog('Error sorting tickets by date', err);
           return 0;
         }
       });
@@ -1247,7 +1270,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       }
       
       // Отладочная информация о входных данных
-      console.log('UserEventTickets: Входные данные для processTickets:', tickets.map(t => ({
+      debugLog('processTickets', 'Input data for processTickets', tickets.map(t => ({
         id: t.id,
         status: t.status,
         event_status: t.event?.status,
@@ -1270,7 +1293,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         // Обновляем статус билета в соответствии со статусом мероприятия
         // Но не меняем отмененные билеты
         if (ticketCopy.event && ticketCopy.event.status === "completed" && ticketCopy.status !== "cancelled") {
-          console.log(`UserEventTickets: Устанавливаем статус билета ${ticketCopy.id} для события ${ticketCopy.event.title} как 'completed' (было '${ticketCopy.status}')`);
+          debugLog(`UserEventTickets`, `Setting ticket ${ticketCopy.id} status to 'completed' (was '${ticketCopy.status}')`);
           ticketCopy.status = "completed";
         }
         
@@ -1284,7 +1307,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       const uniqueTickets = Array.from(uniqueTicketsMap.values());
       
       // Отладочная информация о билетах после обработки
-      console.log('UserEventTickets: Билеты после processTickets:', uniqueTickets.map(t => ({
+      debugLog('processTickets', 'Tickets after processing', uniqueTickets.map(t => ({
         id: t.id,
         status: t.status,
         event_status: t.event?.status,
@@ -1300,32 +1323,32 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     const fetchTickets = async () => {
       // Предотвращаем запрос, если компонент не смонтирован
       if (!isMounted.current) {
-        console.log("UserEventTickets: Компонент не смонтирован, запрос отменен");
+        debugLog('UserEventTickets', 'Component not mounted, request cancelled');
         return;
       }
       
       // Предотвращаем дублирование начального запроса в режиме разработки
       if (isInitialFetchDone.current && isInitialLoad.current) {
-        console.log("UserEventTickets: Предотвращение дублирования начального запроса");
+        debugLog('UserEventTickets', 'Preventing duplicate initial request');
         isInitialLoad.current = false;
         return;
       }
       
       // Если запрос уже идет, не запускаем новый
       if (fetchAttempted.current) {
-        console.log("UserEventTickets: Запрос уже выполняется, дублирование предотвращено");
+        debugLog('UserEventTickets', 'Request already in progress, duplicate prevented');
         return;
       }
       
       // Помечаем попытку запроса
       fetchAttempted.current = true;
       setIsLoading(true);
-      console.log(`UserEventTickets: Начало запроса билетов, refreshCounter=${refreshCounter.current}`);
+      debugLog('UserEventTickets', 'Starting ticket fetch, refreshCounter=', refreshCounter.current);
       
       try {
         const token = localStorage.getItem('token');
         if (!token) {
-          console.log("UserEventTickets: Токен не найден");
+          debugLog('UserEventTickets', 'Token not found');
           setError("Необходима авторизация");
           setIsLoading(false);
           fetchAttempted.current = false; // Важно сбросить маркер при выходе
@@ -1333,7 +1356,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           return;
         }
         
-        console.log('UserEventTickets: Выполняется запрос билетов');
+        debugLog('UserEventTickets', 'Performing ticket fetch');
         
         // Добавляем уникальный идентификатор для кэширования
         const cacheKey = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -1369,14 +1392,14 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         if (response && "aborted" in response) {
           if (response.reason === "loading-stage-mismatch") {
             // Если запрос был отменен из-за несоответствия стадии загрузки, планируем повторную попытку
-            console.log("UserEventTickets: Запрос отменен из-за несоответствия стадии загрузки");
+            debugLog('UserEventTickets', 'Request cancelled due to loading stage mismatch');
             
             if (retryTimeout.current) {
               clearTimeout(retryTimeout.current);
             }
             
             retryTimeout.current = setTimeout(() => {
-              console.log("UserEventTickets: Повторная попытка запроса");
+              debugLog('UserEventTickets', 'Retrying request');
               fetchAttempted.current = false; // Важно сбросить маркер перед новой попыткой
               refreshCounter.current += 1;
             }, 1000);
@@ -1384,7 +1407,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
             return;
           }
         
-          console.log(`UserEventTickets: Запрос отменен, причина: ${response.reason}`);
+          debugLog('UserEventTickets', 'Request cancelled', `Reason: ${response.reason}`);
           setError(`Запрос был прерван: ${response.reason}`);
           setIsLoading(false);
           isInitialLoad.current = false;
@@ -1392,29 +1415,29 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           return;
         }
           
-        console.log('UserEventTickets: Билеты получены', response);
+        debugLog('UserEventTickets', 'Tickets received', response);
         
         // Получаем данные в зависимости от формата ответа
         let ticketsData: UserTicket[] = [];
         
         if (Array.isArray(response)) {
-          console.log("UserEventTickets: Ответ в формате прямого массива");
+          debugLog('UserEventTickets', 'Response in direct array format');
           ticketsData = response;
         } else if (response && !("aborted" in response)) {
           if ("data" in response && response.data) {
-            console.log("UserEventTickets: Ответ в формате {data: [...]}");
+            debugLog('UserEventTickets', 'Response in {data: [...]} format');
             ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
           } else if ("items" in response && response.items) {
-            console.log("UserEventTickets: Ответ в формате {items: [...]}");
+            debugLog('UserEventTickets', 'Response in {items: [...]} format');
             ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
           } else if ("tickets" in response && response.tickets) {
-            console.log("UserEventTickets: Ответ в формате {tickets: [...]}");
+            debugLog('UserEventTickets', 'Response in {tickets: [...]} format');
             ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
           }
         }
         
         if (!ticketsData || ticketsData.length === 0) {
-          console.log('UserEventTickets: Билеты не найдены или пустой ответ');
+          debugLog('UserEventTickets', 'Tickets not found or empty response');
           setTickets([]);
           setFilteredTickets([]);
           setError(null);
@@ -1426,12 +1449,12 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           return;
         }
           
-        console.log(`UserEventTickets: Получено ${ticketsData.length} билетов`);
+        debugLog('UserEventTickets', `${ticketsData.length} tickets received`);
         
         // Обработка данных с учетом фильтров
         const processedTickets = processTickets(ticketsData);
         
-        console.log(`UserEventTickets: После обработки осталось ${processedTickets.length} уникальных билетов`);
+        debugLog('UserEventTickets', `${processedTickets.length} unique tickets remaining after processing`);
         
         // Set tickets (filtered tickets будут обновлены через useEffect)
         setTickets(processedTickets);
@@ -1449,9 +1472,9 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         setIsLoading(false);
         isInitialLoad.current = false;
         
-        console.log('UserEventTickets: Загрузка билетов завершена успешно');
+        debugLog('UserEventTickets', 'Tickets load completed successfully');
       } catch (err) {
-        console.error('UserEventTickets: Ошибка при загрузке билетов', err);
+        debugLog('UserEventTickets', 'Error loading tickets', err);
         setError(err instanceof Error ? err.message : 'Ошибка при загрузке данных');
         setIsLoading(false);
         isInitialLoad.current = false;
@@ -1463,7 +1486,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
 
     // Add a function to explicitly refresh tickets
     const refreshTickets = useCallback(() => {
-      console.log('UserEventTickets: Manual refresh requested via ref');
+      debugLog('UserEventTickets', 'Manual refresh requested via ref');
       
       // Reset pagination state
       setPage(1);
@@ -1491,7 +1514,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       setCancelError(undefined);
       setCancelSuccess(undefined);
       setIsModalOpen(true);
-      console.log("UserEventTickets: Opening cancel confirmation for ticket ID:", ticket.id);
+      debugLog('UserEventTickets', 'Opening cancel confirmation for ticket ID:', ticket.id);
     };
     
     // Modified cancel ticket confirmation with proper logging and flag consistency
@@ -1509,7 +1532,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
           throw new Error('No ticket selected or user not authorized');
         }
         
-        console.log('Cancelling ticket:', selectedTicket.id);
+        debugLog('UserEventTickets', 'Cancelling ticket:', selectedTicket.id);
         
         // Make the API call to cancel the ticket
         const response = await apiFetch(`/registration/cancel`, {
@@ -1526,7 +1549,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         });
         
         // Handle successful cancellation
-        console.log('Ticket cancelled successfully:', response);
+        debugLog('UserEventTickets', 'Ticket cancelled successfully:', response);
         setCancelSuccess('Билет успешно отменен!');
         
         // Update local ticket state (for optimistic update)
@@ -1553,7 +1576,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
             needsRefresh: false // Important! We don't want a refresh since we already updated our local state
           }
         });
-        console.log('Dispatching ticket-update event with needsRefresh:false');
+        debugLog('UserEventTickets', 'Dispatching ticket-update event with needsRefresh:false');
         window.dispatchEvent(ticketUpdateEvent);
         
         // Close modal after a short delay to show success message
@@ -1566,7 +1589,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
         }, 1500);
         
       } catch (err) {
-        console.error('Error cancelling ticket:', err);
+        debugLog('UserEventTickets', 'Error cancelling ticket', err);
         setCancelError(err.message || 'Не удалось отменить билет. Пожалуйста, попробуйте снова.');
         setCancelLoading(false);
         // Clear the flag on error
@@ -1576,7 +1599,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
 
     // Инициализация настроек фильтра при первом монтировании компонента
     useEffect(() => {
-      console.log('UserEventTickets: Инициализация начальных фильтров');
+      debugLog('UserEventTickets', 'Initializing filters');
       // Устанавливаем фильтр подтвержденных билетов по умолчанию
       if (filters.status.length === 0) {
         setFilters(prev => ({ ...prev, status: ['confirmed'] }));
@@ -1635,11 +1658,11 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                 isOpen={isFilterModalOpen}
                 onClose={() => setIsFilterModalOpen(false)}
                 onFilterChange={(newFilters) => {
-                  console.log('Применены новые фильтры:', newFilters);
+                  debugLog('UserEventTickets', 'New filters applied', newFilters);
                   
                   // Принудительно применяем фильтры к текущим билетам
                   if (tickets.length > 0) {
-                    console.log('Принудительно применяем фильтры к', tickets.length, 'билетам');
+                    debugLog('UserEventTickets', 'Applying filters to', tickets.length, 'tickets');
                     const filtered = tickets.filter(ticket => {
                       if (!ticket || !ticket.event) return false;
                       
@@ -1653,21 +1676,21 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                       
                       // Специальная обработка для статуса "approved"
                       if (effectiveStatus === "approved" && newFilters.status.includes("confirmed")) {
-                        console.log(`UserEventTickets: Билет ${ticket.id} со статусом approved соответствует фильтру confirmed`);
+                        debugLog('UserEventTickets', `Ticket ${ticket.id} matches confirmed filter`);
                         return true;
                       }
                       
                       // Проверяем соответствие эффективного статуса выбранным фильтрам
                       if (newFilters.status.length > 0) {
                         const matches = newFilters.status.includes(effectiveStatus);
-                        console.log(`UserEventTickets: Билет ${ticket.id} для ${ticket.event.title} статус ${ticket.status} (эффективный: ${effectiveStatus}) соответствует фильтру: ${matches}`);
+                        debugLog('UserEventTickets', `Ticket ${ticket.id} match status: ${matches}`);
                         return matches;
                       }
                       
                       return true;
                     });
                     
-                    console.log('После применения фильтров осталось', filtered.length, 'билетов');
+                    debugLog('UserEventTickets', 'After applying filters,', filtered.length, 'tickets remaining');
                     
                     // Применяем фильтр по дате бронирования
                     let dateFiltered = [...filtered];
@@ -1693,7 +1716,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                     }
                     
                     setFilteredTickets(sortByStatusAndDate(dateFiltered));
-                    console.log('UserEventTickets: После всех фильтраций и сортировки получено билетов:', dateFiltered.length);
+                    debugLog('UserEventTickets', 'After all filtering and sorting,', dateFiltered.length, 'tickets obtained');
                   }
                 }}
               />
@@ -1706,13 +1729,13 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
               
               {Array.isArray(filteredTickets) && filteredTickets.length > 0 ? (
                 <div className="space-y-4" key={`tickets-list-${filteredTickets.length}-${filters.status.join('-')}`}>
-                  {console.log('UserEventTickets: Рендеринг билетов:', 
+                  {debugLog('UserEventTickets', 'Rendering tickets:', 
                     filteredTickets.map(t => ({id: t.id, status: t.status, title: t.event?.title})))}
                   {filteredTickets.map((ticket, index) => {
-                    console.log(`UserEventTickets: Рендеринг билета ${ticket?.id || 'unknown'}, статус ${ticket?.status || 'unknown'}`);
+                    debugLog(`UserEventTickets: Rendering ticket ${ticket?.id || 'unknown'}, status ${ticket?.status || 'unknown'}`);
                     // Проверяем наличие необходимых данных
                     if (!ticket || !ticket.event) {
-                      console.log('UserEventTickets: Пропускаем билет без данных при рендеринге');
+                      debugLog('UserEventTickets', 'Skipping ticket without data during rendering');
                       return null;
                     }
                     
@@ -1731,16 +1754,16 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                       
                       // Специальная обработка для статуса "approved" - считается совпадающим с confirmed
                       if (effectiveStatus === "approved" && filters.status.includes("confirmed")) {
-                        console.log(`UserEventTickets: Билет ${ticket.id} со статусом approved соответствует фильтру confirmed при рендеринге`);
+                        debugLog(`UserEventTickets: Ticket ${ticket.id} matches confirmed filter during rendering`);
                         matchesStatus = true;
                       }
                       
                       if (!matchesStatus) {
-                        console.log(`UserEventTickets: Билет ${ticket.id} не соответствует фильтрам при рендеринге`);
-                        console.log(`   - Статус билета: ${ticket.status}`);
-                        console.log(`   - Эффективный статус: ${effectiveStatus}`);
-                        console.log(`   - Статус события: ${ticket.event.status}`);
-                        console.log(`   - Фильтры: ${filters.status.join(', ')}`);
+                        debugLog(`UserEventTickets: Ticket ${ticket.id} does not match filters during rendering`);
+                        debugLog(`   - Ticket status: ${ticket.status}`);
+                        debugLog(`   - Effective status: ${effectiveStatus}`);
+                        debugLog(`   - Event status: ${ticket.event.status}`);
+                        debugLog(`   - Filters: ${filters.status.join(', ')}`);
                         return null;
                       }
                     }

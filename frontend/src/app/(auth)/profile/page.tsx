@@ -21,15 +21,12 @@ const ProfilePage: React.FC = () => {
   const { setStage, detectAndFixLoadingInconsistency } = useLoading();
   const router = useRouter();
 
-  // Add a ref to track ticket updates for UserEventTickets component
-  const ticketsNeedRefresh = useRef(false);
+  // Add a ref for the UserEventTickets component
   const ticketsComponentRef = useRef<UserEventTicketsRef>(null);
   
   // Function to force refresh tickets
   const refreshTickets = useCallback(() => {
     console.log('ProfilePage: Forcing tickets refresh');
-    ticketsNeedRefresh.current = true;
-    setForceUpdate(prev => prev + 1);
     
     // Use the ref method if available
     if (ticketsComponentRef.current) {
@@ -43,9 +40,6 @@ const ProfilePage: React.FC = () => {
     const handleTicketUpdate = (event: Event) => {
       console.log('ProfilePage: Received ticket update event');
       
-      // Mark that tickets need refreshing
-      ticketsNeedRefresh.current = true;
-      
       // If the event has detail data, log it
       if (event instanceof CustomEvent && event.detail) {
         const { source, action, ticketId, eventId } = event.detail;
@@ -53,25 +47,21 @@ const ProfilePage: React.FC = () => {
           source, 
           action, 
           ticketId,
-          eventId,
-          needsRefresh: ticketsNeedRefresh.current
+          eventId
         });
       }
       
-      // Force a rerender to ensure UserEventTickets notices the change
-      setForceUpdate(prev => prev + 1);
+      // Refresh tickets when we receive an update
+      refreshTickets();
     };
     
     window.addEventListener('ticket-update', handleTicketUpdate);
     return () => {
       window.removeEventListener('ticket-update', handleTicketUpdate);
     };
-  }, []);
+  }, [refreshTickets]);
   
-  // Add a state to force updates when needed
-  const [forceUpdate, setForceUpdate] = useState(0);
-
-  // Add state to force UserEventTickets component refresh
+  // Add state to reference the tickets component
   const [ticketsComponentKey, setTicketsComponentKey] = useState(0);
   
   // Add effect to handle browser navigation events
@@ -83,9 +73,8 @@ const ProfilePage: React.FC = () => {
         console.log('ProfilePage: Page restored from cache, forcing tickets update');
         // Increment the key to completely re-mount the tickets component
         setTicketsComponentKey(prev => prev + 1);
-        // Also trigger refresh
-        ticketsNeedRefresh.current = true;
-        setForceUpdate(prev => prev + 1);
+        // Trigger refresh
+        refreshTickets();
       }
     };
     
@@ -94,9 +83,8 @@ const ProfilePage: React.FC = () => {
       console.log('ProfilePage: Browser navigation detected, forcing tickets update');
       // Increment the key to completely re-mount the tickets component
       setTicketsComponentKey(prev => prev + 1);
-      // Also trigger refresh
-      ticketsNeedRefresh.current = true;
-      setForceUpdate(prev => prev + 1);
+      // Trigger refresh
+      refreshTickets();
     };
     
     window.addEventListener('pageshow', handlePageShow);
@@ -106,7 +94,7 @@ const ProfilePage: React.FC = () => {
       window.removeEventListener('pageshow', handlePageShow);
       window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [refreshTickets]);
 
   const [formState, setFormState] = useState<FormState>({
     fio: "",
@@ -630,14 +618,6 @@ const ProfilePage: React.FC = () => {
     setFetchError(null);
   }, [initialFormState, validateForm]);
 
-  // Force refresh tickets when user data changes
-  useEffect(() => {
-    if (userData && !authLoading) {
-      console.log('ProfilePage: User data loaded, refreshing tickets');
-      refreshTickets();
-    }
-  }, [userData, authLoading, refreshTickets]);
-
   if (!isAuth) return null;
 
   return (
@@ -650,10 +630,12 @@ const ProfilePage: React.FC = () => {
               {formState.avatarPreview ? (
                 // Check if the avatar is a data URI (starts with 'data:')
                 formState.avatarPreview.startsWith('data:') ? (
-                  // Use regular img tag for data URIs to avoid Next.js Image optimization errors
-                  <img
+                  // Use Next.js Image component for data URIs to fix ESLint warning
+                  <Image
                     src={formState.avatarPreview}
                     alt="Аватар"
+                    width={96}
+                    height={96}
                     className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
                     onLoad={() => {
                       console.log("ProfilePage: Аватарка (data URI) успешно загружена");
@@ -662,6 +644,8 @@ const ProfilePage: React.FC = () => {
                       console.error("Ошибка загрузки data URI аватарки в профиле");
                       setFormState((prev) => ({ ...prev, avatarPreview: null }));
                     }}
+                    unoptimized // This ensures data URIs work with Next.js Image
+                    priority
                   />
                 ) : (
                   // Use Next.js Image for normal URLs
@@ -818,12 +802,11 @@ const ProfilePage: React.FC = () => {
         </div>
         <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
           <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-          {userData && <UserEventTickets 
-            key={`tickets-component-${ticketsComponentKey}`}
-            ref={ticketsComponentRef}
-            needsRefresh={ticketsNeedRefresh} 
-            forceUpdateTrigger={forceUpdate} 
-          />}
+          {userData && (
+            <div key={`tickets-wrapper-${ticketsComponentKey}`}>
+              <UserEventTickets ref={ticketsComponentRef} />
+            </div>
+          )}
         </div>
         {isChangePasswordOpen && <ChangePasswordForm
           isOpen={isChangePasswordOpen}

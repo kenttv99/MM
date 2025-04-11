@@ -1887,3 +1887,9 @@ DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "notification_templates"
 [SQL: DELETE FROM events WHERE events.id = $1::INTEGER]
 [parameters: (3,)]
 (Background on this error at: https://sqlalche.me/e/20/gkpj)
+2025-04-11 14:07:18,946 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 14:07:19,066 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 14:09:28,966 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 14:09:29,051 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 14:16:30,032 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 14:16:30,420 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

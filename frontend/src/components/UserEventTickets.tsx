@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, forwardRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaTimesCircle, FaFilter } from "react-icons/fa";
+import { FaTimesCircle, FaFilter, FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaClock, FaRegCalendarCheck } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
 import { useLoading } from "@/contexts/LoadingContext";
 import { EventData } from "@/types/events";
@@ -1137,7 +1137,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       }, 5000); // 5 секунд таймаута
       
       return () => clearTimeout(timer);
-    }, []);
+    }, [fetchTickets, isLoading]);
 
     // Add refreshTickets for use with the ref
     const refreshTickets = useCallback(() => {
@@ -1155,7 +1155,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
       
       // Важно: вызовите fetchTickets напрямую для немедленной загрузки
       fetchTickets();
-    }, []);
+    }, [fetchTickets]);
     
     // Expose methods to parent components via ref
     React.useImperativeHandle(ref, () => ({
@@ -1200,7 +1200,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                 >
                   <FaFilter /> Фильтры
                   {filters.status.length > 0 || filters.dateFrom || filters.dateTo ? (
-                    <span className="bg-orange-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
+                    <span className="bg-orange-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center ml-1">
                       {filters.status.length + (filters.dateFrom ? 1 : 0) + (filters.dateTo ? 1 : 0)}
                     </span>
                   ) : null}
@@ -1379,7 +1379,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                               {/* Event information */}
                               <div className="space-y-2">
                                 <div className="flex items-start gap-2 text-sm text-gray-600">
-                                  <span className="text-orange-500 flex-shrink-0 mt-1">📅</span>
+                                  <span className="text-orange-500 flex-shrink-0 mt-1"><FaCalendarAlt /></span>
                                   <span className="break-words">
                                     {formatDate(ticket.event.start_date)}
                                     {ticket.event.end_date && !checkSameDay(ticket.event.start_date, ticket.event.end_date) &&
@@ -1387,7 +1387,7 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                                   </span>
                                 </div>
                                 <div className="flex items-start gap-2 text-sm text-gray-600">
-                                  <span className="text-orange-500 flex-shrink-0 mt-1">⏱️</span>
+                                  <span className="text-orange-500 flex-shrink-0 mt-1"><FaClock /></span>
                                   <span className="break-words">
                                     {formatTime(ticket.event.start_date)}
                                     {ticket.event.end_date && 
@@ -1396,18 +1396,18 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
                                 </div>
                                 {ticket.event.location && (
                                   <div className="flex items-start gap-2 text-sm text-gray-600">
-                                    <span className="text-orange-500 flex-shrink-0 mt-1">📍</span>
+                                    <span className="text-orange-500 flex-shrink-0 mt-1"><FaMapMarkerAlt /></span>
                                     <span className="break-words">{ticket.event.location}</span>
                                   </div>
                                 )}
                                 <div className="flex items-start gap-2 text-sm text-gray-600">
-                                  <span className="text-orange-500 flex-shrink-0 mt-1">🎟️</span>
+                                  <span className="text-orange-500 flex-shrink-0 mt-1"><FaTicketAlt /></span>
                                   <span className="break-words">{translateTicketType(ticket.ticket_type)}</span>
                                 </div>
                                 
                                 {/* Registration date display */}
                                 <div className="flex items-start gap-2 text-sm text-gray-600">
-                                  <span className="text-orange-500 flex-shrink-0 mt-1">✅</span>
+                                  <span className="text-orange-500 flex-shrink-0 mt-1"><FaRegCalendarCheck /></span>
                                   <span className="break-words">
                                     Забронировано: {formatDate(ticket.registration_date)} 
                                     {ticket.registration_date && ` в ${formatTime(ticket.registration_date)}`}

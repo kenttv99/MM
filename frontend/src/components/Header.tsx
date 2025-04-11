@@ -127,7 +127,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
     // Use the provided timestamp or get from localStorage or generate new one
     const cacheBuster = timestamp || 
       (typeof window !== 'undefined' ? localStorage.getItem('avatar_cache_buster') : null) || 
-      Date.now().toString();
+      'stable';
     
     console.log("AvatarDisplay: Preloading avatar", { url, cacheBuster });
     
@@ -144,7 +144,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
         setImgError(true);
       };
       
-      testImg.src = `${url}?t=${cacheBuster}`;
+      testImg.src = `${url}${url.includes('?') ? '&' : '?'}t=${cacheBuster}`;
     }, 50);
   };
 
@@ -243,7 +243,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   
   // Determine the src with cache busting
   const avatarSrc = currentAvatarUrl 
-    ? `${currentAvatarUrl}?t=${storageAvatarCacheBuster || Date.now()}` 
+    ? `${currentAvatarUrl}${currentAvatarUrl.includes('?') ? '&' : '?'}t=${storageAvatarCacheBuster || 'stable'}`
     : '';
   
   // Check if avatar URL is a data URI
@@ -496,6 +496,11 @@ const Header: React.FC = () => {
             localStorage.getItem('avatar_cache_buster') || Date.now().toString() :
             Date.now().toString();
             
+          // Store it for future use
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('avatar_cache_buster', timestamp);
+          }
+            
           // Force immediate UI update
           forceUIUpdate();
           
@@ -531,10 +536,13 @@ const Header: React.FC = () => {
           timestamp
         });
         
+        // Use a stable timestamp
+        const effectiveTimestamp = timestamp || Date.now().toString();
+        
         // Cache the new avatar URL in localStorage
         if (typeof window !== 'undefined') {
           localStorage.setItem('cached_avatar_url', newAvatarUrl);
-          localStorage.setItem('avatar_cache_buster', timestamp.toString());
+          localStorage.setItem('avatar_cache_buster', effectiveTimestamp);
         }
         
         // Immediately update user data with the new avatar
@@ -554,8 +562,12 @@ const Header: React.FC = () => {
           
           // Preload the image with a slight delay
           setTimeout(() => {
+            const cachedBusterUrl = newAvatarUrl.includes('?') 
+              ? `${newAvatarUrl}&t=${effectiveTimestamp}` 
+              : `${newAvatarUrl}?t=${effectiveTimestamp}`;
+              
             const img = document.createElement('img');
-            img.src = `${newAvatarUrl}?t=${timestamp}`;
+            img.src = cachedBusterUrl;
             img.onload = () => {
               logInfo('Header: New avatar preloaded successfully');
               // Force another update after successful load

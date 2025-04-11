@@ -475,7 +475,25 @@ export default function EventPage() {
     if (!slug) return;
     
     // If we already have the event data, don't fetch again
-    if (event) return;
+    if (event) {
+      // Сохраняем информацию о событии в localStorage для хлебных крошек
+      if (event.id && event.title) {
+        try {
+          const eventId = String(event.id);
+          logInfo(`Saving event title to localStorage: event-title-${eventId}`);
+          localStorage.setItem(`event-title-${eventId}`, event.title);
+          
+          // Сохраняем также slug для полноты данных
+          if (slug) {
+            logInfo(`Saving event slug to localStorage: event-slug-${eventId}`);
+            localStorage.setItem(`event-slug-${eventId}`, slug.toString());
+          }
+        } catch (error) {
+          logError("Error saving event data to localStorage", error);
+        }
+      }
+      return;
+    }
     
     // Only fetch if we're in a stable state
     setTimeout(() => {
@@ -483,6 +501,23 @@ export default function EventPage() {
         fetchEventData(slug.toString()).then(data => {
           if (data && isMountedRef.current) {
             setEvent(data);
+            
+            // Сохраняем информацию о событии в localStorage для хлебных крошек
+            if (data.id && data.title) {
+              try {
+                const eventId = String(data.id);
+                logInfo(`Saving event title to localStorage: event-title-${eventId}`);
+                localStorage.setItem(`event-title-${eventId}`, data.title);
+                
+                // Сохраняем также slug для полноты данных
+                if (slug) {
+                  logInfo(`Saving event slug to localStorage: event-slug-${eventId}`);
+                  localStorage.setItem(`event-slug-${eventId}`, slug.toString());
+                }
+              } catch (error) {
+                logError("Error saving event data to localStorage", error);
+              }
+            }
           }
         });
       }

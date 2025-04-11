@@ -6,8 +6,28 @@ import { FaChevronRight } from "react-icons/fa";
 import React, { useEffect, useState, useCallback } from "react";
 
 const extractIdFromSlug = (slug: string): string => {
+  if (!slug) return "";
+  
+  // Попытка извлечь ID из конца слага (например, some-event-123)
   const parts = slug.split("-");
-  return parts[parts.length - 1];
+  const lastPart = parts[parts.length - 1];
+  
+  // Если последняя часть - число, считаем её ID
+  if (lastPart && /^\d+$/.test(lastPart)) {
+    return lastPart;
+  }
+  
+  // Если предпоследняя часть - год (4 цифры), а последняя - ID
+  // (формат: some-event-2023-123)
+  if (parts.length >= 2) {
+    const preLast = parts[parts.length - 2];
+    if (preLast && /^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
+      return lastPart;
+    }
+  }
+  
+  // Иначе используем весь слаг (возможно, это кастомный слаг)
+  return slug;
 };
 
 const Breadcrumbs: React.FC = () => {
@@ -21,7 +41,7 @@ const Breadcrumbs: React.FC = () => {
     const crumbs = [{ href: "/", label: "Главная", isLast: false }];
 
     pathSegments.forEach((segment, index) => {
-      const isEventSlug = pathSegments[index - 1] === "event";
+      const isEventSlug = pathSegments[index - 1] === "events" || pathSegments[index - 1] === "event";
       let href = "";
       let label = "";
       if (index === 0 && !isEventSlug) {
@@ -41,15 +61,33 @@ const Breadcrumbs: React.FC = () => {
         const eventId = extractIdFromSlug(segment);
         let cachedTitle = `Мероприятие ${eventId}`;
         let cachedSlug = segment;
+        
+        // Проверяем localStorage на наличие кэшированного названия мероприятия
         try {
           const storedTitle = localStorage.getItem(`event-title-${eventId}`);
           const storedSlug = localStorage.getItem(`event-slug-${eventId}`);
-          if (storedTitle) cachedTitle = storedTitle;
-          if (storedSlug) cachedSlug = storedSlug;
+          
+          if (storedTitle) {
+            console.log(`Breadcrumbs: Found cached title for event ${eventId}: ${storedTitle}`);
+            cachedTitle = storedTitle;
+          } else {
+            console.log(`Breadcrumbs: No cached title found for event ${eventId}, using default`);
+          }
+          
+          if (storedSlug) {
+            cachedSlug = storedSlug;
+          }
         } catch (error) {
-          console.error("Error accessing localStorage:", error);
+          console.error("Breadcrumbs: Error accessing localStorage:", error);
         }
-        crumbs.push({ href: `/events/${cachedSlug}`, label: cachedTitle, isLast: true });
+        
+        // Определяем правильный путь в зависимости от сегмента пути (events или event)
+        const baseRoute = pathSegments[index - 1] === "events" ? "events" : "event";
+        crumbs.push({ 
+          href: `/${baseRoute}/${cachedSlug}`, 
+          label: cachedTitle, 
+          isLast: true 
+        });
       }
     });
 

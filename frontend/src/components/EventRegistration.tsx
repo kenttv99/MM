@@ -5,15 +5,11 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
-import { FaRegCalendarCheck } from "react-icons/fa6";
 import { motion, AnimatePresence } from "framer-motion";
 import { EventRegistrationProps } from "@/types/index";
-import { apiFetch } from "@/utils/api";
 import { useRouter } from "next/navigation";
-import { format } from "date-fns";
-import { ru } from "date-fns/locale";
 
-// Интерфейс для билета пользователя
+// Интерфейс для билета пользователя с учетом разных вариантов написания статусов
 interface UserTicket {
   id: number;
   event: {
@@ -25,42 +21,40 @@ interface UserTicket {
   };
   ticket_type: string;
   registration_date: string;
-  status: "pending" | "confirmed" | "cancelled" | "completed";
+  status: "pending" | "confirmed" | "cancelled" | "canceled" | "completed";
   ticket_number?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
-// Helper function to format date
-const formatDateForDisplay = (dateString: string): string => {
-  const date = new Date(dateString);
-  return format(date, "d MMMM yyyy", { locale: ru });
+// Ticket response structure can vary, so we need this interface for the raw response
+interface TicketResponse {
+  data?: UserTicket[] | UserTicket;
+  items?: UserTicket[] | UserTicket;
+  tickets?: UserTicket[] | UserTicket;
+  [key: string]: unknown;
+}
+
+// Функции для работы с билетами
+const isTicketCancelled = (status: string): boolean => {
+  return status === 'cancelled' || status === 'canceled';
 };
 
-// Helper function to format time
-const formatTimeForDisplay = (dateString: string): string => {
-  const date = new Date(dateString);
-  return format(date, "HH:mm", { locale: ru });
-};
-
-// Helper function to get status text
-const getStatusText = (status: string): string => {
-  switch (status) {
-    case "pending": return "Ожидание";
-    case "confirmed": return "Подтвержден";
-    case "cancelled": return "Отменен";
-    case "completed": return "Завершен";
-    default: return "Активный";
+// Helper to parse ticket response into an array of UserTicket
+const parseTicketResponse = (response: TicketResponse | UserTicket[]): UserTicket[] => {
+  let allTickets: UserTicket[] = [];
+  
+  if (Array.isArray(response)) {
+    allTickets = response;
+  } else if (response.data) {
+    allTickets = Array.isArray(response.data) ? response.data : [response.data];
+  } else if (response.items) {
+    allTickets = Array.isArray(response.items) ? response.items : [response.items];
+  } else if (response.tickets) {
+    allTickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
   }
-};
-
-// Helper function to get status color
-const getStatusColor = (status: string): string => {
-  switch (status) {
-    case "pending": return "bg-yellow-100 text-yellow-800";
-    case "confirmed": return "bg-green-100 text-green-800";
-    case "cancelled": return "bg-red-100 text-red-800";
-    case "completed": return "bg-blue-100 text-blue-800";
-    default: return "bg-green-100 text-green-800";
-  }
+  
+  return allTickets;
 };
 
 const EventRegistration: React.FC<EventRegistrationProps> = ({
@@ -69,6 +63,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventDate,
   eventTime,
   eventLocation,
+  // ticketType is unused but kept for props interface compatibility
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ticketType,
   availableQuantity,
   soldQuantity,
@@ -76,6 +72,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   freeRegistration,
   onBookingClick,
   onLoginClick,
+  // onBookingSuccess is unused but kept for props interface compatibility
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onBookingSuccess,
   onReady,
   displayStatus,
@@ -87,7 +85,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [success, setSuccess] = useState<string | undefined>(undefined);
   const [userTicket, setUserTicket] = useState<UserTicket | null>(null);
   const [isCheckingTicket, setIsCheckingTicket] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
   // Add a flag to track active booking state
   const isActiveBooking = useRef(false);
 
@@ -100,59 +97,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
   const isRegistrationClosedOrCompleted =
     displayStatus === "Регистрация закрыта" || displayStatus === "Мероприятие завершено";
-
-  // Функция для получения и отображения отладочной информации
-  const showDebugInfo = useCallback(async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setDebugInfo("Нет токена авторизации");
-        return;
-      }
-
-      const response = await apiFetch<any>('/user_edits/my-tickets', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        bypassLoadingStageCheck: true,
-        params: {
-          _nocache: Date.now()
-        }
-      });
-
-      let tickets: UserTicket[] = [];
-      
-      if (Array.isArray(response)) {
-        tickets = response;
-      } else if (response) {
-        if (response.data) {
-          tickets = Array.isArray(response.data) ? response.data : [response.data];
-        } else if (response.items) {
-          tickets = Array.isArray(response.items) ? response.items : [response.items];
-        } else if (response.tickets) {
-          tickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
-        }
-      }
-
-      // Фильтруем билеты для текущего мероприятия
-      const currentEventId = parseInt(eventId.toString());
-      const eventTickets = tickets.filter(ticket => ticket.event.id === currentEventId);
-      
-      // Формируем отладочную информацию
-      if (eventTickets.length === 0) {
-        setDebugInfo(`Билетов для мероприятия ${eventId} не найдено. Всего билетов: ${tickets.length}`);
-      } else {
-        const ticketInfo = eventTickets.map(t => 
-          `ID: ${t.id}, Статус: ${t.status}, Дата: ${new Date(t.registration_date).toLocaleString()}`
-        ).join('\n');
-        setDebugInfo(`Билеты для мероприятия ${eventId}:\n${ticketInfo}`);
-      }
-    } catch (err) {
-      setDebugInfo(`Ошибка получения билетов: ${err instanceof Error ? err.message : 'Неизвестная ошибка'}`);
-    }
-  }, [eventId]);
 
   // Main useEffect for ticket checking
   useEffect(() => {
@@ -234,25 +178,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           if (response && !response.detail) {
             console.log('EventRegistration: Got all tickets, filtering for current event', response);
             
-            let allTickets: UserTicket[] = [];
-        
-            // Parse the response based on its structure
-            if (Array.isArray(response)) {
-              allTickets = response;
-            } else if (response.data) {
-              allTickets = Array.isArray(response.data) ? response.data : [response.data];
-            } else if (response.items) {
-              allTickets = Array.isArray(response.items) ? response.items : [response.items];
-            } else if (response.tickets) {
-              allTickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
-            }
+            // Use parseTicketResponse to extract tickets from any response format
+            const allTickets = parseTicketResponse(response);
         
             // Filter for tickets matching this event and not cancelled - very strict filtering
             const currentEventId = parseInt(eventId.toString());
-            const eventTickets = allTickets.filter(ticket => 
+            const eventTickets = allTickets.filter((ticket: UserTicket) => 
               ticket.event.id === currentEventId && 
-              ticket.status !== 'cancelled' && 
-              ticket.status !== 'canceled' // Account for spelling variations
+              !isTicketCancelled(ticket.status)
             );
             
             console.log(`EventRegistration: Found ${eventTickets.length} active tickets for event ${currentEventId}`);
@@ -266,14 +199,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               const ticketData = eventTickets[0];
               
               // Log all ticket statuses for debugging
-              allTickets.forEach(t => {
+              allTickets.forEach((t: UserTicket) => {
                 if (t.event.id === currentEventId) {
                   console.log(`EventRegistration: Ticket #${t.id} has status: ${t.status}`);
                 }
               });
               
               // Ensure we have the basic ticket data structure
-              const processedTicket = {
+              const processedTicket: UserTicket = {
                 id: ticketData.id || 0,
                 event: {
                   id: parseInt(eventId.toString()),
@@ -291,7 +224,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               console.log('EventRegistration: Processed ticket data:', processedTicket);
             
               // One more safety check - don't display cancelled tickets
-              if (processedTicket.status === 'cancelled' || processedTicket.status === 'canceled') {
+              if (isTicketCancelled(processedTicket.status)) {
                 console.log('EventRegistration: Ticket is cancelled, not showing');
                 setUserTicket(null);
               } else {
@@ -325,7 +258,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     };
   }, [isAuth, userData, eventId, eventTitle, eventDate, eventLocation, onReady]);
 
-  // Handle ticket update events - moved outside the main useEffect
+  // Handle ticket update events
   const handleTicketUpdate = useCallback(() => {
     // Skip event handling if the user is not authenticated
     if (!isAuth) {
@@ -345,8 +278,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       const token = localStorage.getItem('token');
       if (token) {
         console.log('EventRegistration: Re-checking ticket status after ticket-update event');
-        // Define checkUserTicket here or use a ref to access it
-        console.log('EventRegistration: Executing ticket refresh after update event');
         // We need to re-fetch tickets here
         const fetchTickets = async () => {
           try {
@@ -370,30 +301,20 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             });
             
             if (response && !response.detail) {
-              let allTickets: UserTicket[] = [];
-              
-              if (Array.isArray(response)) {
-                allTickets = response;
-              } else if (response.data) {
-                allTickets = Array.isArray(response.data) ? response.data : [response.data];
-              } else if (response.items) {
-                allTickets = Array.isArray(response.items) ? response.items : [response.items];
-              } else if (response.tickets) {
-                allTickets = Array.isArray(response.tickets) ? response.tickets : [response.tickets];
-              }
+              // Use our helper function to parse tickets
+              const allTickets = parseTicketResponse(response);
               
               const currentEventId = parseInt(eventId.toString());
-              const eventTickets = allTickets.filter(ticket => 
+              const eventTickets = allTickets.filter((ticket: UserTicket) => 
                 ticket.event.id === currentEventId && 
-                ticket.status !== 'cancelled' && 
-                ticket.status !== 'canceled'
+                !isTicketCancelled(ticket.status)
               );
               
               if (eventTickets.length === 0) {
                 setUserTicket(null);
               } else {
                 const ticketData = eventTickets[0];
-                const processedTicket = {
+                const processedTicket: UserTicket = {
                   id: ticketData.id || 0,
                   event: {
                     id: parseInt(eventId.toString()),
@@ -408,7 +329,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   ticket_number: ticketData.ticket_number || ticketData.id?.toString()
                 };
                 
-                if (processedTicket.status === 'cancelled' || processedTicket.status === 'canceled') {
+                if (isTicketCancelled(processedTicket.status)) {
                   setUserTicket(null);
                 } else {
                   setUserTicket(processedTicket);
@@ -500,7 +421,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             errorData = JSON.parse(errorText);
           } else {
             // Ищем внутри текста JSON-объект
-            const jsonMatch = errorText.match(/{.*}/s);
+            const jsonMatch = errorText.match(/{[\s\S]*}/);
             if (jsonMatch) {
               errorData = JSON.parse(jsonMatch[0]);
             }
@@ -552,7 +473,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       setSuccess("Вы успешно забронировали билет!");
       
       // Create a temporary ticket object for immediate UI update
-      const tempTicket = {
+      const tempTicket: UserTicket = {
         id: data?.id || Math.floor(Math.random() * 10000), 
         event: {
           id: parseInt(eventId.toString()),
@@ -613,6 +534,13 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         });
         window.dispatchEvent(ticketEvent);
         console.log('EventRegistration: Dispatched ticket update event with temporary ticket data');
+        
+        // Store the registration in sessionStorage to help detect navigation to profile page
+        sessionStorage.setItem('recent_registration', JSON.stringify({
+          event_id: parseInt(eventId.toString()),
+          ticket_id: tempTicket.id,
+          timestamp: Date.now()
+        }));
       }
       
       // Close modal after showing success message
@@ -639,30 +567,31 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               return;
             }
             
-            const actualTicketData = await apiFetch<any>('/user_edits/my-tickets', {
+            const response = await fetch('/user_edits/my-tickets', {
               method: 'GET',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
+                'Authorization': `Bearer ${token}`,
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
               },
-              bypassLoadingStageCheck: true,
-              params: { _nocache: Date.now() }
+              cache: 'no-store'
             });
             
+            if (!response.ok) {
+              throw new Error(`Error fetching tickets: ${response.status}`);
+            }
+            
+            const actualTicketData = await response.json();
+            
             if (actualTicketData) {
-              // Find ticket for this event
-              let allTickets = Array.isArray(actualTicketData) ? actualTicketData : 
-                actualTicketData.data ? actualTicketData.data : 
-                actualTicketData.tickets ? actualTicketData.tickets : [];
-              
-              if (!Array.isArray(allTickets)) {
-                console.warn('EventRegistration: Unexpected ticket data format', actualTicketData);
-                allTickets = [];
-              }
+              // Use our helper function to parse the response
+              const allTickets = parseTicketResponse(actualTicketData);
               
               const currentEventId = parseInt(eventId.toString());
-              const actualTicket = allTickets.find(t => 
-                t.event.id === currentEventId && t.status !== 'cancelled'
+              const actualTicket = allTickets.find((t: UserTicket) => 
+                t.event.id === currentEventId && !isTicketCancelled(t.status)
               );
               
               if (actualTicket) {
@@ -720,11 +649,20 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
   // Перенаправление в профиль пользователя при нажатии на кнопку "Активная бронь"
   const handleGoToProfile = () => {
+    // Store a flag in sessionStorage to indicate we're coming from an event page with a ticket
+    if (userTicket) {
+      sessionStorage.setItem('recent_registration', JSON.stringify({
+        event_id: userTicket.event.id,
+        ticket_id: userTicket.id,
+        timestamp: Date.now(),
+        from_event_page: true
+      }));
+    }
     router.push("/profile");
   };
 
   // Добавляем кнопку для отладки (только в режиме разработки)
-  const renderDebugButton = () => {
+  const renderDebugButton = (): JSX.Element | null => {
     // Always return null to hide the debug button in all environments
     return null;
   };

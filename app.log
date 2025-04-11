@@ -1895,3 +1895,7 @@ DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "notification_templates"
 2025-04-11 14:16:30,420 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-11 18:43:10,045 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-11 18:43:10,105 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 22:11:46,199 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 22:11:46,223 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-11 22:13:38,383 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-11 22:13:38,421 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

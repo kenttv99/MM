@@ -38,7 +38,7 @@ export interface LoadingState {
 // Stage context interface
 export interface LoadingStageContextType {
   currentStage: LoadingStage;
-  setStage: (stage: LoadingStage) => void;
+  setStage: (stage: LoadingStage, isUnauthorizedResponse?: boolean) => void;
   stageHistory: StageHistoryEntry[];
   isAuthChecked: boolean;
   setIsAuthChecked: (checked: boolean) => void;
@@ -73,7 +73,7 @@ export interface LoadingErrorContextType {
 export interface LoadingContextType {
   // From LoadingStageContext
   currentStage: LoadingStage;
-  setStage: (stage: LoadingStage) => void;
+  setStage: (stage: LoadingStage, isUnauthorizedResponse?: boolean) => void;
   
   // From LoadingFlagsContext
   isStaticLoading: boolean;

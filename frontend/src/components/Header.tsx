@@ -310,9 +310,26 @@ const Header: React.FC = () => {
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const logoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastStateRef = useRef<{stage: LoadingStage, isAuthChecked: boolean}>({
+    stage: LoadingStage.INITIAL,
+    isAuthChecked: false
+  });
 
   // Единый эффект для управления отображением хедера
   useEffect(() => {
+    // Проверяем, изменилось ли состояние с последнего обновления
+    // Если нет, то пропускаем обновление, чтобы избежать бесконечного цикла
+    if (lastStateRef.current.stage === currentStage && 
+        lastStateRef.current.isAuthChecked === isAuthChecked) {
+      return;
+    }
+    
+    // Обновляем lastStateRef
+    lastStateRef.current = {
+      stage: currentStage,
+      isAuthChecked
+    };
+    
     // Определяем, нужно ли показывать хедер
     const shouldShowHeader = isAuthChecked || 
       currentStage === LoadingStage.STATIC_CONTENT || 
@@ -372,13 +389,16 @@ const Header: React.FC = () => {
       logInfo('Received auth state change event', event.detail);
       
       // Обновляем ссылки на текущее состояние
-      loadingRef.current = event.detail.isAuthenticated;
+      loadingRef.current = event.detail.isAuth;
       checkedRef.current = true;
       
       // Если пользователь аутентифицирован, показываем хедер
-      if (event.detail.isAuthenticated) {
+      if (event.detail.isAuth) {
         setForceShowHeader(true);
         hasShownHeaderRef.current = true;
+        
+        // Принудительно обновляем компонент для отображения данных авторизованного пользователя
+        forceUpdate({});
         
         // Очищаем таймаут, если он был установлен
         if (headerLoadingTimeoutRef.current) {
@@ -386,9 +406,18 @@ const Header: React.FC = () => {
           headerLoadingTimeoutRef.current = null;
         }
         
+        // Для дополнительной уверенности вызываем принудительное обновление через небольшую задержку
+        setTimeout(() => {
+          forceUpdate({});
+          // Принудительное обновление состояния для перерисовки
+          setIsMobileMenuOpen(false);
+          setIsModalOpen(false);
+        }, 100);
+        
         logInfo('Showing header due to authentication', { 
-          isAuthenticated: event.detail.isAuthenticated,
-          hasShownHeader: hasShownHeaderRef.current
+          isAuthenticated: event.detail.isAuth,
+          hasShownHeader: hasShownHeaderRef.current,
+          userData: event.detail.userData
         });
       }
     };
@@ -427,7 +456,7 @@ const Header: React.FC = () => {
         }
       }
     }
-  }, [authLoading, isAuthChecked, currentStage, userData]);
+  }, []); // Убираем зависимости, чтобы эффект выполнялся только при монтировании
 
   // Add event listeners for user data changes and avatar updates
   useEffect(() => {

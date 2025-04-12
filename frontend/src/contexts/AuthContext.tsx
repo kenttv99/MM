@@ -328,11 +328,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const handleLoginSuccess = useCallback((token: string, userData: UserData) => {
     authLogger.info('Login success, updating state with token and user data');
+    
+    // Если уже авторизован и токен тот же, то возможно это повторный вызов
+    if (isAuthenticated && tokenRef.current === token) {
+      authLogger.info('Already authenticated with same token, skipping update');
+      return;
+    }
+    
     authLogger.info('User data avatar:', userData.avatar_url);
     
     // Update authentication state
     setIsAuthenticated(true);
     setUser(userData);
+    setIsAuthCheckedState(true);
     
     // Store token and user data in localStorage
     localStorage.setItem('token', token);
@@ -342,18 +350,71 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Force a re-render by updating a ref
     hasInitialized.current = true;
     
-    // Dispatch custom event to notify components about auth state change
-    const event = new CustomEvent('authStateChanged', {
-      detail: {
-        isAuth: true,
-        userData,
-        token
+    // Принудительно устанавливаем глобальное состояние загрузки
+    if (typeof window !== 'undefined') {
+      const win = window as WindowWithLoadingStage;
+      
+      // Проверяем текущую стадию - если уже STATIC_CONTENT, нет смысла менять
+      if (win.__loading_stage__ !== LoadingStage.STATIC_CONTENT) {
+        authLogger.info('Setting window.__loading_stage__ to STATIC_CONTENT');
+        win.__loading_stage__ = LoadingStage.STATIC_CONTENT;
       }
-    });
-    window.dispatchEvent(event);
+      
+      // Включаем режим отладки только если он еще не включен
+      if (!(window as any).DEBUG_LOADING_CONTEXT) {
+        authLogger.info('Enabling DEBUG_LOADING_CONTEXT for smooth transition');
+        (window as any).DEBUG_LOADING_CONTEXT = true;
+        
+        // Устанавливаем таймер для отключения режима отладки
+        setTimeout(() => {
+          authLogger.info('Disabling DEBUG_LOADING_CONTEXT');
+          (window as any).DEBUG_LOADING_CONTEXT = false;
+        }, 2000);
+      }
+      
+      // Сбрасываем историю только если она еще не была сброшена
+      if (!(window as any).__reset_stage_history_sent__) {
+        (window as any).__reset_stage_history_sent__ = true;
+        
+        // Сбрасываем историю переходов стадий, чтобы избежать проблем с регрессией
+        window.dispatchEvent(new CustomEvent('reset-stage-history', {
+          detail: { reason: 'login_success' }
+        }));
+        
+        // Сбрасываем флаг через 2 секунды
+        setTimeout(() => {
+          (window as any).__reset_stage_history_sent__ = false;
+        }, 2000);
+      }
+    }
+    
+    // Set loading stage to STATIC_CONTENT, но только если текущая стадия не STATIC_CONTENT
+    // Устанавливаем флаг bypassLoadingStageCheck=true для гарантии успешного перехода
+    authLogger.info('Setting stage to STATIC_CONTENT after successful login');
+    setStage(LoadingStage.STATIC_CONTENT);
+    
+    // Dispatch custom event to notify components about auth state change
+    // Но только если оно еще не было отправлено (предотвращаем дублирование)
+    if (!(window as any).__auth_event_sent__) {
+      (window as any).__auth_event_sent__ = true;
+      
+      const event = new CustomEvent('authStateChanged', {
+        detail: {
+          isAuth: true,
+          userData,
+          token
+        }
+      });
+      window.dispatchEvent(event);
+      
+      // Сбрасываем флаг через 2 секунды
+      setTimeout(() => {
+        (window as any).__auth_event_sent__ = false;
+      }, 2000);
+    }
     
     authLogger.info('Authentication state updated successfully');
-  }, []);
+  }, [setStage, isAuthenticated]);
 
   const logout = useCallback(async () => {
     authLogger.info('Starting logout process');
@@ -384,7 +445,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const isInAdminContext = window.location.pathname.startsWith('/admin');
       if (!isInAdminContext) {
         authLogger.info('Setting stage to AUTHENTICATION after logout');
-        setStage(LoadingStage.AUTHENTICATION);
+        setStage(LoadingStage.AUTHENTICATION, true);
       } else {
         authLogger.info('Skipping stage update due to admin context');
       }
@@ -420,7 +481,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authLogger.info('Detected 401 Unauthorized response', event.detail);
       if (isAuthenticated) {
         authLogger.info('Currently authenticated, performing logout due to 401');
-        logout();
+        setIsAuthenticated(false);
+        setUser(null);
+        
+        // Clear stored tokens and data
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem('token');
+          localStorage.removeItem('userData');
+        }
+        
+        tokenRef.current = null;
+        setIsAuthCheckedState(true);
+        
+        // Allow regression to AUTHENTICATION by passing isUnauthorizedResponse=true
+        authLogger.info('Setting stage to AUTHENTICATION with isUnauthorizedResponse=true');
+        setStage(LoadingStage.AUTHENTICATION, true);
       }
     };
 
@@ -428,7 +503,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       window.removeEventListener('auth-unauthorized', handleUnauthorized as EventListener);
     };
-  }, [isAuthenticated, logout]);
+  }, [isAuthenticated, setStage]);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     if (!isMounted.current) return false;
@@ -451,15 +526,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setIsAuthCheckedState(true);
         setUser(null);
-        authLogger.info('No token - moving to STATIC_CONTENT');
-        setStage(LoadingStage.STATIC_CONTENT);
+        // Корректируем логику: при отсутствии токена оставаемся в AUTHENTICATION
+        // вместо перехода к STATIC_CONTENT
+        authLogger.info('No token - staying in AUTHENTICATION stage');
+        setStage(LoadingStage.AUTHENTICATION); // <- Меняем на AUTHENTICATION вместо STATIC_CONTENT
       }
       return false;
     }
 
     try {
       authLogger.info('Verifying authentication');
-      setStage(LoadingStage.AUTHENTICATION);
+      // Используем флаг isUnauthorizedResponse=true, так как мы возвращаемся к аутентификации
+      setStage(LoadingStage.AUTHENTICATION, true);
       setDynamicLoading(true);
       
       if (authCheckFailsafeRef.current) {
@@ -499,9 +577,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Check for 401 Unauthorized error specifically
         if (errorResponse.status === 401) {
-          authLogger.info('Received 401 Unauthorized, performing logout');
+          authLogger.info('Received 401 Unauthorized, resetting authentication');
           if (isMounted.current) {
-            logout();
+            setIsAuthenticated(false);
+            setUser(null);
+            
+            // Clear stored tokens and data
+            if (typeof window !== 'undefined') {
+              localStorage.removeItem('token');
+              localStorage.removeItem('userData');
+            }
+            
+            tokenRef.current = null;
+            setIsAuthCheckedState(true);
+            setDynamicLoading(false);
+            
+            // Allow regression to AUTHENTICATION by passing isUnauthorizedResponse=true
+            authLogger.info('Setting stage to AUTHENTICATION with isUnauthorizedResponse=true');
+            setStage(LoadingStage.AUTHENTICATION, true);
           }
           return false;
         }
@@ -533,7 +626,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error instanceof Error && 'status' in error && errorWithStatus.status === 401) {
         authLogger.info('401 Unauthorized error detected in error object');
         if (isMounted.current) {
-          logout();
+          setIsAuthenticated(false);
+          setUser(null);
+          
+          // Clear stored tokens and data
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('token');
+            localStorage.removeItem('userData');
+          }
+          
+          tokenRef.current = null;
+          setIsAuthCheckedState(true);
+          setDynamicLoading(false);
+          
+          // Allow regression to AUTHENTICATION by passing isUnauthorizedResponse=true
+          authLogger.info('Setting stage to AUTHENTICATION with isUnauthorizedResponse=true');
+          setStage(LoadingStage.AUTHENTICATION, true);
         }
       } else {
         // For other errors, just reset loading state
@@ -548,7 +656,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authLogger.error('Error checking authentication', error);
       return false;
     }
-  }, [isAuthenticated, logout, setDynamicLoading, setStage]);
+  }, [isAuthenticated, setDynamicLoading, setStage]);
 
   const contextValue = useMemo(() => ({
     isAuth: isAuthenticated,

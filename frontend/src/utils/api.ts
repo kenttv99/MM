@@ -6,6 +6,12 @@ import { canChangeStage } from "@/contexts/loading";
 import { ApiResponse, FetchOptionsType, CancellablePromise, DEFAULT_RETRIES, DEFAULT_TIMEOUT, DEFAULT_BACKOFF } from "@/types/api";
 import { LogLevel, createLogger, configureModuleLogging, LogContext } from "@/utils/logger";
 
+// Интерфейс для окна с состоянием загрузки
+interface WindowWithLoadingStage extends Window {
+  __loading_stage__?: LoadingStage;
+  __activeRequestCount?: number;
+}
+
 // Configure API module logging
 configureModuleLogging('API', {
   level: process.env.NODE_ENV === 'production' ? LogLevel.WARN : LogLevel.INFO,
@@ -149,8 +155,54 @@ function handleStageChange(event: CustomEvent) {
   const newStage = event.detail.stage;
   const prevStage = currentLoadingStage;
   
-  // Skip logging if the stage hasn't actually changed
+  // Skip if the stage hasn't actually changed
   if (newStage === prevStage) return;
+  
+  // Добавляем защиту от быстрых циклических изменений между стадиями
+  // Проверяем историю и ищем чередования INITIAL <-> AUTHENTICATION
+  const now = Date.now();
+  const recentChanges = stageChangeHistory
+    .filter(entry => now - entry.timestamp < 2000) // Последние 2 секунды
+    .map(entry => entry.stage);
+  
+  // Проверяем на паттерн циклических изменений между INITIAL и AUTHENTICATION
+  if (recentChanges.length >= 4) {
+    const lastFourChanges = recentChanges.slice(-4);
+    const isIACycle = 
+      (lastFourChanges[0] === LoadingStage.INITIAL && lastFourChanges[1] === LoadingStage.AUTHENTICATION &&
+       lastFourChanges[2] === LoadingStage.INITIAL && lastFourChanges[3] === LoadingStage.AUTHENTICATION) ||
+      (lastFourChanges[0] === LoadingStage.AUTHENTICATION && lastFourChanges[1] === LoadingStage.INITIAL &&
+       lastFourChanges[2] === LoadingStage.AUTHENTICATION && lastFourChanges[3] === LoadingStage.INITIAL);
+    
+    if (isIACycle) {
+      stageLogger.error('Detected INITIAL <-> AUTHENTICATION cycle, forcing STATIC_CONTENT stage', {
+        history: lastFourChanges,
+        current: prevStage,
+        attempted: newStage
+      });
+      
+      // Принудительно переходим к STATIC_CONTENT, чтобы разорвать цикл
+      currentLoadingStage = LoadingStage.STATIC_CONTENT;
+      if (typeof window !== 'undefined') {
+        window.__loading_stage__ = LoadingStage.STATIC_CONTENT;
+        
+        // Диспатчим новое событие с принудительной стадией
+        window.dispatchEvent(new CustomEvent('loadingStageChange', {
+          detail: { stage: LoadingStage.STATIC_CONTENT }
+        }));
+        
+        // Очищаем историю изменений
+        stageChangeHistory.length = 0;
+      }
+      
+      // Логируем и выходим
+      apiLogger.info('Loading stage changed [module=api version=1.0.0 reason=cycle_break allowRegression=true]', {
+        prev: prevStage,
+        current: LoadingStage.STATIC_CONTENT
+      });
+      return;
+    }
+  }
   
   // Проверяем текущий маршрут для принятия решения
   const isAdminRoute = typeof window !== 'undefined' && 
@@ -191,7 +243,6 @@ function handleStageChange(event: CustomEvent) {
   }
   
   // Добавляем запись в историю изменений
-  const now = Date.now();
   stageChangeHistory.push({
     stage: newStage,
     timestamp: now
@@ -504,6 +555,21 @@ export const apiFetch = <T = unknown>(
         elapsedTime: endTime - startTime
       });
       
+      // Handle 401 Unauthorized error specifically
+      if (statusCode === 401) {
+        apiLogger.warn('Received 401 Unauthorized response, dispatching auth-unauthorized event', {
+          endpoint,
+          method
+        });
+        
+        if (typeof window !== 'undefined') {
+          // Dispatch auth-unauthorized event to trigger authentication reset
+          window.dispatchEvent(new CustomEvent('auth-unauthorized', {
+            detail: { status: 401, endpoint, method }
+          }));
+        }
+      }
+      
       // ... existing error handling ...
     }
 
@@ -628,6 +694,13 @@ function processRequestQueue() {
  * Define allowed endpoint patterns for each loading stage
  */
 const ALLOWED_ENDPOINTS = {
+  // Critical endpoints that should always be allowed regardless of stage
+  CRITICAL: [
+    '/auth/me',
+    '/auth/login',
+    '/admin/login'
+  ],
+  
   // Endpoints allowed in all stages regardless of loading context
   ALWAYS_ALLOWED: [
     // Authentication endpoints
@@ -678,11 +751,30 @@ export function shouldProcessRequest(endpoint: string, bypassLoadingStageCheck =
     return true;
   }
   
-  // If stage not specified, use the current loading stage
-  const currentStage = stage || currentLoadingStage;
+  // Get current loading stage from window if not provided
+  let currentStage = stage;
+  if (!currentStage && typeof window !== 'undefined') {
+    currentStage = (window as WindowWithLoadingStage).__loading_stage__;
+  }
+  
+  // If still no stage, use the module-level currentLoadingStage
+  currentStage = currentStage || currentLoadingStage;
 
   // Always allow specific endpoints regardless of stage
-  if (ALLOWED_ENDPOINTS.ALWAYS_ALLOWED.some(pattern => endpoint.includes(pattern))) {
+  if (ALLOWED_ENDPOINTS.ALWAYS_ALLOWED.some((pattern: string) => endpoint.includes(pattern))) {
+    return true;
+  }
+
+  // Critical endpoints are always allowed
+  if (ALLOWED_ENDPOINTS.CRITICAL.some((pattern: string) => endpoint.includes(pattern))) {
+    return true;
+  }
+  
+  // Authentication endpoints (login, register) should always be allowed regardless of stage
+  if (endpoint.includes('/auth/login') || 
+      endpoint.includes('/admin/login') || 
+      endpoint.includes('/auth/register')) {
+    apiLogger.debug('Allowing authentication endpoint:', {endpoint});
     return true;
   }
   

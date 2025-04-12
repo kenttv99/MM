@@ -62,7 +62,7 @@ const ProfilePage: React.FC = () => {
       setIsProfileReady(true);
       console.log('ProfilePage: Profile ready, showing tickets container');
     }
-  }, [userData, hasFetched.current]);
+  }, [userData]);
 
   const validateForm = useCallback((state: FormState = formState) => {
     const errors: ValidationErrors = {};

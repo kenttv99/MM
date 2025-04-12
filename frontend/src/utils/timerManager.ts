@@ -313,10 +313,12 @@ export function useTimers() {
 }
 
 // Export a default instance for usage without hook
-export default {
+const defaultTimerManager = {
   setTimeout: setManagedTimeout.bind(null, 'global'),
   clearTimeout: clearManagedTimeout,
   setInterval: setManagedInterval.bind(null, 'global'),
   clearInterval: clearManagedInterval,
   clearTimersByCategory,
-}; 
+};
+
+export default defaultTimerManager; 

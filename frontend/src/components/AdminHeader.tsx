@@ -25,27 +25,15 @@ const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production'
   : LOG_LEVEL.INFO;
 
 // Вспомогательные функции для логирования с разными уровнями
-const logDebug = (message: string, data?: any) => {
+const logDebug = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
     console.log(`AdminHeader: ${message}`, data);
   }
 };
 
-const logInfo = (message: string, data?: any) => {
+const logInfo = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
     console.log(`AdminHeader: ${message}`, data);
-  }
-};
-
-const logWarn = (message: string, data?: any) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
-    console.log(`AdminHeader: ⚠️ ${message}`, data);
-  }
-};
-
-const logError = (message: string, data?: any) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
-    console.error(`AdminHeader: ⛔ ${message}`, data);
   }
 };
 

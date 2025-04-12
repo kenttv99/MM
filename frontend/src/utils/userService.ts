@@ -62,7 +62,7 @@ export const fetchUser = async (userId: string): Promise<UserData> => {
       try {
         const errorData = await response.json();
         errorMessage = errorData.detail || `Ошибка API: ${status}`;
-      } catch (e) {
+      } catch {
         errorMessage = `Ошибка API: ${status}`;
       }
       
@@ -119,7 +119,7 @@ export const updateUser = async (userId: number, userData: UserData): Promise<Us
       try {
         const errorData = await response.json();
         errorMessage = errorData.detail || `Ошибка при обновлении пользователя: ${status}`;
-      } catch (e) {
+      } catch {
         errorMessage = `Ошибка при обновлении пользователя: ${status}`;
       }
       

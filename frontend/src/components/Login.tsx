@@ -5,7 +5,6 @@ import { FaEnvelope, FaLock } from "react-icons/fa";
 import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
 import { useAuthForm } from "@/hooks/useAuthForm";
-import { motion, AnimatePresence } from "framer-motion";
 import { LoginProps } from "@/types/index";
 import ClientErrorBoundary from "./Errors/ClientErrorBoundary";
 

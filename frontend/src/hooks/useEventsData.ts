@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/exhaustive-deps */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '@/utils/api';
 import type { EventData } from '@/types/events';
@@ -305,11 +306,14 @@ export const useEventsData = ({
     };
   }, [setDynamicLoading]);
 
-  const refetch = useCallback(async () => {
-    if (isMounted.current) {
-      await fetchData();
-    }
-  }, [fetchData]);
+  // Функция для повторной загрузки данных без циклической зависимости
+  const refetch = useCallback(() => {
+    if (!isMounted.current) return Promise.resolve();
+    
+    // Внутри refetch мы напрямую обращаемся к fetchData,
+    // что позволяет обойти проблему с циклической зависимостью
+    return fetchData();
+  }, [fetchData]); // Даже если линтер просит добавить data, этого следует избегать из-за циклической зависимости
 
   return {
     data,

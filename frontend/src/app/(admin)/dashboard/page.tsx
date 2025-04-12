@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { FaPlus } from "react-icons/fa";
@@ -167,9 +167,8 @@ export default function Dashboard() {
   const { currentStage, setStage } = useLoading();
   const { isAuthenticated, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
   
-  const [events, setEvents] = useState<Event[]>([]);
   const [users, setUsers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [events, setEvents] = useState<Event[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [clientReady, setClientReady] = useState(false);
   const [dataLoaded, setDataLoaded] = useState({
@@ -178,7 +177,7 @@ export default function Dashboard() {
   });
 
   // Функция для загрузки пользователей
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     try {
       console.log('Dashboard: Starting fetchUsers');
       // Get token with the correct key
@@ -193,7 +192,7 @@ export default function Dashboard() {
       const cacheBuster = `_ts=${Date.now()}`;
       
       console.log('Dashboard: Sending request to fetch users');
-      const fetchedUsers = await apiFetch<any[]>(`/admin_edits/users?${cacheBuster}`, {
+      const fetchedUsers = await apiFetch<User[]>(`/admin_edits/users?${cacheBuster}`, {
         bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
         headers: {
           'Authorization': `Bearer ${token}`
@@ -228,10 +227,10 @@ export default function Dashboard() {
       }
       return false;
     }
-  };
+  }, [router]);
 
   // Функция для загрузки мероприятий
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
       console.log('Dashboard: Starting fetchEvents');
       const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
@@ -245,7 +244,7 @@ export default function Dashboard() {
       const cacheBuster = `_ts=${Date.now()}`;
       
       console.log('Dashboard: Sending request to fetch events');
-      const fetchedEvents = await apiFetch<any[]>(`/admin_edits/events?${cacheBuster}`, {
+      const fetchedEvents = await apiFetch<Event[]>(`/admin_edits/events?${cacheBuster}`, {
         bypassLoadingStageCheck: true,
         headers: {
           'Authorization': `Bearer ${token}`
@@ -280,7 +279,7 @@ export default function Dashboard() {
       }
       return false;
     }
-  };
+  }, [router]);
 
   // Установка флага клиентской загрузки при монтировании компонента
   useEffect(() => {
@@ -301,44 +300,9 @@ export default function Dashboard() {
     }
   }, [currentStage, setStage]);
 
-  // Эффект для проверки авторизации и загрузки данных
-  useEffect(() => {
-    if (!isAuthChecked) return;
-
-    if (!isAuthenticated) {
-      console.log('Dashboard: Not authenticated, redirecting to login');
-      router.push("/admin-login");
-      return;
-    }
-
-    // Проверяем, нужно ли обновить данные (например, после редактирования пользователя)
-    const needRefresh = localStorage.getItem("dashboard_need_refresh") === "true";
-    if (needRefresh) {
-      console.log('Dashboard: Need refresh flag detected, forcing data reload');
-      // Сбрасываем флаг обновления
-      localStorage.removeItem("dashboard_need_refresh");
-      
-      // Принудительно перезагружаем данные (даже если они уже загружены)
-      setDataLoaded({
-        users: false,
-        events: false
-      });
-      setIsLoading(true);
-      
-      // Загружаем данные
-      loadData();
-      return;
-    }
-
-    if (clientReady && (!dataLoaded.users || !dataLoaded.events)) {
-      loadData();
-    }
-  }, [isAuthenticated, isAuthChecked, clientReady, dataLoaded, router]);
-
   // Функция для загрузки данных
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     console.log('Dashboard: Starting to load data');
-    setIsLoading(true);
     setError(null);
 
     try {
@@ -363,10 +327,39 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Dashboard: Error loading data:', err);
       setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
-    } finally {
-      setIsLoading(false);
     }
-  };
+  }, [dataLoaded, setStage, fetchUsers, fetchEvents]);
+
+  // Эффект для проверки авторизации и загрузки данных
+  useEffect(() => {
+    if (!isAuthChecked) return;
+
+    if (!isAuthenticated) {
+      console.log('Dashboard: Not authenticated, redirecting to login');
+      router.push("/admin-login");
+      return;
+    }
+
+    // Проверяем, нужно ли обновить данные (например, после редактирования пользователя)
+    const needRefresh = localStorage.getItem("dashboard_need_refresh") === "true";
+    if (needRefresh) {
+      console.log('Dashboard: Need refresh flag detected, forcing data reload');
+      // Сбрасываем флаг обновления
+      localStorage.removeItem("dashboard_need_refresh");
+      
+      // Принудительно перезагружаем данные (даже если они уже загружены)
+      setDataLoaded({
+        users: false,
+        events: false
+      });
+      loadData();
+      return;
+    }
+
+    if (clientReady && (!dataLoaded.users || !dataLoaded.events)) {
+      loadData();
+    }
+  }, [isAuthenticated, isAuthChecked, clientReady, dataLoaded, router, loadData]);
 
   const handleCreateEvent = () => {
     router.push("/edit-events");
@@ -496,7 +489,7 @@ export default function Dashboard() {
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h3 className="text-gray-500 font-medium mb-1">Регистрации на мероприятия</h3>
                   <p className="text-xl font-bold">
-                    {events.reduce((sum: number, event: any) => 
+                    {events.reduce((sum: number, event: Event) => 
                       sum + (event.registrations_count || 0), 0
                     )}
                   </p>
@@ -504,7 +497,7 @@ export default function Dashboard() {
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h3 className="text-gray-500 font-medium mb-1">Мероприятия за месяц</h3>
                   <p className="text-xl font-bold">
-                    {events.filter((event: any) => 
+                    {events.filter((event: Event) => 
                       event.created_at && new Date(event.created_at).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
                     ).length}
                   </p>
@@ -512,7 +505,7 @@ export default function Dashboard() {
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <h3 className="text-gray-500 font-medium mb-1">Новые пользователи за месяц</h3>
                   <p className="text-xl font-bold">
-                    {users.filter((user: any) => 
+                    {users.filter((user: User) => 
                       user.created_at && new Date(user.created_at).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
                     ).length}
                   </p>

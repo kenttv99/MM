@@ -11,7 +11,6 @@ import { useLoading } from "@/contexts/LoadingContextLegacy";
 import { useInView } from "react-intersection-observer";
 import { apiFetch } from "@/utils/api";
 import Header from "@/components/Header";
-import { LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Добавляем уровни логирования для оптимизации вывода
@@ -29,25 +28,25 @@ const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production'
   : LOG_LEVEL.INFO;
 
 // Вспомогательные функции для логирования с разными уровнями
-const logDebug = (message: string, data?: any) => {
+const logDebug = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
     console.log(`EventsPage: ${message}`, data);
   }
 };
 
-const logInfo = (message: string, data?: any) => {
+const logInfo = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
     console.log(`EventsPage: ${message}`, data);
   }
 };
 
-const logWarn = (message: string, data?: any) => {
+const logWarn = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
     console.log(`EventsPage: ⚠️ ${message}`, data);
   }
 };
 
-const logError = (message: string, data?: any) => {
+const logError = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
     console.error(`EventsPage: ⛔ ${message}`, data);
   }
@@ -321,7 +320,7 @@ const EventsSkeletonGrid: React.FC = () => {
 };
 
 const EventsPage = () => {
-  const { setDynamicLoading, isDynamicLoading, currentStage, setStage } = useLoading();
+  const { setDynamicLoading, isDynamicLoading } = useLoading();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [activeFilters, setActiveFilters] = useState<FilterState>({ startDate: "", endDate: "" });
   const [page, setPage] = useState(1);
@@ -454,10 +453,16 @@ const EventsPage = () => {
         formattedResponse = { data: response, total: response.length };
       } else if ('data' in response && Array.isArray(response.data)) {
         formattedResponse = response as EventsResponse;
-      } else if (typeof response === 'object') {
+      } else if (typeof response === 'object' && response !== null) {
         // Пробуем извлечь данные из разных возможных свойств
-        const data = (response as any).items || (response as any).events || (response as any).results || [];
-        const responseTotal = typeof (response as any).total === 'number' ? (response as any).total : (Array.isArray(data) ? data.length : 0);
+        const typedResponse = response as Record<string, unknown>;
+        const data = (typedResponse.items as EventData[]) || 
+                     (typedResponse.events as EventData[]) || 
+                     (typedResponse.results as EventData[]) || 
+                     [];
+        const responseTotal = typeof typedResponse.total === 'number' ? 
+                              typedResponse.total : 
+                              (Array.isArray(data) ? data.length : 0);
         
         formattedResponse = {
           data: Array.isArray(data) ? data : [],
@@ -484,16 +489,18 @@ const EventsPage = () => {
         count: formattedResponse.data.length,
         total: formattedResponse.total
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (!isMounted.current) return;
       
       logError('Error fetching events', {
-        name: err?.name,
-        message: err?.message
+        name: err instanceof Error ? err.name : 'Unknown error',
+        message: err instanceof Error ? err.message : String(err)
       });
       
-      if (err.name !== 'AbortError') {
-        setError(err instanceof Error ? err : new Error(String(err)));
+      if (err instanceof Error && err.name !== 'AbortError') {
+        setError(err);
+      } else if (!(err instanceof Error)) {
+        setError(new Error(String(err)));
       }
     } finally {
       if (isMounted.current) {
@@ -503,7 +510,7 @@ const EventsPage = () => {
         setDynamicLoading(false);
       }
     }
-  }, [page, activeFilters.startDate, activeFilters.endDate, setDynamicLoading, ITEMS_PER_PAGE]);
+  }, [page, activeFilters.startDate, activeFilters.endDate, setDynamicLoading]);
 
   // Один эффект для инициализации и загрузки данных - максимально упрощенный
   useEffect(() => {
@@ -553,7 +560,7 @@ const EventsPage = () => {
       setIsFetching(false);
       setDynamicLoading(false);
     };
-  }, []); // Пустой массив зависимостей - запуск только при монтировании
+  }, [fetchEvents, setDynamicLoading]); // Добавляем fetchEvents и setDynamicLoading в зависимости
 
   // Отдельный эффект для изменения page
   useEffect(() => {
@@ -652,10 +659,10 @@ const EventsPage = () => {
         } else if ('data' in response && Array.isArray(response.data)) {
           formattedResponse = response as EventsResponse;
         } else if (typeof response === 'object') {
-          const data = (response as any).items || (response as any).events || (response as any).results || [];
+          const data = (response as unknown).items || (response as unknown).events || (response as unknown).results || [];
           formattedResponse.data = Array.isArray(data) ? data : [];
-          formattedResponse.total = typeof (response as any).total === 'number' ? 
-            (response as any).total : formattedResponse.data.length;
+          formattedResponse.total = typeof (response as unknown).total === 'number' ? 
+            (response as unknown).total : formattedResponse.data.length;
         }
         
         // Обновляем состояние
@@ -671,8 +678,8 @@ const EventsPage = () => {
       .catch(error => {
         if (!isMounted.current) return;
         logError('Error in direct API call', error);
-        if (error.name !== 'AbortError') {
-          setError(error instanceof Error ? error : new Error(String(error)));
+        if (error instanceof Error && error.name !== 'AbortError') {
+          setError(error);
         }
       })
       .finally(() => {
@@ -691,7 +698,7 @@ const EventsPage = () => {
         }, 1000);
       });
     }, 200);
-  }, [fetchEvents]);
+  }, [activeFilters.startDate, activeFilters.endDate, setDynamicLoading]);
 
   const handleApplyFilters = useCallback(() => {
     setPage(1);
@@ -879,10 +886,10 @@ const EventsPage = () => {
                         } else if ('data' in response && Array.isArray(response.data)) {
                           formattedResponse = response as EventsResponse;
                         } else if (typeof response === 'object') {
-                          const data = (response as any).items || (response as any).events || (response as any).results || [];
+                          const data = (response as unknown).items || (response as unknown).events || (response as unknown).results || [];
                           formattedResponse.data = Array.isArray(data) ? data : [];
-                          formattedResponse.total = typeof (response as any).total === 'number' ? 
-                            (response as any).total : formattedResponse.data.length;
+                          formattedResponse.total = typeof (response as unknown).total === 'number' ? 
+                            (response as unknown).total : formattedResponse.data.length;
                         }
                         
                         // Обновляем состояние
@@ -898,8 +905,8 @@ const EventsPage = () => {
                       .catch(error => {
                         if (!isMounted.current) return;
                         logError('Error in direct API call', error);
-                        if (error.name !== 'AbortError') {
-                          setError(error instanceof Error ? error : new Error(String(error)));
+                        if (error instanceof Error && error.name !== 'AbortError') {
+                          setError(error);
                         }
                       })
                       .finally(() => {

@@ -1,7 +1,7 @@
 // frontend/src/app/(public)/events/[slug]/page.tsx
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -174,63 +174,7 @@ const extractIdFromSlug = (slug: string): string => {
   return slug;
 };
 
-// Функция для проверки и восстановления канонического слага
-const ensureCanonicalSlug = (eventData: EventData): string => {
-  if (!eventData || !eventData.id) return "";
-  
-  // Получение года из даты
-  const year = eventData.start_date ? new Date(eventData.start_date).getFullYear() : new Date().getFullYear();
-  const idStr = String(eventData.id);
-  
-  // Проверяем, корректно ли сформирован слаг
-  if (eventData.url_slug) {
-    // Слаг уже содержит нужный формат
-    if (eventData.url_slug.endsWith(`-${year}-${idStr}`)) {
-      return eventData.url_slug;
-    }
-    
-    // Базовый слаг без year-id на конце
-    if (!eventData.url_slug.includes(`-${year}-`) && !eventData.url_slug.endsWith(`-${idStr}`)) {
-      return `${eventData.url_slug}-${year}-${idStr}`;
-    }
-    
-    // Произвольный слаг, который нужно преобразовать
-    // Проверяем, есть ли уже год и ID в слаге
-    const parts = eventData.url_slug.split('-');
-    if (parts.length >= 2) {
-      const lastPart = parts[parts.length - 1];
-      const preLast = parts[parts.length - 2];
-      
-      // Если уже есть correct формат (slug-year-id)
-      if (preLast === String(year) && lastPart === idStr) {
-        return eventData.url_slug;
-      }
-      
-      // Если формат неправильный, но содержит год-ID, удаляем и заменяем
-      if (/^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
-        const baseSlug = parts.slice(0, -2).join('-');
-        return `${baseSlug}-${year}-${idStr}`;
-      }
-    }
-    
-    // Если все проверки не сработали, форматируем просто добавив год и ID
-    return `${eventData.url_slug}-${year}-${idStr}`;
-  }
-  
-  // Если url_slug отсутствует, создаем из названия
-  const safeTitle = eventData.title
-    ? eventData.title.toLowerCase()
-        .replace(/[^a-zA-Z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-+|-+$/g, '')
-    : 'event';
-  
-  return `${safeTitle}-${year}-${idStr}`;
-};
-
 export default function EventPage() {
-  const router = useRouter();
   const { slug } = useParams<{ slug: string }>();
   const [event, setEvent] = useState<EventData | null>(null);
   const [hasServerError, setHasServerError] = useState(false);
@@ -244,20 +188,18 @@ export default function EventPage() {
   const fetchInProgressRef = useRef(false);
   const hasInitialFetchRef = useRef(false);
   const isMountedRef = useRef(false);
-  const lastLogTimeRef = useRef(0);
-  const lastFetchTimeRef = useRef(0);
   const globalLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountCountRef = useRef(0);
   const eventIdRef = useRef<string>("");
   const [registrationUpdateKey, setRegistrationUpdateKey] = useState(0);
-  const isStableMount = useRef(false);
+  const isStableMount = useRef(true);
   const registrationReadyRef = useRef(false);
-  const [componentsReady, setComponentsReady] = useState<{[key: string]: boolean}>({
-    registration: false
-  });
+  const [, setComponentsReady] = useState({ registration: false });
   
   // Функции логирования с разными уровнями
-  const logDebug = (message: string, data?: any) => {
+  type LogData = unknown;
+  
+  const logDebug = useCallback((message: string, data?: LogData) => {
     if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
       if (data) {
         console.debug(`EventPage: ${message}`, data);
@@ -265,9 +207,9 @@ export default function EventPage() {
         console.debug(`EventPage: ${message}`);
       }
     }
-  };
+  }, []);
 
-  const logInfo = (message: string, data?: any) => {
+  const logInfo = useCallback((message: string, data?: LogData) => {
     if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
       if (data) {
         console.log(`EventPage: ${message}`, data);
@@ -275,9 +217,9 @@ export default function EventPage() {
         console.log(`EventPage: ${message}`);
       }
     }
-  };
+  }, []);
 
-  const logWarn = (message: string, data?: any) => {
+  const logWarn = useCallback((message: string, data?: LogData) => {
     if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
       if (data) {
         console.warn(`EventPage: ⚠️ ${message}`, data);
@@ -285,9 +227,9 @@ export default function EventPage() {
         console.warn(`EventPage: ⚠️ ${message}`);
       }
     }
-  };
+  }, []);
 
-  const logError = (message: string, data?: any) => {
+  const logError = useCallback((message: string, data?: LogData) => {
     if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
       if (data) {
         console.error(`EventPage: ⛔ ${message}`, data);
@@ -295,32 +237,6 @@ export default function EventPage() {
         console.error(`EventPage: ⛔ ${message}`);
       }
     }
-  };
-  
-  // Функция для проверки, можно ли делать новый запрос
-  const canMakeNewRequest = useCallback(() => {
-    const now = Date.now();
-    // Не делаем запросы чаще чем раз в 2 секунды
-    if (now - lastFetchTimeRef.current < 2000) {
-      logDebug("Skipping fetch due to rate limiting");
-      return false;
-    }
-    return true;
-  }, []);
-  
-  // Функция для сброса глобальной блокировки
-  const resetGlobalLock = useCallback(() => {
-    if (globalLockTimeoutRef.current) {
-      clearTimeout(globalLockTimeoutRef.current);
-      globalLockTimeoutRef.current = null;
-    }
-    
-    // Устанавливаем таймаут для сброса глобальной блокировки
-    globalLockTimeoutRef.current = setTimeout(() => {
-      logDebug("Resetting global lock timeout");
-      fetchInProgressRef.current = false;
-      globalLockTimeoutRef.current = null;
-    }, 5000); // Сбрасываем через 5 секунд
   }, []);
   
   // Функция для получения данных мероприятия
@@ -408,24 +324,7 @@ export default function EventPage() {
         fetchInProgressRef.current = false;
       }
     }
-  }, [setDynamicLoading]);
-  
-  // Add this function to really force a refresh of the component - SIMPLIFIED
-  const forceFullRefresh = useCallback(() => {
-    logInfo("Forcing a refresh of event registration component");
-    
-    // Only update the registration component key
-    setRegistrationUpdateKey(prev => prev + 1);
-    
-    // Get fresh data in background if needed without page refresh
-    if (slug && !fetchInProgressRef.current) {
-      fetchEventData(slug.toString()).then(data => {
-        if (data && isMountedRef.current) {
-          setEvent(data);
-        }
-      });
-    }
-  }, [slug, fetchEventData]);
+  }, [setDynamicLoading, logInfo, logError, logWarn]);
   
   // Simplified page navigation effect
   useEffect(() => {
@@ -443,13 +342,13 @@ export default function EventPage() {
       window.removeEventListener('pageshow', handleNavigation);
       window.removeEventListener('popstate', handleNavigation);
     };
-  }, []);
+  }, [logInfo]);
   
   // Simplified event handlers
   const handleBookingClick = useCallback(() => {
     // Use simple function that doesn't trigger any page updates
     logDebug("Booking click triggered");
-  }, []);
+  }, [logDebug]);
   
   const handleLoginClick = useCallback(() => {
     setIsRegisterMode(false);
@@ -460,7 +359,7 @@ export default function EventPage() {
   const handleBookingSuccess = useCallback(() => {
     logInfo("Booking successful");
     // No additional action needed - component updates itself
-  }, []);
+  }, [logInfo]);
 
   // Handle auth changes
   useEffect(() => {
@@ -471,7 +370,24 @@ export default function EventPage() {
     };
     window.addEventListener("auth-change", handleAuthChange);
     return () => window.removeEventListener("auth-change", handleAuthChange);
-  }, []);
+  }, [logInfo]);
+
+  // Save event data to localStorage for breadcrumb navigation
+  const saveEventToLocalStorage = useCallback((eventData: EventData, currentSlug: string) => {
+    if (eventData.id && eventData.title) {
+      try {
+        const eventId = String(eventData.id);
+        logInfo(`Saving event title to localStorage: event-title-${eventId}`);
+        localStorage.setItem(`event-title-${eventId}`, eventData.title);
+        
+        // Save slug for more complete data
+        logInfo(`Saving event slug to localStorage: event-slug-${eventId}`);
+        localStorage.setItem(`event-slug-${eventId}`, currentSlug);
+      } catch (error) {
+        logError("Error saving event data to localStorage", error);
+      }
+    }
+  }, [logInfo, logError]);
 
   // Main effect to handle initial data fetching
   useEffect(() => {
@@ -486,22 +402,8 @@ export default function EventPage() {
     
     // If we already have the event data, don't fetch again
     if (event) {
-      // Сохраняем информацию о событии в localStorage для хлебных крошек
-      if (event.id && event.title) {
-        try {
-          const eventId = String(event.id);
-          logInfo(`Saving event title to localStorage: event-title-${eventId}`);
-          localStorage.setItem(`event-title-${eventId}`, event.title);
-          
-          // Сохраняем также slug для полноты данных
-          if (slug) {
-            logInfo(`Saving event slug to localStorage: event-slug-${eventId}`);
-            localStorage.setItem(`event-slug-${eventId}`, slug.toString());
-          }
-        } catch (error) {
-          logError("Error saving event data to localStorage", error);
-        }
-      }
+      // Save event info to localStorage for breadcrumbs
+      saveEventToLocalStorage(event, slug.toString());
       return;
     }
     
@@ -512,27 +414,13 @@ export default function EventPage() {
           if (data && isMountedRef.current) {
             setEvent(data);
             
-            // Сохраняем информацию о событии в localStorage для хлебных крошек
-            if (data.id && data.title) {
-              try {
-                const eventId = String(data.id);
-                logInfo(`Saving event title to localStorage: event-title-${eventId}`);
-                localStorage.setItem(`event-title-${eventId}`, data.title);
-                
-                // Сохраняем также slug для полноты данных
-                if (slug) {
-                  logInfo(`Saving event slug to localStorage: event-slug-${eventId}`);
-                  localStorage.setItem(`event-slug-${eventId}`, slug.toString());
-                }
-              } catch (error) {
-                logError("Error saving event data to localStorage", error);
-              }
-            }
+            // Save event info to localStorage for breadcrumbs
+            saveEventToLocalStorage(data, slug.toString());
           }
         });
       }
     }, 100); // Small delay to allow component to stabilize
-  }, [event, fetchEventData, slug]);
+  }, [event, fetchEventData, slug, saveEventToLocalStorage, logWarn]);
   
   // Add new effect to track when ALL data is fully loaded
   const [isEventRegistrationReady, setIsEventRegistrationReady] = useState(false);
@@ -545,12 +433,14 @@ export default function EventPage() {
     logInfo('EventRegistration component is ready');
     eventRegistrationReadyRef.current = true;
     setIsEventRegistrationReady(true);
+    registrationReadyRef.current = true;
+    setComponentsReady(prev => ({...prev, registration: true}));
     
     // Hide skeleton when registration is ready (if event data is already loaded)
     if (event) {
       setShowInitialSkeleton(false);
     }
-  }, [event]);
+  }, [event, logInfo]);
   
   // Add effect to hide skeleton when both event data and registration component are ready
   useEffect(() => {
@@ -558,7 +448,7 @@ export default function EventPage() {
       logInfo('All components ready - hiding skeleton');
       setShowInitialSkeleton(false);
     }
-  }, [event, isEventRegistrationReady]);
+  }, [event, isEventRegistrationReady, logInfo]);
   
   // Additional effect to ensure we don't get stuck waiting for components
   useEffect(() => {
@@ -574,7 +464,7 @@ export default function EventPage() {
       
       return () => clearTimeout(registrationTimeout);
     }
-  }, [event, isEventRegistrationReady]);
+  }, [event, isEventRegistrationReady, logInfo]);
   
   // Add as early as possible in the component
   useEffect(() => {
@@ -610,21 +500,8 @@ export default function EventPage() {
         globalLockTimeoutRef.current = null;
       }
     };
-  }, []);
+  }, [logInfo, logWarn]);
   
-  // Add this function to handle registration component ready state
-  const handleRegistrationReady = useCallback(() => {
-    logInfo("EventRegistration component is ready");
-    registrationReadyRef.current = true;
-    setComponentsReady(prev => ({...prev, registration: true}));
-    
-    // Hide skeleton when registration is ready
-    if (isMountedRef.current) {
-      logInfo("All components ready - hiding skeleton");
-      setShowInitialSkeleton(false);
-    }
-  }, []);
-
   // Debug render states
   useEffect(() => {
     if (isMountedRef.current) {
@@ -635,7 +512,7 @@ export default function EventPage() {
         showingSkeleton: showInitialSkeleton
       });
     }
-  }, [isLoading, event, fetchError, showInitialSkeleton]);
+  }, [isLoading, event, fetchError, showInitialSkeleton, logDebug]);
 
   // This effect will run whenever the page is navigated to - with initialization check
   useEffect(() => {
@@ -648,7 +525,7 @@ export default function EventPage() {
     logInfo("Page mounted or navigated to - forcing EventRegistration update");
     // Increment the key to force the component to re-mount
     setRegistrationUpdateKey(prev => prev + 1);
-  }, []);
+  }, [logInfo]);
   
   // Render error states
   if (hasServerError) {

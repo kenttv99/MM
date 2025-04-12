@@ -19,11 +19,11 @@ function LoadingStageConnector({ children }: { children: React.ReactNode }) {
       setCurrentLoadingStage(event.detail.stage);
     };
 
-    // Listen for custom events from LoadingContext
-    window.addEventListener('loadingStageChange' as any, handleStageChange);
+    // Listen for custom events from LoadingContext with proper typing
+    window.addEventListener('loadingStageChange', handleStageChange as EventListener);
 
     return () => {
-      window.removeEventListener('loadingStageChange' as any, handleStageChange);
+      window.removeEventListener('loadingStageChange', handleStageChange as EventListener);
     };
   }, []);
 

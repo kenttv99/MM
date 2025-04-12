@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useState, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useRef, useCallback } from 'react';
 import { createLogger } from "@/utils/logger";
 import { LoadingFlagsContextType, LoadingState, LoadingStage } from './types';
 import { useLoadingStage, getStageLevel, useIsMounted } from './LoadingStageContext';
@@ -76,7 +76,7 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
       loadingStateRef.current.isStaticLoading = isLoading;
     }
-  }, [currentStage, setStage]);
+  }, [currentStage, setStage, isMounted]);
   
   // Function for setting dynamic loading
   const setDynamicLoading = useCallback((isLoading: boolean) => {
@@ -140,7 +140,7 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
       }, 1000); // Timeout for guaranteed check
     }
-  }, [currentStage, setStage]);
+  }, [currentStage, setStage, isMounted]);
   
   // Reset all loading flags
   const resetLoading = useCallback(() => {

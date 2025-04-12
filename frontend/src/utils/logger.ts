@@ -9,7 +9,7 @@ export enum LogLevel {
 
 // Interface for context information that can be attached to logs
 export interface LogContext {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Module configuration for targeted logging
@@ -41,7 +41,7 @@ interface LogEntry {
   level: LogLevel;
   prefix: string;
   message: string;
-  data?: any;
+  data?: unknown;
   context?: LogContext;
   timestamp: number;
 }
@@ -141,7 +141,7 @@ const shouldAllowLog = (key: string): boolean => {
 };
 
 // Handle batched logging
-const processBatchedLog = (level: LogLevel, prefix: string, message: string, data?: any, context?: LogContext) => {
+const processBatchedLog = (level: LogLevel, prefix: string, message: string, data?: unknown, context?: LogContext) => {
   const key = `${prefix}:${message}`;
   const now = Date.now();
   
@@ -164,7 +164,7 @@ const processBatchedLog = (level: LogLevel, prefix: string, message: string, dat
 };
 
 // Format log message with context information
-const formatLogMessage = (message: string, data?: any, context?: LogContext): string => {
+const formatLogMessage = (message: string, data?: unknown, context?: LogContext): string => {
   let formattedMessage = message;
   
   // Add structured data if present
@@ -179,7 +179,7 @@ const formatLogMessage = (message: string, data?: any, context?: LogContext): st
 };
 
 // Actual logging function
-const actualLog = (level: LogLevel, prefix: string, message: string, data?: any, context?: LogContext) => {
+const actualLog = (level: LogLevel, prefix: string, message: string, data?: unknown, context?: LogContext) => {
   // Add to history
   if (logHistory.length >= MAX_LOG_HISTORY) {
     logHistory.shift();
@@ -209,7 +209,7 @@ const actualLog = (level: LogLevel, prefix: string, message: string, data?: any,
 };
 
 // Core logging functions
-const internalLog = (level: LogLevel, prefix: string, message: string, data?: any, context?: LogContext) => {
+const internalLog = (level: LogLevel, prefix: string, message: string, data?: unknown, context?: LogContext) => {
   // Check module-specific config
   const moduleConfig = moduleConfigs[prefix];
   const effectiveLevel = moduleConfig?.level ?? globalLogLevel;
@@ -243,23 +243,23 @@ const internalLog = (level: LogLevel, prefix: string, message: string, data?: an
 };
 
 // Public logging functions
-export const logTrace = (prefix: string, message: string, data?: any, context?: LogContext) => {
+export const logTrace = (prefix: string, message: string, data?: unknown, context?: LogContext) => {
   internalLog(LogLevel.TRACE, prefix, message, data, context);
 };
 
-export const logDebug = (prefix: string, message: string, data?: any, context?: LogContext) => {
+export const logDebug = (prefix: string, message: string, data?: unknown, context?: LogContext) => {
   internalLog(LogLevel.DEBUG, prefix, message, data, context);
 };
 
-export const logInfo = (prefix: string, message: string, data?: any, context?: LogContext) => {
+export const logInfo = (prefix: string, message: string, data?: unknown, context?: LogContext) => {
   internalLog(LogLevel.INFO, prefix, message, data, context);
 };
 
-export const logWarn = (prefix: string, message: string, data?: any, context?: LogContext) => {
+export const logWarn = (prefix: string, message: string, data?: unknown, context?: LogContext) => {
   internalLog(LogLevel.WARN, prefix, message, data, context);
 };
 
-export const logError = (prefix: string, message: string, data?: any, context?: LogContext) => {
+export const logError = (prefix: string, message: string, data?: unknown, context?: LogContext) => {
   internalLog(LogLevel.ERROR, prefix, message, data, context);
 };
 
@@ -285,7 +285,7 @@ export const logOnChange = <T>(
 };
 
 // Function to log only when value changes
-export const logInfoOnChange = (prefix: string, message: string, newValue: any, oldValue: any, context?: LogContext, forceLog: boolean = false) => {
+export const logInfoOnChange = (prefix: string, message: string, newValue: unknown, oldValue: unknown, context?: LogContext, forceLog: boolean = false) => {
   // Skip logging if values are the same and not forcing
   if (!forceLog && JSON.stringify(newValue) === JSON.stringify(oldValue)) {
     return;
@@ -390,7 +390,7 @@ export const getLogHistory = (limit: number = MAX_LOG_HISTORY): LogEntry[] => {
 };
 
 // Get performance metrics summary
-export const getPerformanceMetricsSummary = (prefix?: string, metricName?: string): any => {
+export const getPerformanceMetricsSummary = (prefix?: string, metricName?: string): unknown => {
   const relevantMetrics = prefix 
     ? (performanceMetrics[prefix] || [])
     : Object.values(performanceMetrics).flat();
@@ -448,11 +448,11 @@ export const getPerformanceMetricsSummary = (prefix?: string, metricName?: strin
 
 // Enhanced logger factory with additional methods
 export interface Logger {
-  trace: (message: string, data?: any, context?: LogContext) => void;
-  debug: (message: string, data?: any, context?: LogContext) => void;
-  info: (message: string, data?: any, context?: LogContext) => void;
-  warn: (message: string, data?: any, context?: LogContext) => void;
-  error: (message: string, data?: any, context?: LogContext) => void;
+  trace: (message: string, data?: unknown, context?: LogContext) => void;
+  debug: (message: string, data?: unknown, context?: LogContext) => void;
+  info: (message: string, data?: unknown, context?: LogContext) => void;
+  warn: (message: string, data?: unknown, context?: LogContext) => void;
+  error: (message: string, data?: unknown, context?: LogContext) => void;
   withContext: (context: LogContext) => Logger;
   traceOnChange: <T>(message: string, newValue: T, oldValue: T, context?: LogContext, deep?: boolean) => void;
   debugOnChange: <T>(message: string, newValue: T, oldValue: T, context?: LogContext, deep?: boolean) => void;
@@ -475,30 +475,30 @@ export const createLogger = (prefix: string): Logger => {
   }
 
   const logger: Logger = {
-    trace: (message: string, data?: any, context?: LogContext) => 
+    trace: (message: string, data?: unknown, context?: LogContext) => 
       logTrace(prefix, message, data, context),
-    debug: (message: string, data?: any, context?: LogContext) => 
+    debug: (message: string, data?: unknown, context?: LogContext) => 
       logDebug(prefix, message, data, context),
-    info: (message: string, data?: any, context?: LogContext) => 
+    info: (message: string, data?: unknown, context?: LogContext) => 
       logInfo(prefix, message, data, context),
-    warn: (message: string, data?: any, context?: LogContext) => 
+    warn: (message: string, data?: unknown, context?: LogContext) => 
       logWarn(prefix, message, data, context),
-    error: (message: string, data?: any, context?: LogContext) => 
+    error: (message: string, data?: unknown, context?: LogContext) => 
       logError(prefix, message, data, context),
       
     // Create a new logger with pre-defined context
     withContext: (context: LogContext): Logger => {
       const contextLogger: Logger = {
         ...logger,
-        trace: (message: string, data?: any, additionalContext?: LogContext) => 
+        trace: (message: string, data?: unknown, additionalContext?: LogContext) => 
           logTrace(prefix, message, data, { ...context, ...additionalContext }),
-        debug: (message: string, data?: any, additionalContext?: LogContext) => 
+        debug: (message: string, data?: unknown, additionalContext?: LogContext) => 
           logDebug(prefix, message, data, { ...context, ...additionalContext }),
-        info: (message: string, data?: any, additionalContext?: LogContext) => 
+        info: (message: string, data?: unknown, additionalContext?: LogContext) => 
           logInfo(prefix, message, data, { ...context, ...additionalContext }),
-        warn: (message: string, data?: any, additionalContext?: LogContext) => 
+        warn: (message: string, data?: unknown, additionalContext?: LogContext) => 
           logWarn(prefix, message, data, { ...context, ...additionalContext }),
-        error: (message: string, data?: any, additionalContext?: LogContext) => 
+        error: (message: string, data?: unknown, additionalContext?: LogContext) => 
           logError(prefix, message, data, { ...context, ...additionalContext }),
         withContext: (nestedContext: LogContext): Logger => 
           logger.withContext({ ...context, ...nestedContext })

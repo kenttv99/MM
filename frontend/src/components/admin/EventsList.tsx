@@ -130,11 +130,6 @@ const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
     }
   };
 
-  // Компонент для создания нового мероприятия
-  const handleCreateEvent = () => {
-    router.push("/edit-events?new=true");
-  };
-
   return (
     <div>
       {/* Поиск мероприятий */}

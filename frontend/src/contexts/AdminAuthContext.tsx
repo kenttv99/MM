@@ -3,17 +3,12 @@
 
 import { useRouter } from "next/navigation";
 import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
-import { apiFetch } from "@/utils/api";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
-import { checkAdminSession, handleTokenRefresh } from "../utils/eventService";
+import { checkAdminSession } from "../utils/eventService";
 import { createLogger } from "@/utils/logger";
 
 // Create a namespace-specific logger
 const adminAuthLogger = createLogger('AdminAuthContext');
-
-// Константы для управления проверкой сессии
-const SESSION_CHECK_DEBOUNCE_MS = 120000; // 2 минуты между проверками
-const TOKEN_EXPIRY_BUFFER = 300; // 5 минут (в секундах)
 
 interface AdminProfile {
   id: number;
@@ -39,43 +34,12 @@ const STORAGE_KEYS = {
   LAST_CHECK_TIME: "admin_last_check_time"
 };
 
-// Вспомогательная функция для проверки истечения срока действия токена
-const isTokenExpired = (token: string) => {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    // Проверяем срок действия токена
-    if (payload && payload.exp) {
-      return payload.exp < Date.now() / 1000;
-    }
-    return false;
-  } catch (e) {
-    adminAuthLogger.error('AdminAuthContext: Error checking token expiration:', e);
-    return true;
-  }
-};
-
-// Функция для определения приближения к истечению токена
-const isTokenExpiringSoon = (token: string): boolean => {
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    if (payload && payload.exp) {
-      const now = Math.floor(Date.now() / 1000);
-      return payload.exp - now < TOKEN_EXPIRY_BUFFER;
-    }
-    return false;
-  } catch (e) {
-    adminAuthLogger.error('AdminAuthContext: Error checking token expiration:', e);
-    return true;
-  }
-};
-
 // Create context with initial value
 const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefined);
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
-  const { setDynamicLoading, setStage } = useLoading();
-  const authCheckFailsafeRef = useRef<NodeJS.Timeout | null>(null);
+  const { setStage } = useLoading();
   const isInitialized = useRef(false);
   const isMounted = useRef(false);
   const lastCheckTimeRef = useRef<number>(0);
@@ -162,8 +126,12 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       adminAuthLogger.error("AdminAuth: Error checking auth:", error);
       
       // Проверяем есть ли у ошибки поле status
+      interface ErrorWithStatus extends Error {
+        status?: number;
+      }
+      
       if (error instanceof Error && 'status' in error) {
-        const status = (error as any).status;
+        const status = (error as ErrorWithStatus).status;
         adminAuthLogger.info(`AdminAuth: Auth error with status ${status}`);
         
         // Если ошибка авторизации (401 или 403), выполняем выход

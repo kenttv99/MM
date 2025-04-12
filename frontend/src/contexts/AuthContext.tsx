@@ -1,7 +1,7 @@
 // frontend/src/contexts/AuthContext.tsx
 "use client";
 
-import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, useMemo } from "react";
+import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { apiFetch } from "@/utils/api";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { createLogger } from "@/utils/logger";
@@ -28,6 +28,11 @@ interface AuthContextType {
   updateUserData: (data: UserData, resetLoading?: boolean) => void;
   handleLoginSuccess: (token: string, user: UserData) => void;
   logout: () => void;
+}
+
+// Define a type for window with loading stage
+interface WindowWithLoadingStage extends Window {
+  __loading_stage__?: LoadingStage;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -98,7 +103,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           authLogger.info('Skipping auth check on admin route');
           setIsAuthCheckedState(true);
           // Проверяем текущую стадию загрузки перед установкой новой
-          const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+          const currentStage = typeof window !== 'undefined' ? 
+            (window as WindowWithLoadingStage).__loading_stage__ : 
+            null;
           if (currentStage !== LoadingStage.STATIC_CONTENT) {
             authLogger.info('Transitioning to STATIC_CONTENT stage (admin route)');
             setStage(LoadingStage.STATIC_CONTENT);
@@ -125,7 +132,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setUser(null);
             hasInitialized.current = true;
             // Проверяем текущую стадию загрузки перед установкой новой
-            const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+            const currentStage = typeof window !== 'undefined' ? 
+              (window as WindowWithLoadingStage).__loading_stage__ : 
+              null;
             if (currentStage !== LoadingStage.STATIC_CONTENT) {
               authLogger.info('Transitioning to STATIC_CONTENT stage (no token)');
               setStage(LoadingStage.STATIC_CONTENT);
@@ -173,7 +182,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             hasInitialized.current = true;
             
             // Проверяем текущую стадию загрузки перед установкой новой
-            const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+            const currentStage = typeof window !== 'undefined' ? 
+              (window as WindowWithLoadingStage).__loading_stage__ : 
+              null;
             if (currentStage !== LoadingStage.STATIC_CONTENT) {
               authLogger.info('Transitioning to STATIC_CONTENT stage (from localStorage)');
               setStage(LoadingStage.STATIC_CONTENT);
@@ -203,7 +214,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         hasInitialized.current = true;
         
         // Проверяем текущую стадию загрузки перед установкой новой
-        const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
+        const currentStage = typeof window !== 'undefined' ? 
+          (window as WindowWithLoadingStage).__loading_stage__ : 
+          null;
         if (currentStage !== LoadingStage.STATIC_CONTENT) {
           authLogger.info('Transitioning to STATIC_CONTENT stage (error)');
           setStage(LoadingStage.STATIC_CONTENT);
@@ -261,13 +274,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     checkAuth();
 
+    // Store a reference to the current timeout for cleanup
+    const currentAuthFailsafe = authCheckFailsafeRef.current;
+    const currentAuthCheckTimeout = authCheckTimeoutRef.current;
+
     return () => {
       isMounted.current = false;
-      if (authCheckTimeoutRef.current) {
-        clearTimeout(authCheckTimeoutRef.current);
+      if (currentAuthCheckTimeout) {
+        clearTimeout(currentAuthCheckTimeout);
       }
-      if (authCheckFailsafeRef.current) {
-        clearTimeout(authCheckFailsafeRef.current);
+      if (currentAuthFailsafe) {
+        clearTimeout(currentAuthFailsafe);
       }
     };
   }, [setDynamicLoading, setStage]);
@@ -309,7 +326,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authLogger.info('Dispatched userDataChanged event with updated avatar');
   }, [user]);
 
-  const handleLoginSuccess = useCallback((token: string, userData: any) => {
+  const handleLoginSuccess = useCallback((token: string, userData: UserData) => {
     authLogger.info('Login success, updating state with token and user data');
     authLogger.info('User data avatar:', userData.avatar_url);
     
@@ -512,7 +529,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       authLogger.error("Error checking auth:", error);
       
       // Check if the error contains a status property indicating 401
-      if (error instanceof Error && 'status' in error && (error as any).status === 401) {
+      const errorWithStatus = error as { status?: number };
+      if (error instanceof Error && 'status' in error && errorWithStatus.status === 401) {
         authLogger.info('401 Unauthorized error detected in error object');
         if (isMounted.current) {
           logout();
@@ -541,7 +559,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     updateUserData,
     handleLoginSuccess,
     logout
-  }), [isAuthenticated, user, checkAuth, updateUserData, handleLoginSuccess, logout, hasInitialized.current, isAuthChecked]);
+  }), [isAuthenticated, user, checkAuth, updateUserData, handleLoginSuccess, logout, isAuthChecked]);
 
   return (
     <AuthContext.Provider value={contextValue}>

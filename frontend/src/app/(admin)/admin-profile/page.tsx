@@ -17,12 +17,6 @@ interface AdminData {
   fio: string;
 }
 
-const navigateTo = (path: string, params: Record<string, string> = {}) => {
-  const url = new URL(path, window.location.origin);
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
-  window.location.href = url.pathname + url.search;
-};
-
 // Компонент скелетона для профиля
 const ProfileSkeleton = () => (
   <div className="min-h-screen bg-gray-50 relative">
@@ -68,7 +62,7 @@ const ProfileSkeleton = () => (
   </div>
 );
 
-export default function AdminProfilePage() {
+const AdminProfilePage = () => {
   const { isAuthenticated, adminData, loading: authLoading, logout } = useAdminAuth();
   const { currentStage, setStage, setDynamicLoading } = useLoading();
   const router = useRouter();
@@ -79,7 +73,6 @@ export default function AdminProfilePage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [clientReady, setClientReady] = useState(false);
-  const [profileLoaded, setProfileLoaded] = useState(false);
 
   // Обработка инициализации и загрузки профиля
   useEffect(() => {
@@ -94,9 +87,6 @@ export default function AdminProfilePage() {
     // Если у нас есть данные админа, немедленно устанавливаем их
     if (adminData) {
       setFormValues(adminData);
-      setProfileLoaded(true);
-    } else {
-      setProfileLoaded(true); // Всё равно отмечаем как загруженное, чтобы не показывать скелетон вечно
     }
   }, [adminData, currentStage, setStage]);
 
@@ -287,3 +277,5 @@ export default function AdminProfilePage() {
     </div>
   );
 }
+
+export default AdminProfilePage;

@@ -30,25 +30,19 @@ const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production'
   : LOG_LEVEL.INFO;
 
 // Вспомогательные функции для логирования с разными уровнями
-const logDebug = (message: string, data?: any) => {
+const logDebug = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
     console.log(`Header: ${message}`, data);
   }
 };
 
-const logInfo = (message: string, data?: any) => {
+const logInfo = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
     console.log(`Header: ${message}`, data);
   }
 };
 
-const logWarn = (message: string, data?: any) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
-    console.log(`Header: ⚠️ ${message}`, data);
-  }
-};
-
-const logError = (message: string, data?: any) => {
+const logError = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
     console.error(`Header: ⛔ ${message}`, data);
   }
@@ -254,16 +248,19 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   
   return currentAvatarUrl && !imgError ? (
     isDataUri ? (
-      // Use plain img tag for data URIs
-      <img
+      // Use Next.js Image for data URIs too, with unoptimized prop
+      <Image
         key={`data-uri-${uniqueKey}`}
         src={currentAvatarUrl}
         alt="User Avatar"
+        width={40}
+        height={40}
         className={`${sizeClasses} rounded-full object-cover hover:opacity-90`}
         onError={() => {
           console.error("Ошибка загрузки data URI аватарки в Header");
           setImgError(true);
         }}
+        unoptimized
       />
     ) : (
       // Use Next.js Image for normal URLs
@@ -274,7 +271,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
         width={40}
         height={40}
         className={`${sizeClasses} rounded-full object-cover hover:opacity-90`}
-        onError={(e) => {
+        onError={() => {
           console.error("Ошибка загрузки изображения аватарки в Header:", currentAvatarUrl);
           setImgError(true);
         }}
@@ -307,7 +304,6 @@ const Header: React.FC = () => {
   const [forceShowHeader, setForceShowHeader] = useState(false);
   const loadingRef = useRef<boolean>(authLoading);
   const checkedRef = useRef<boolean>(isAuthChecked);
-  const prevStageRef = useRef<LoadingStage | null>(null);
   const shouldShowSkeletonRef = useRef<boolean>(false);
   const hasShownHeaderRef = useRef<boolean>(false);
   const [, forceUpdate] = useState({});

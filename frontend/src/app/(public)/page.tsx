@@ -6,7 +6,7 @@ import Link from "next/link";
 import Footer from "@/components/Footer";
 import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
 import { FeatureCardProps } from "@/types/index";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoading } from "@/contexts/LoadingContextLegacy";
 
 const FeatureCard: React.FC<FeatureCardProps> = ({ href, icon: Icon, title, description, ctaText }) => (
   <Link href={href} className="group h-full">

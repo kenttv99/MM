@@ -60,12 +60,12 @@ export const useChangePasswordForm = ({ initialValues, onSuccess }: ChangePasswo
         });
 
         if ('aborted' in response) {
-          const abortedResponse = response as ApiAbortedResponse;
+          const abortedResponse = response as unknown as ApiAbortedResponse;
           throw new Error(abortedResponse.reason || "Запрос был прерван");
         }
 
         if ('error' in response) {
-          const errorResponse = response as ApiErrorResponse;
+          const errorResponse = response as unknown as ApiErrorResponse;
           let errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при смене пароля";
           
           // Обработка различных типов ошибок

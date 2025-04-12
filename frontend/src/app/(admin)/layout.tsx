@@ -6,7 +6,7 @@ import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
 import { useEffect, useState } from "react";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 

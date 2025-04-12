@@ -19,7 +19,8 @@ import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoading } from "@/contexts/LoadingContextLegacy";
+import { ApiErrorResponse, ApiAbortedResponse } from '@/types/api';
 
 // Константы для уровней логирования
 const LOG_LEVEL = {
@@ -364,10 +365,19 @@ export default function EventPage() {
       
       logInfo("Raw response data", response);
       
+      if ('aborted' in response) {
+        const abortedResponse = response as unknown as ApiAbortedResponse;
+        logError("Request was aborted", abortedResponse.reason);
+        setFetchError("Запрос был прерван");
+        return null;
+      }
+      
       if ('error' in response) {
         logError("Error in response", response.error);
-        setFetchError(typeof response.error === 'string' ? response.error : "Ошибка загрузки");
-        setHasServerError(response.status >= 500);
+        const errorResponse = response as unknown as ApiErrorResponse;
+        setFetchError(typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка загрузки");
+        // Ensure status is treated as a number
+        setHasServerError(typeof errorResponse.status === 'number' ? errorResponse.status >= 500 : false);
         return null;
       }
       

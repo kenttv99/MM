@@ -8,7 +8,7 @@ import Logo from "./Logo";
 import Login from "./Login";
 import Registration from "./Registration";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import Image from "next/image";
 import AuthModal from "./common/AuthModal";
 import { NavItem } from "@/types/index";

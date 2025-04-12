@@ -9,6 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { EventRegistrationProps } from "@/types/index";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/utils/api";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Интерфейс для билета пользователя с учетом разных вариантов написания статусов
 interface UserTicket {
@@ -34,17 +35,6 @@ interface TicketResponse {
   items?: UserTicket[] | UserTicket;
   tickets?: UserTicket[] | UserTicket;
   [key: string]: unknown;
-}
-
-// Тип ответа API
-interface ApiErrorResponse {
-  error: string;
-  status: number;
-}
-
-interface ApiAbortedResponse {
-  aborted: boolean;
-  reason?: string;
 }
 
 // Функции для работы с билетами
@@ -422,13 +412,14 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       console.log('Response received:', response);
       
       if ('aborted' in response) {
-        const abortedResponse = response as ApiAbortedResponse;
+        const abortedResponse = response as unknown as ApiAbortedResponse;
+        console.error("EventRegistration: Request aborted", abortedResponse.reason);
         throw new Error(abortedResponse.reason || "Запрос был прерван");
       }
       
       if ('error' in response) {
         // Обработка конкретных типов ошибок для более дружелюбных сообщений
-        const errorResponse = response as ApiErrorResponse;
+        const errorResponse = response as unknown as ApiErrorResponse;
         const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при бронировании";
         
         // Пробуем найти понятное сообщение об ошибке в тексте
@@ -559,12 +550,12 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             });
             
             if ('aborted' in actualTicketResponse) {
-              const abortedResponse = actualTicketResponse as ApiAbortedResponse;
+              const abortedResponse = actualTicketResponse as unknown as ApiAbortedResponse;
               throw new Error(abortedResponse.reason || "Запрос был прерван");
             }
             
             if ('error' in actualTicketResponse) {
-              const errorResponse = actualTicketResponse as ApiErrorResponse;
+              const errorResponse = actualTicketResponse as unknown as ApiErrorResponse;
               throw new Error(typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при получении билетов");
             }
             

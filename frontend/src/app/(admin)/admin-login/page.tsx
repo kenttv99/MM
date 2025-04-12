@@ -10,6 +10,7 @@ import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
 import ClientErrorBoundary from "@/components/Errors/ClientErrorBoundary";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Динамическая загрузка AdminHeader без SSR для страницы логина
 const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
@@ -63,11 +64,14 @@ export default function AdminLoginPage() {
       });
       
       if ('aborted' in data) {
-        throw new Error(data.reason || "Запрос был прерван");
+        const abortedResponse = data as unknown as ApiAbortedResponse;
+        throw new Error(abortedResponse.reason || "Запрос был прерван");
       }
       
       if ('error' in data) {
-        throw new Error(data.error || "Ошибка авторизации");
+        // Cast to ApiErrorResponse type to access error property
+        const errorResponse = data as unknown as ApiErrorResponse;
+        throw new Error(errorResponse.error || "Ошибка авторизации");
       }
       
       const response = data as { access_token: string; id: number; email: string; fio?: string };

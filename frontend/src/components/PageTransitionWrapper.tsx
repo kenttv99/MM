@@ -2,7 +2,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoading } from "@/contexts/LoadingContextLegacy";
 import Loading from "@/components/Loading";
 import { usePathname } from "next/navigation";
 

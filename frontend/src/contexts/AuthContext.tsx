@@ -3,7 +3,12 @@
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, useMemo } from "react";
 import { apiFetch } from "@/utils/api";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { createLogger } from "@/utils/logger";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
+
+// Create a namespace-specific logger
+const authLogger = createLogger('AuthContext');
 
 interface UserData {
   id: number;
@@ -53,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const checkAuth = async () => {
       if (!isMounted.current) return;
 
-      console.log('AuthContext: Starting initial authentication check');
+      authLogger.info('Starting initial authentication check');
       
       // Clear previous failsafe
       if (authCheckFailsafeRef.current) {
@@ -66,14 +71,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!isMounted.current) return;
         
         if (!hasInitialized.current) {
-          console.log('AuthContext: Auth check failsafe triggered');
+          authLogger.info('Auth check failsafe triggered');
           setIsAuthenticated(false);
           setIsAuthCheckedState(true);
           setUser(null);
           hasInitialized.current = true;
           setDynamicLoading(false);
           // Переходим к следующей стадии загрузки и явно логируем переход
-          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failsafe)');
+          authLogger.info('Transitioning to STATIC_CONTENT stage (failsafe)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
       }, 5000);
@@ -90,15 +95,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Если мы на админской странице, пропускаем проверку пользовательского токена
         if (isAdminRoute) {
-          console.log('AuthContext: Skipping auth check on admin route');
+          authLogger.info('Skipping auth check on admin route');
           setIsAuthCheckedState(true);
           // Проверяем текущую стадию загрузки перед установкой новой
           const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
           if (currentStage !== LoadingStage.STATIC_CONTENT) {
-            console.log('AuthContext: Transitioning to STATIC_CONTENT stage (admin route)');
+            authLogger.info('Transitioning to STATIC_CONTENT stage (admin route)');
             setStage(LoadingStage.STATIC_CONTENT);
           } else {
-            console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+            authLogger.info('Already in STATIC_CONTENT stage, skipping transition');
           }
           return;
         }
@@ -107,13 +112,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (typeof window !== 'undefined' && 
             localStorage.getItem('is_admin_route') === 'true' && 
             !window.location.pathname.startsWith('/admin')) {
-          console.log('AuthContext: Clearing incorrect admin route flag');
+          authLogger.info('Clearing incorrect admin route flag');
           localStorage.removeItem('is_admin_route');
         }
         
         // Если токена нет, завершаем проверку сразу
         if (!token) {
-          console.log('AuthContext: No token found');
+          authLogger.info('No token found');
           if (isMounted.current) {
             setIsAuthenticated(false);
             setIsAuthCheckedState(true);
@@ -122,10 +127,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Проверяем текущую стадию загрузки перед установкой новой
             const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
             if (currentStage !== LoadingStage.STATIC_CONTENT) {
-              console.log('AuthContext: Transitioning to STATIC_CONTENT stage (no token)');
+              authLogger.info('Transitioning to STATIC_CONTENT stage (no token)');
               setStage(LoadingStage.STATIC_CONTENT);
             } else {
-              console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+              authLogger.info('Already in STATIC_CONTENT stage, skipping transition');
             }
           }
           return;
@@ -136,11 +141,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (storedUserData) {
           try {
             const parsedUserData = JSON.parse(storedUserData);
-            console.log('AuthContext: Found user data in localStorage:', parsedUserData);
+            authLogger.info('Found user data in localStorage:', parsedUserData);
             
             // Проверка на правильность полей и добавление аватара если отсутствует
             if (parsedUserData && !parsedUserData.avatar_url && parsedUserData.id) {
-              console.log('AuthContext: Аватар отсутствует в данных, проверяем API');
+              authLogger.info('Аватар отсутствует в данных, проверяем API');
               
               // Добавляем запрос на получение актуальных данных в фоне
               fetch('/auth/me', {
@@ -152,14 +157,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               })
                 .then(response => response.json())
                 .then(updatedUserData => {
-                  console.log('AuthContext: Получены обновленные данные пользователя:', updatedUserData);
+                  authLogger.info('Получены обновленные данные пользователя:', updatedUserData);
                   if (updatedUserData && updatedUserData.avatar_url) {
-                    console.log('AuthContext: Обновляем аватар пользователя:', updatedUserData.avatar_url);
+                    authLogger.info('Обновляем аватар пользователя:', updatedUserData.avatar_url);
                     setUser(updatedUserData);
                     localStorage.setItem('userData', JSON.stringify(updatedUserData));
                   }
                 })
-                .catch(err => console.error('AuthContext: Ошибка получения обновленных данных:', err));
+                .catch(err => authLogger.error('Ошибка получения обновленных данных:', err));
             }
             
             setUser(parsedUserData);
@@ -170,17 +175,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // Проверяем текущую стадию загрузки перед установкой новой
             const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
             if (currentStage !== LoadingStage.STATIC_CONTENT) {
-              console.log('AuthContext: Transitioning to STATIC_CONTENT stage (from localStorage)');
+              authLogger.info('Transitioning to STATIC_CONTENT stage (from localStorage)');
               setStage(LoadingStage.STATIC_CONTENT);
             } else {
-              console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+              authLogger.info('Already in STATIC_CONTENT stage, skipping transition');
             }
             
             // Still verify with server in background
             verifyWithServer(token);
             return;
           } catch (e) {
-            console.error('AuthContext: Error parsing stored user data', e);
+            authLogger.error('Error parsing stored user data', e);
             localStorage.removeItem('userData');
           }
         }
@@ -188,7 +193,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Make the auth check request
         await verifyWithServer(token);
       } catch (error) {
-        console.error('AuthContext: Error during authentication check:', error);
+        authLogger.error('Error during authentication check:', error);
         
         if (!isMounted.current) return;
         
@@ -200,17 +205,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Проверяем текущую стадию загрузки перед установкой новой
         const currentStage = typeof window !== 'undefined' ? (window as any).__loading_stage__ : null;
         if (currentStage !== LoadingStage.STATIC_CONTENT) {
-          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (error)');
+          authLogger.info('Transitioning to STATIC_CONTENT stage (error)');
           setStage(LoadingStage.STATIC_CONTENT);
         } else {
-          console.log('AuthContext: Already in STATIC_CONTENT stage, skipping transition');
+          authLogger.info('Already in STATIC_CONTENT stage, skipping transition');
         }
       }
     };
 
     // Helper function to verify token with server
     const verifyWithServer = async (token: string) => {
-      console.log('AuthContext: Verifying authentication with token');
+      authLogger.info('Verifying authentication with token');
       const response = await fetch('/auth/me', {
         method: 'GET',
         headers: {
@@ -220,7 +225,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       if (response.ok) {
-        console.log('AuthContext: Auth check successful');
+        authLogger.info('Auth check successful');
         const data = await response.json();
         if (isMounted.current) {
           setUser(data);
@@ -232,11 +237,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.setItem('userData', JSON.stringify(data));
           }
           // Переходим к следующей стадии загрузки и явно логируем переход
-          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (success)');
+          authLogger.info('Transitioning to STATIC_CONTENT stage (success)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
       } else {
-        console.log('AuthContext: Auth check failed with status', response.status);
+        authLogger.info('Auth check failed with status', response.status);
         if (isMounted.current) {
           setUser(null);
           setIsAuthenticated(false);
@@ -248,7 +253,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             localStorage.removeItem('userData');
           }
           // Переходим к следующей стадии загрузки и явно логируем переход
-          console.log('AuthContext: Transitioning to STATIC_CONTENT stage (failed)');
+          authLogger.info('Transitioning to STATIC_CONTENT stage (failed)');
           setStage(LoadingStage.STATIC_CONTENT);
         }
       }
@@ -270,7 +275,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUserData = useCallback((data: UserData, resetLoading = true) => {
     if (!isMounted.current) return;
     
-    console.log('AuthContext: Обновление данных пользователя:', { 
+    authLogger.info('Обновление данных пользователя:', { 
       id: data.id,
       fio: data.fio,
       avatarUrl: data.avatar_url
@@ -279,7 +284,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Check if avatar was removed (userData had it but new data doesn't)
     const wasAvatarRemoved = user && user.avatar_url && !data.avatar_url;
     if (wasAvatarRemoved) {
-      console.log('AuthContext: Avatar was removed, updating localStorage and creating cache busters');
+      authLogger.info('Avatar was removed, updating localStorage and creating cache busters');
       
       // Create cache buster for avatar URLs
       localStorage.setItem('avatar_cache_buster', Date.now().toString());
@@ -301,12 +306,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     });
     window.dispatchEvent(event);
-    console.log('AuthContext: Dispatched userDataChanged event with updated avatar');
+    authLogger.info('Dispatched userDataChanged event with updated avatar');
   }, [user]);
 
   const handleLoginSuccess = useCallback((token: string, userData: any) => {
-    console.log('AuthContext: Login success, updating state with token and user data');
-    console.log('AuthContext: User data avatar:', userData.avatar_url);
+    authLogger.info('Login success, updating state with token and user data');
+    authLogger.info('User data avatar:', userData.avatar_url);
     
     // Update authentication state
     setIsAuthenticated(true);
@@ -330,11 +335,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
     window.dispatchEvent(event);
     
-    console.log('AuthContext: Authentication state updated successfully');
+    authLogger.info('Authentication state updated successfully');
   }, []);
 
   const logout = useCallback(async () => {
-    console.log('AuthContext: Starting logout process');
+    authLogger.info('Starting logout process');
     
     // Batch state updates to prevent multiple re-renders
     const batchUpdate = () => {
@@ -361,17 +366,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Only update loading stage if we're not in admin context
       const isInAdminContext = window.location.pathname.startsWith('/admin');
       if (!isInAdminContext) {
-        console.log('AuthContext: Setting stage to AUTHENTICATION after logout');
+        authLogger.info('Setting stage to AUTHENTICATION after logout');
         setStage(LoadingStage.AUTHENTICATION);
       } else {
-        console.log('AuthContext: Skipping stage update due to admin context');
+        authLogger.info('Skipping stage update due to admin context');
       }
 
       // Notify that logout is complete
       window.dispatchEvent(new CustomEvent('auth-logout-complete'));
       
     } catch (error) {
-      console.error('AuthContext: Error during logout:', error);
+      authLogger.error('Error during logout:', error);
       // Still perform state cleanup on error
       batchUpdate();
     }
@@ -380,7 +385,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Add event listener for admin logout to sync states
   useEffect(() => {
     const handleAdminLogout = () => {
-      console.log('AuthContext: Detected admin logout, syncing state');
+      authLogger.info('Detected admin logout, syncing state');
       if (isAuthenticated) {
         logout();
       }
@@ -395,9 +400,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Add event listener for 401 Unauthorized responses
   useEffect(() => {
     const handleUnauthorized = (event: CustomEvent) => {
-      console.log('AuthContext: Detected 401 Unauthorized response', event.detail);
+      authLogger.info('Detected 401 Unauthorized response', event.detail);
       if (isAuthenticated) {
-        console.log('AuthContext: Currently authenticated, performing logout due to 401');
+        authLogger.info('Currently authenticated, performing logout due to 401');
         logout();
       }
     };
@@ -429,14 +434,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setIsAuthCheckedState(true);
         setUser(null);
-        console.log('AuthContext: No token - moving to STATIC_CONTENT');
+        authLogger.info('No token - moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
       }
       return false;
     }
 
     try {
-      console.log('AuthContext: Verifying authentication');
+      authLogger.info('Verifying authentication');
       setStage(LoadingStage.AUTHENTICATION);
       setDynamicLoading(true);
       
@@ -446,7 +451,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       authCheckFailsafeRef.current = setTimeout(() => {
         if (isMounted.current) {
-          console.log('AuthContext: Failsafe triggered - explicitly moving to STATIC_CONTENT');
+          authLogger.info('Failsafe triggered - explicitly moving to STATIC_CONTENT');
           setDynamicLoading(false);
           setIsAuthCheckedState(true);
           setStage(LoadingStage.STATIC_CONTENT);
@@ -465,30 +470,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       if ('aborted' in response) {
-        console.error('AuthContext: Request aborted', response.reason);
-        console.log('AuthContext: Request aborted - explicitly moving to STATIC_CONTENT');
+        const abortedResponse = response as unknown as ApiAbortedResponse;
+        authLogger.info('Request aborted - explicitly moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
-        throw new Error(response.reason || "Request was aborted");
+        throw new Error(abortedResponse.reason || "Request was aborted");
       }
       
       if ('error' in response) {
-        console.error('AuthContext: API error:', response.error);
+        const errorResponse = response as unknown as ApiErrorResponse;
+        authLogger.error('API error:', errorResponse.error);
         
         // Check for 401 Unauthorized error specifically
-        if (response.status === 401) {
-          console.log('AuthContext: Received 401 Unauthorized, performing logout');
+        if (errorResponse.status === 401) {
+          authLogger.info('Received 401 Unauthorized, performing logout');
           if (isMounted.current) {
             logout();
           }
           return false;
         }
         
-        console.log('AuthContext: API error - explicitly moving to STATIC_CONTENT');
+        authLogger.info('API error - explicitly moving to STATIC_CONTENT');
         setStage(LoadingStage.STATIC_CONTENT);
-        throw new Error(typeof response.error === 'string' ? response.error : 'API Error');
+        throw new Error(typeof errorResponse.error === 'string' ? errorResponse.error : 'API Error');
       }
       
-      console.log('AuthContext: Authentication verified successfully');
+      authLogger.info('Authentication verified successfully');
       setIsAuthenticated(true);
       setIsAuthCheckedState(true);
       setUser(response);
@@ -499,15 +505,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       setDynamicLoading(false);
-      console.log('AuthContext: Authentication success - explicitly moving to STATIC_CONTENT');
+      authLogger.info('Authentication success - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);
       return true;
     } catch (error) {
-      console.error("AuthContext: Error checking auth:", error);
+      authLogger.error("Error checking auth:", error);
       
       // Check if the error contains a status property indicating 401
       if (error instanceof Error && 'status' in error && (error as any).status === 401) {
-        console.log('AuthContext: 401 Unauthorized error detected in error object');
+        authLogger.info('401 Unauthorized error detected in error object');
         if (isMounted.current) {
           logout();
         }
@@ -519,9 +525,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       
       setIsAuthCheckedState(true);
-      console.log('AuthContext: Auth check error - explicitly moving to STATIC_CONTENT');
+      authLogger.info('Auth check error - explicitly moving to STATIC_CONTENT');
       setStage(LoadingStage.STATIC_CONTENT);
-      console.error('AuthContext: Error checking authentication', error);
+      authLogger.error('Error checking authentication', error);
       return false;
     }
   }, [isAuthenticated, logout, setDynamicLoading, setStage]);

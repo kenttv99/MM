@@ -4,7 +4,7 @@
 import React, { useEffect, useState, useCallback, useRef, Suspense, lazy } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { FaUser, FaTelegramPlane, FaWhatsapp, FaCamera, FaPencilAlt, FaLock, FaTrash } from "react-icons/fa";
 import Image from "next/image";
 import InputField from "@/components/common/InputField";

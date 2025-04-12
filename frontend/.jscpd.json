@@ -1,0 +1,18 @@
+{
+    "directoriesAndFilesToCheck": [
+      "frontend/src"
+    ],
+    "filesAndDirectoriesToExclude": [
+      "**/*.test.js",
+      "**/*.spec.js",
+      "src/__tests__/**",
+      "src/static/**",
+      "src/config/env.js"
+    ],
+    "reportFormats": ["consoleFull", "html"],
+    "minimumDuplicateLengthInTokens": 50,
+    "duplicateThresholdPercentage": 0,
+    "languagesToAnalyze": ["javascript", "typescript", "tsx"],
+    "checkNestedDirectories": true,
+    "reportOutputPath": "./jscpd-report"
+}

@@ -7,11 +7,12 @@ import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 import FormattedDescription from "@/components/FormattedDescription";
 import { EventData } from "@/types/events";
 import ErrorPlaceholder from "@/components/Errors/ErrorPlaceholder";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoading } from "@/contexts/LoadingContextLegacy";
 import { useInView } from "react-intersection-observer";
 import { apiFetch } from "@/utils/api";
 import Header from "@/components/Header";
-import { LoadingStage } from "@/contexts/LoadingContext";
+import { LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Добавляем уровни логирования для оптимизации вывода
 const LOG_LEVEL = {
@@ -413,17 +414,19 @@ const EventsPage = () => {
       
       // Обрабатываем возможные ошибки
       if ('error' in response) {
-        logError('API returned error', response.error);
-        setError(new Error(typeof response.error === 'string' ? response.error : 'API error'));
+        const errorResponse = response as unknown as ApiErrorResponse;
+        logError('API returned error', errorResponse.error);
+        setError(new Error(typeof errorResponse.error === 'string' ? errorResponse.error : 'API error'));
         return;
       }
       
       // Обрабатываем случай, когда запрос был отменен
       if ('aborted' in response) {
-        logWarn('Request was aborted', response.reason);
+        const abortedResponse = response as unknown as ApiAbortedResponse;
+        logWarn('Request was aborted', abortedResponse.reason);
         
         // Если запрос был заблокирован из-за стадии загрузки, пробуем еще раз через таймаут
-        if (response.reason?.includes('loading_stage')) {
+        if (abortedResponse.reason?.includes('loading_stage')) {
           logInfo('Request blocked due to loading stage, retrying after timeout');
           setTimeout(() => {
             if (isMounted.current) {

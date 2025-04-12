@@ -4,20 +4,10 @@
 import { useState, ChangeEvent, FormEvent, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/utils/api";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 import { UseAuthFormProps } from "@/types/index";
 
 type AuthFormValues = Record<string, string>;
-
-// Тип ответа API
-interface ApiErrorResponse {
-  error: string;
-  status: number;
-}
-
-interface ApiAbortedResponse {
-  aborted: boolean;
-  reason?: string;
-}
 
 type AuthResponse = {
   access_token?: string;
@@ -80,13 +70,13 @@ export const useAuthForm = ({
         });
 
         if ('aborted' in data) {
-          const abortedResponse = data as ApiAbortedResponse;
+          const abortedResponse = data as unknown as ApiAbortedResponse;
           throw new Error(abortedResponse.reason || "Запрос был прерван");
         }
 
         if ('error' in data) {
           // Преобразуем технические сообщения об ошибках в понятные для пользователя
-          const errorResponse = data as ApiErrorResponse;
+          const errorResponse = data as unknown as ApiErrorResponse;
           let userFriendlyError = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при авторизации";
           let hint = "";
           

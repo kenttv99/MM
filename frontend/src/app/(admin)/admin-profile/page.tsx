@@ -7,8 +7,9 @@ import { ModalButton } from "@/components/common/AuthModal";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog, FaUser } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { useRouter } from "next/navigation";
+import { ApiAbortedResponse, ApiErrorResponse } from "@/types/api";
 
 interface AdminData {
   id: number;
@@ -132,11 +133,15 @@ export default function AdminProfilePage() {
       });
       
       if ('aborted' in data) {
-        throw new Error(data.reason || "Запрос был прерван");
+        // Cast to ApiAbortedResponse type to access reason property
+        const abortedData = data as unknown as ApiAbortedResponse;
+        throw new Error(abortedData.reason || "Запрос был прерван");
       }
       
       if ('error' in data) {
-        throw new Error(typeof data.error === 'string' ? data.error : 'Ошибка при обновлении профиля');
+        // Cast to ApiErrorResponse type to access error property
+        const errorData = data as unknown as ApiErrorResponse;
+        throw new Error(errorData.error || 'Ошибка при обновлении профиля');
       }
       
       setFormValues((prev) => ({ ...prev, fio: data.fio }));

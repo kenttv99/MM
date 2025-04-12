@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiFetch } from '@/utils/api';
 import type { EventData } from '@/types/events';
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 export interface EventsResponse {
   data: EventData[];
@@ -225,11 +226,13 @@ export const useEventsData = ({
       }
       
       if ('error' in response) {
-        throw new Error(response.error);
+        const errorResponse = response as unknown as ApiErrorResponse;
+        throw new Error(errorResponse.error);
       }
       
       if ('aborted' in response) {
-        throw new Error('Request was aborted: ' + response.reason);
+        const abortedResponse = response as unknown as ApiAbortedResponse;
+        throw new Error('Request was aborted: ' + abortedResponse.reason);
       }
 
       // Преобразуем ответ в нужный формат, если это массив

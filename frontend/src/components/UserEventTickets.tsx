@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
-import { useLoading } from "@/contexts/LoadingContext";
+import { useLoading } from "@/contexts/LoadingContextLegacy";
 import { EventData } from "@/types/events";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -337,7 +337,8 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     }, 100);
   }, [setError, setIsLoading]);
   
-  const shouldReplaceTicket = (existing: UserTicket, newTicket: UserTicket): boolean => {
+  // Wrap these functions in useCallback to fix exhaustive-deps warnings
+  const shouldReplaceTicket = useCallback((existing: UserTicket, newTicket: UserTicket): boolean => {
     const statusPriority: Record<string, number> = {
       "approved": 0,
       "pending": 1,
@@ -345,9 +346,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       "rejected": 3
     };
     return statusPriority[newTicket.status] < statusPriority[existing.status];
-  };
+  }, []);
   
-  const sortByStatusAndDate = (tickets: UserTicket[]): UserTicket[] => {
+  const sortByStatusAndDate = useCallback((tickets: UserTicket[]): UserTicket[] => {
     const statusPriority: Record<string, number> = {
       "approved": 0,
       "pending": 1,
@@ -361,7 +362,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       const dateB = new Date(b.event.start_date);
       return dateA.getTime() - dateB.getTime();
     });
-  };
+  }, []);
   
   // Function to process tickets
   const processTickets = useCallback((tickets: UserTicket[]): UserTicket[] => {
@@ -380,6 +381,101 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     const activeTickets = uniqueTickets.filter(ticket => ticket.status !== "cancelled");
     return sortByStatusAndDate(activeTickets);
   }, [shouldReplaceTicket, sortByStatusAndDate]);
+
+  // Define loadMoreTickets before the useEffect that depends on it
+  const loadMoreTickets = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+    
+    setIsLoadingMore(true);
+    const nextPage = page + 1;
+    console.log(`UserEventTickets: Loading more tickets, page ${nextPage}`);
+    
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.log("UserEventTickets: No token found in localStorage");
+        setError("Необходима авторизация");
+        setIsLoadingMore(false);
+        router.push('/');
+        return;
+      }
+      
+      const currentTicketIds = new Set(tickets.map(ticket => ticket.id));
+      console.log(`UserEventTickets: Current ticket count: ${currentTicketIds.size}`);
+      
+      const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
+        method: "GET",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        bypassLoadingStageCheck: true,
+        params: {
+          _nocache: Date.now(),
+          _refresh: refreshCounter.current,
+          page: nextPage,
+          per_page: ticketsPerPage
+        }
+      });
+      
+      console.log('UserEventTickets: Loaded more tickets response:', response);
+      let ticketsData: UserTicket[] = [];
+      if (Array.isArray(response)) {
+        console.log("UserEventTickets: Response in direct array format");
+        ticketsData = response;
+      } else if (response && !("aborted" in response)) {
+        if ("data" in response && response.data) {
+          console.log("UserEventTickets: Response in {data: [...]} format");
+          ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
+        } else if ("items" in response && response.items) {
+          console.log("UserEventTickets: Response in {items: [...]} format");
+          ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
+        } else if ("tickets" in response && response.tickets) {
+          console.log("UserEventTickets: Response in {tickets: [...]} format");
+          ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
+        }
+      }
+      
+      const processedTickets = processTickets(ticketsData);
+      const newTickets = processedTickets.filter(ticket => !currentTicketIds.has(ticket.id));
+      console.log(`UserEventTickets: New tickets to add: ${newTickets.length}`);
+      
+      if (newTickets.length > 0) {
+        const updatedTickets = [...tickets, ...newTickets];
+        setTickets(updatedTickets);
+        setTicketsCount(updatedTickets.length);
+        setPage(nextPage);
+        setHasMore(newTickets.length >= ticketsPerPage);
+      } else {
+        console.log('UserEventTickets: No more new tickets found');
+        setHasMore(false);
+      }
+      
+      setTimeout(() => {
+        setIsLoadingMore(false);
+      }, 300);
+    } catch (err) {
+      console.error("UserEventTickets: Error loading more tickets", err);
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, hasMore, page, tickets, processTickets, setIsLoadingMore, setError, setTickets, setTicketsCount, setPage, setHasMore, router]);
+
+  // Effect for scroll event listener for infinite scrolling
+  useEffect(() => {
+    const container = ticketsContainerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < scrollHeight * 0.2 && !isLoadingMore && hasMore) {
+        console.log('UserEventTickets: Scrolled near bottom, loading more tickets');
+        loadMoreTickets();
+      }
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [isLoadingMore, hasMore, loadMoreTickets, ticketsContainerRef]);
 
   // Function to fetch tickets with better error handling and loading state management
   const fetchTickets = useCallback(async (bypassLoadingStageCheck: boolean = false) => {
@@ -794,44 +890,27 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     return () => window.removeEventListener('ticket-update', handleTicketUpdate);
   }, [fetchTickets]);
 
-    // Effect for scroll event listener for infinite scrolling
-  useEffect(() => {
-    const container = ticketsContainerRef.current;
-    if (!container) return;
-
-    const handleScroll = () => {
-      const { scrollTop, scrollHeight, clientHeight } = container;
-      if (scrollHeight - scrollTop - clientHeight < scrollHeight * 0.2 && !isLoadingMore && hasMore) {
-        console.log('UserEventTickets: Scrolled near bottom, loading more tickets');
-        loadMoreTickets();
-      }
-    };
-
-    container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-  }, [isLoadingMore, hasMore]);
-
-    // Effect for forceUpdateTrigger and needsRefresh
+    // Update the effect that includes fetchTickets dependency
   useEffect(() => {
     if (!isMounted.current) return;
     
-      if (forceUpdateTrigger > 0) {
-        console.log(`UserEventTickets: Force update triggered #${forceUpdateTrigger}`);
-        if (isTicketBeingCancelled.current) {
-          console.log('UserEventTickets: Skipping forced update during active cancellation');
-      return;
+    if (forceUpdateTrigger > 0) {
+      console.log(`UserEventTickets: Force update triggered #${forceUpdateTrigger}`);
+      if (isTicketBeingCancelled.current) {
+        console.log('UserEventTickets: Skipping forced update during active cancellation');
+        return;
+      }
+      refreshCounter.current += 1;
+      fetchTickets();
     }
-        refreshCounter.current += 1;
-        fetchTickets();
-      }
-      
-      if (needsRefresh && needsRefresh.current) {
-        console.log('UserEventTickets: needsRefresh ref is true, refreshing');
-        needsRefresh.current = false;
-        refreshCounter.current += 1;
-        fetchTickets();
-      }
-    }, [forceUpdateTrigger, needsRefresh]);
+    
+    if (needsRefresh && needsRefresh.current) {
+      console.log('UserEventTickets: needsRefresh ref is true, refreshing');
+      needsRefresh.current = false;
+      refreshCounter.current += 1;
+      fetchTickets();
+    }
+  }, [forceUpdateTrigger, needsRefresh, fetchTickets]);
 
     // Effect for updating tickets count display
     useEffect(() => {
@@ -843,83 +922,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       }, 100);
       return () => clearTimeout(timer);
     }, [ticketsCount]);
-
-    const loadMoreTickets = async () => {
-      if (isLoadingMore || !hasMore) return;
-      
-      setIsLoadingMore(true);
-      const nextPage = page + 1;
-      console.log(`UserEventTickets: Loading more tickets, page ${nextPage}`);
-      
-      try {
-        const token = localStorage.getItem('token');
-        if (!token) {
-          console.log("UserEventTickets: No token found in localStorage");
-          setError("Необходима авторизация");
-          setIsLoadingMore(false);
-          router.push('/');
-          return;
-        }
-        
-        const currentTicketIds = new Set(tickets.map(ticket => ticket.id));
-        console.log(`UserEventTickets: Current ticket count: ${currentTicketIds.size}`);
-        
-        const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
-          method: "GET",
-          headers: { 
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${token}`
-          },
-          bypassLoadingStageCheck: true,
-          params: {
-            _nocache: Date.now(),
-            _refresh: refreshCounter.current,
-            page: nextPage,
-            per_page: ticketsPerPage
-          }
-        });
-        
-        console.log('UserEventTickets: Loaded more tickets response:', response);
-        let ticketsData: UserTicket[] = [];
-        if (Array.isArray(response)) {
-          console.log("UserEventTickets: Response in direct array format");
-          ticketsData = response;
-        } else if (response && !("aborted" in response)) {
-          if ("data" in response && response.data) {
-            console.log("UserEventTickets: Response in {data: [...]} format");
-            ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
-          } else if ("items" in response && response.items) {
-            console.log("UserEventTickets: Response in {items: [...]} format");
-            ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
-          } else if ("tickets" in response && response.tickets) {
-            console.log("UserEventTickets: Response in {tickets: [...]} format");
-            ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
-          }
-        }
-        
-        const processedTickets = processTickets(ticketsData);
-        const newTickets = processedTickets.filter(ticket => !currentTicketIds.has(ticket.id));
-        console.log(`UserEventTickets: New tickets to add: ${newTickets.length}`);
-        
-        if (newTickets.length > 0) {
-          const updatedTickets = [...tickets, ...newTickets];
-          setTickets(updatedTickets);
-          setTicketsCount(updatedTickets.length);
-          setPage(nextPage);
-          setHasMore(newTickets.length >= ticketsPerPage);
-        } else {
-          console.log('UserEventTickets: No more new tickets found');
-          setHasMore(false);
-        }
-        
-        setTimeout(() => {
-          setIsLoadingMore(false);
-        }, 300);
-      } catch (err) {
-        console.error("UserEventTickets: Error loading more tickets", err);
-        setIsLoadingMore(false);
-      }
-    };
 
   // Обработка отмены билета с улучшенной обработкой ошибок и состояний
   const handleCancelClick = useCallback((ticket: UserTicket) => {

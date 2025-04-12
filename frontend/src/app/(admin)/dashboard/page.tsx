@@ -6,9 +6,10 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { FaPlus } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import "@/app/globals.css";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Storage key constants matching AdminAuthContext
 const ADMIN_STORAGE_KEYS = {
@@ -200,13 +201,15 @@ export default function Dashboard() {
       });
       
       if ('aborted' in fetchedUsers) {
-        console.log('Dashboard: Users request was aborted:', fetchedUsers.reason);
+        const abortedResponse = fetchedUsers as unknown as ApiAbortedResponse;
+        console.log('Dashboard: Users request was aborted:', abortedResponse.reason);
         return false;
       }
       
       if ('error' in fetchedUsers) {
-        console.error('Dashboard: Error in users response:', fetchedUsers.error);
-        setError(typeof fetchedUsers.error === 'string' ? fetchedUsers.error : 'Ошибка при загрузке пользователей');
+        const errorResponse = fetchedUsers as unknown as ApiErrorResponse;
+        console.error('Dashboard: Error in users response:', errorResponse.error);
+        setError(typeof errorResponse.error === 'string' ? errorResponse.error : 'Ошибка при загрузке пользователей');
         return false;
       }
       
@@ -250,13 +253,15 @@ export default function Dashboard() {
       });
       
       if ('aborted' in fetchedEvents) {
-        console.log('Dashboard: Events request was aborted:', fetchedEvents.reason);
+        const abortedResponse = fetchedEvents as unknown as ApiAbortedResponse;
+        console.log('Dashboard: Events request was aborted:', abortedResponse.reason);
         return false;
       }
       
       if ('error' in fetchedEvents) {
-        console.error('Dashboard: Error in events response:', fetchedEvents.error);
-        setError(typeof fetchedEvents.error === 'string' ? fetchedEvents.error : 'Ошибка при загрузке мероприятий');
+        const errorResponse = fetchedEvents as unknown as ApiErrorResponse;
+        console.error('Dashboard: Error in events response:', errorResponse.error);
+        setError(typeof errorResponse.error === 'string' ? errorResponse.error : 'Ошибка при загрузке мероприятий');
         return false;
       }
       

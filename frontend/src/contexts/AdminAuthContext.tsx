@@ -4,8 +4,12 @@
 import { useRouter } from "next/navigation";
 import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
 import { apiFetch } from "@/utils/api";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
+import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { checkAdminSession, handleTokenRefresh } from "../utils/eventService";
+import { createLogger } from "@/utils/logger";
+
+// Create a namespace-specific logger
+const adminAuthLogger = createLogger('AdminAuthContext');
 
 // Константы для управления проверкой сессии
 const SESSION_CHECK_DEBOUNCE_MS = 120000; // 2 минуты между проверками
@@ -45,7 +49,7 @@ const isTokenExpired = (token: string) => {
     }
     return false;
   } catch (e) {
-    console.error('AdminAuthContext: Error checking token expiration:', e);
+    adminAuthLogger.error('AdminAuthContext: Error checking token expiration:', e);
     return true;
   }
 };
@@ -60,7 +64,7 @@ const isTokenExpiringSoon = (token: string): boolean => {
     }
     return false;
   } catch (e) {
-    console.error('AdminAuthContext: Error checking token expiration:', e);
+    adminAuthLogger.error('AdminAuthContext: Error checking token expiration:', e);
     return true;
   }
 };
@@ -87,7 +91,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const payload = JSON.parse(atob(token.split('.')[1]));
       return payload?.exp || null;
     } catch (e) {
-      console.error("Error decoding token:", e);
+      adminAuthLogger.error("Error decoding token:", e);
       return null;
     }
   };
@@ -105,7 +109,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       const now = Math.floor(Date.now() / 1000);
       return expiry > now;
     } catch (e) {
-      console.error("Error validating token locally:", e);
+      adminAuthLogger.error("Error validating token locally:", e);
       return false;
     }
   }, []);
@@ -117,7 +121,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       // Проверяем есть ли токен в локальном хранилище
       const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
       if (!token) {
-        console.log("AdminAuth: No token in localStorage");
+        adminAuthLogger.info("AdminAuth: No token in localStorage");
         setIsAuthenticated(false);
         setAdminData(null);
         localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
@@ -131,16 +135,16 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       }
 
       // Проверяем авторизацию на сервере
-      console.log("AdminAuth: Checking auth on server");
+      adminAuthLogger.info("AdminAuth: Checking auth on server");
       const isSessionValid = await checkAdminSession();
       
       if (isSessionValid) {
-        console.log("AdminAuth: Session is valid");
+        adminAuthLogger.info("AdminAuth: Session is valid");
         setIsAuthenticated(true);
         setIsAuthChecked(true);
         return true;
       } else {
-        console.log("AdminAuth: Session is invalid");
+        adminAuthLogger.info("AdminAuth: Session is invalid");
         // Очищаем данные сессии
         localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
@@ -155,16 +159,16 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return false;
       }
     } catch (error) {
-      console.error("AdminAuth: Error checking auth:", error);
+      adminAuthLogger.error("AdminAuth: Error checking auth:", error);
       
       // Проверяем есть ли у ошибки поле status
       if (error instanceof Error && 'status' in error) {
         const status = (error as any).status;
-        console.log(`AdminAuth: Auth error with status ${status}`);
+        adminAuthLogger.info(`AdminAuth: Auth error with status ${status}`);
         
         // Если ошибка авторизации (401 или 403), выполняем выход
         if (status === 401 || status === 403) {
-          console.log("AdminAuth: Auth failed, logging out");
+          adminAuthLogger.info("AdminAuth: Auth failed, logging out");
           localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
           localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
           
@@ -186,18 +190,18 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           const expiryTime = tokenData.exp * 1000; // в миллисекундах
           
           if (Date.now() < expiryTime) {
-            console.log("AdminAuth: Using local token validation as fallback");
+            adminAuthLogger.info("AdminAuth: Using local token validation as fallback");
             setIsAuthenticated(true);
             setIsAuthChecked(true);
             return true;
           }
         } catch (e) {
-          console.error("AdminAuth: Error in local token validation:", e);
+          adminAuthLogger.error("AdminAuth: Error in local token validation:", e);
         }
       }
       
       // Если локальная валидация не удалась, очищаем данные
-      console.log("AdminAuth: Auth check failed completely, logging out");
+      adminAuthLogger.info("AdminAuth: Auth check failed completely, logging out");
       localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
       localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
       
@@ -241,7 +245,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     isInitialized.current = true;
     
     const initAuth = async () => {
-      console.log("AdminAuthContext: Starting authentication initialization");
+      adminAuthLogger.info("AdminAuthContext: Starting authentication initialization");
       setLoading(true);
       
       // Восстанавливаем время последней проверки из локального хранилища
@@ -252,7 +256,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       try {
         const isValid = await checkAuth();
-        console.log(`AdminAuthContext: Auth check result: ${isValid}`);
+        adminAuthLogger.info(`AdminAuthContext: Auth check result: ${isValid}`);
         
         // Устанавливаем стадию STATIC_CONTENT после проверки аутентификации
         // Это предотвращает регрессию к AUTHENTICATION
@@ -274,13 +278,13 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
           window.dispatchEvent(event);
         }
       } catch (err) {
-        console.error("AdminAuthContext: Error during auth initialization:", err);
+        adminAuthLogger.error("AdminAuthContext: Error during auth initialization:", err);
         // Даже при ошибке разрешаем переход к следующей стадии
         setStage(LoadingStage.STATIC_CONTENT);
       } finally {
         setLoading(false);
         isMounted.current = true;
-        console.log("AdminAuthContext: Initialization complete, loading set to false");
+        adminAuthLogger.info("AdminAuthContext: Initialization complete, loading set to false");
       }
     };
 

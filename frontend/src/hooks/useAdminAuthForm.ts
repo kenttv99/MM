@@ -6,19 +6,9 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { AdminFormValues, AdminAuthFormOptions } from "@/types/index";
 import { apiFetch } from "@/utils/api";
+import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
-// Тип ответа API
-interface ApiErrorResponse {
-  error: string;
-  status: number;
-}
-
-interface ApiAbortedResponse {
-  aborted: boolean;
-  reason?: string;
-}
-
-interface AdminAuthResponse {
+export interface AdminAuthResponse {
   access_token: string;
   email: string;
   id: number;
@@ -53,13 +43,14 @@ export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AdminA
       });
       
       if ('aborted' in response) {
-        const abortedResponse = response as ApiAbortedResponse;
+        const abortedResponse = response as unknown as ApiAbortedResponse;
         throw new Error(abortedResponse.reason || "Запрос был прерван");
       }
       
       if ('error' in response) {
-        const errorResponse = response as ApiErrorResponse;
-        throw new Error(typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка авторизации");
+        const errorResponse = response as unknown as ApiErrorResponse;
+        const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка авторизации";
+        throw new Error(errorMessage);
       }
 
       localStorage.setItem("admin_token", response.access_token);

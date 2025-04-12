@@ -1,5 +1,5 @@
 import React from 'react';
-import { useLoading } from '@/contexts/LoadingContext';
+import { useLoading } from '@/contexts/LoadingContextLegacy';
 
 const GlobalSpinner: React.FC = () => {
   const { isStaticLoading, isDynamicLoading } = useLoading();

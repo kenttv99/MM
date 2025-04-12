@@ -1,5 +1,9 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { useLoading, LoadingStage } from '@/contexts/LoadingContext';
+import { useLoading, LoadingStage, canChangeStage } from '@/contexts/LoadingContextLegacy';
+import { createLogger } from '@/utils/logger';
+
+// Создаем логгер для usePageLoading
+const pageLogger = createLogger('usePageLoading');
 
 interface UsePageLoadingOptions {
   // If true, automatically manages loading stages based on component mount/unmount
@@ -125,20 +129,19 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
       // Для админа сразу переходим к COMPLETED, если только
       // не находимся в стадии AUTHENTICATION
       if (currentStage !== LoadingStage.AUTHENTICATION) {
-        console.log('usePageLoading: Admin page - setting COMPLETED stage');
+        pageLogger.info('Admin page - setting COMPLETED stage');
         completeLoading();
       }
     } else {
       // Для обычных страниц - стандартное поведение
-      // Set initial stage on mount
-      const stageLevel = getStageLevel(currentStage);
-      const initialLevel = getStageLevel(initialStage);
+      // Используем централизованную функцию для проверки возможности перехода
+      const fakeHistory = [{ stage: currentStage, timestamp: Date.now() }];
+      const { allowed, reason } = canChangeStage(currentStage, initialStage, fakeHistory);
       
-      // Только переходим к более высоким стадиям, никогда не регрессируем
-      if (preventAuthRegression && initialLevel < stageLevel) {
-        console.log(`usePageLoading: Preventing regression from ${currentStage} to ${initialStage}`);
+      if (!allowed && preventAuthRegression) {
+        pageLogger.info(`Preventing regression from ${currentStage} to ${initialStage}: ${reason}`);
       } else {
-        console.log(`usePageLoading: Setting initial stage to ${initialStage}`);
+        pageLogger.info(`Setting initial stage to ${initialStage}`);
         setStage(initialStage);
       }
     }
@@ -149,7 +152,7 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
     return () => {
       // Для админских страниц не сбрасываем стадию при размонтировании
       if (isAdminRouteRef.current) {
-        console.log('usePageLoading: Admin page unmounting - preserving stage');
+        pageLogger.info('Admin page unmounting - preserving stage');
       } else if (!preventAuthRegression) {
         // Reset to authentication on unmount for next page only if not preventing regression
         resetLoading();
@@ -182,22 +185,4 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
     setStage,
     isAdminPage: isAdminRouteRef.current
   };
-}
-
-// Вспомогательная функция для определения уровня стадии
-function getStageLevel(stage: LoadingStage): number {
-  const levels: Record<LoadingStage, number> = {
-    [LoadingStage.AUTHENTICATION]: 0,
-    [LoadingStage.STATIC_CONTENT]: 1,
-    [LoadingStage.DYNAMIC_CONTENT]: 2,
-    [LoadingStage.DATA_LOADING]: 3,
-    [LoadingStage.COMPLETED]: 4,
-    // Прочие стадии для совместимости
-    [LoadingStage.INITIAL]: -1,
-    [LoadingStage.AUTH_CHECK]: 0,
-    [LoadingStage.COMPLETE]: 4,
-    [LoadingStage.ERROR]: -1
-  };
-  
-  return levels[stage] ?? -1;
 } 

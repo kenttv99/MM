@@ -3,7 +3,7 @@
 
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { LoadingProvider, LoadingStage } from "@/contexts/LoadingContext";
+import { LoadingProvider, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
 import { useEffect } from "react";

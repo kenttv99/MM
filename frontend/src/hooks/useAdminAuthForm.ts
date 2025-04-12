@@ -1,20 +1,40 @@
 // frontend/src/hooks/useAdminAuthForm.ts
+"use client";
+
 import { useState, useCallback, FormEvent, ChangeEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { AdminFormValues, AdminAuthFormOptions } from "@/types/index";
+import { apiFetch } from "@/utils/api";
+
+// Тип ответа API
+interface ApiErrorResponse {
+  error: string;
+  status: number;
+}
+
+interface ApiAbortedResponse {
+  aborted: boolean;
+  reason?: string;
+}
+
+interface AdminAuthResponse {
+  access_token: string;
+  email: string;
+  id: number;
+  fio?: string;
+}
 
 export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AdminAuthFormOptions) => {
   const [formValues, setFormValues] = useState<AdminFormValues>(initialValues);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const { checkAuth } = useAdminAuth();
   const { push } = useRouter();
+  const { checkAuth } = useAdminAuth();
 
   const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormValues(prev => ({ ...prev, [name]: value }));
+    setFormValues((prev) => ({ ...prev, [e.target.name]: e.target.value }));
   }, []);
 
   const handleSubmit = useCallback(async (e: FormEvent<HTMLFormElement>) => {
@@ -23,25 +43,30 @@ export const useAdminAuthForm = ({ initialValues, endpoint, redirectTo }: AdminA
     setIsLoading(true);
 
     try {
-      const response = await fetch(endpoint, {
+      const response = await apiFetch<AdminAuthResponse>(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(formValues),
+        data: JSON.stringify(formValues),
+        bypassLoadingStageCheck: true,
       });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Ошибка авторизации");
+      
+      if ('aborted' in response) {
+        const abortedResponse = response as ApiAbortedResponse;
+        throw new Error(abortedResponse.reason || "Запрос был прерван");
+      }
+      
+      if ('error' in response) {
+        const errorResponse = response as ApiErrorResponse;
+        throw new Error(typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка авторизации");
       }
 
-      const data = await response.json();
-      localStorage.setItem("admin_token", data.access_token);
+      localStorage.setItem("admin_token", response.access_token);
       const adminData = {
-        email: data.email,
-        id: data.id,
-        fio: data.fio || "Администратор",
+        email: response.email,
+        id: response.id,
+        fio: response.fio || "Администратор",
       };
       localStorage.setItem("admin_data", JSON.stringify(adminData));
       setIsSuccess(true);

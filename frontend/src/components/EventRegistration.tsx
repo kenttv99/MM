@@ -8,6 +8,7 @@ import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from
 import { motion, AnimatePresence } from "framer-motion";
 import { EventRegistrationProps } from "@/types/index";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "@/utils/api";
 
 // Интерфейс для билета пользователя с учетом разных вариантов написания статусов
 interface UserTicket {
@@ -33,6 +34,17 @@ interface TicketResponse {
   items?: UserTicket[] | UserTicket;
   tickets?: UserTicket[] | UserTicket;
   [key: string]: unknown;
+}
+
+// Тип ответа API
+interface ApiErrorResponse {
+  error: string;
+  status: number;
+}
+
+interface ApiAbortedResponse {
+  aborted: boolean;
+  reason?: string;
 }
 
 // Функции для работы с билетами
@@ -393,82 +405,49 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         user_id: userData!.id
       });
 
-      // Use the correct endpoint format with standard fetch for better debugging
-      const response = await fetch('/registration/register', {
+      // Use apiFetch for consistent API handling
+      const response = await apiFetch<UserTicket>('/registration/register', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
+        data: JSON.stringify({
           event_id: parseInt(eventId.toString()),
           user_id: userData!.id
-        })
+        }),
+        bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
       });
 
-      console.log('Response status:', response.status);
+      console.log('Response received:', response);
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response:', errorText);
-        
+      if ('aborted' in response) {
+        const abortedResponse = response as ApiAbortedResponse;
+        throw new Error(abortedResponse.reason || "Запрос был прерван");
+      }
+      
+      if ('error' in response) {
         // Обработка конкретных типов ошибок для более дружелюбных сообщений
-        try {
-          let errorData;
-          
-          // Проверяем, является ли текст JSON-объектом
-          if (errorText.startsWith('{') && errorText.endsWith('}')) {
-            errorData = JSON.parse(errorText);
-          } else {
-            // Ищем внутри текста JSON-объект
-            const jsonMatch = errorText.match(/{[\s\S]*}/);
-            if (jsonMatch) {
-              errorData = JSON.parse(jsonMatch[0]);
-            }
-          }
-          
-          if (errorData && errorData.detail) {
-            // Обработка конкретных сообщений об ошибках
-            if (errorData.detail.includes("Превышен лимит отмен регистраций")) {
-              throw new Error("Вы уже отменяли регистрацию на это мероприятие 3 раза. Дальнейшая регистрация недоступна.");
-            } else if (errorData.detail.includes("Вы уже зарегистрированы")) {
-              throw new Error("Вы уже зарегистрированы на это мероприятие.");
-            } else if (errorData.detail.includes("Билеты на это мероприятие распроданы")) {
-              throw new Error("К сожалению, все билеты на это мероприятие уже распроданы.");
-            } else if (errorData.detail.includes("Регистрация на это мероприятие недоступна")) {
-              throw new Error("Регистрация на это мероприятие в данный момент недоступна.");
-            } else {
-              throw new Error(errorData.detail);
-            }
-          } else {
-            // Если не удалось найти detail в JSON или это не JSON
-            throw new Error(`Ошибка при бронировании: ${response.status === 400 ? 'Невозможно забронировать билет' : response.statusText}`);
-          }
-        } catch (parseError) {
-          // Если это ошибка парсинга, значит текст ответа не валидный JSON
-          console.error('Parse error:', parseError);
-          
-          // Пробуем найти понятное сообщение об ошибке в тексте
-          if (errorText.includes("Превышен лимит отмен регистраций")) {
-            throw new Error("Вы уже отменяли регистрацию на это мероприятие 3 раза. Дальнейшая регистрация недоступна.");
-          } else if (errorText.includes("Вы уже зарегистрированы")) {
-            throw new Error("Вы уже зарегистрированы на это мероприятие.");
-          } else {
-            throw new Error(`Ошибка при бронировании: ${response.status === 400 ? 'Невозможно забронировать билет' : response.statusText}`);
-          }
+        const errorResponse = response as ApiErrorResponse;
+        const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при бронировании";
+        
+        // Пробуем найти понятное сообщение об ошибке в тексте
+        if (errorMessage.includes("Превышен лимит отмен регистраций")) {
+          throw new Error("Вы уже отменяли регистрацию на это мероприятие 3 раза. Дальнейшая регистрация недоступна.");
+        } else if (errorMessage.includes("Вы уже зарегистрированы")) {
+          throw new Error("Вы уже зарегистрированы на это мероприятие.");
+        } else if (errorMessage.includes("Билеты на это мероприятие распроданы")) {
+          throw new Error("К сожалению, все билеты на это мероприятие уже распроданы.");
+        } else if (errorMessage.includes("Регистрация на это мероприятие недоступна")) {
+          throw new Error("Регистрация на это мероприятие в данный момент недоступна.");
+        } else {
+          throw new Error(errorMessage);
         }
       }
 
-      // Parse response data
-      let data;
-      try {
-        data = await response.json();
+      // Use the response directly
+      const data = response;
       console.log('Success response:', data);
-      } catch (jsonError) {
-        console.error('Error parsing JSON response:', jsonError);
-        // Create a basic response if parsing fails
-        data = { id: Date.now() }; // Use timestamp as fallback ID
-      }
 
       setSuccess("Вы успешно забронировали билет!");
       
@@ -567,7 +546,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               return;
             }
             
-            const response = await fetch('/user_edits/my-tickets', {
+            const actualTicketResponse = await apiFetch<TicketResponse>('/user_edits/my-tickets', {
               method: 'GET',
               headers: {
                 'Content-Type': 'application/json',
@@ -576,14 +555,20 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 'Pragma': 'no-cache',
                 'Expires': '0'
               },
-              cache: 'no-store'
+              bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
             });
             
-            if (!response.ok) {
-              throw new Error(`Error fetching tickets: ${response.status}`);
+            if ('aborted' in actualTicketResponse) {
+              const abortedResponse = actualTicketResponse as ApiAbortedResponse;
+              throw new Error(abortedResponse.reason || "Запрос был прерван");
             }
             
-            const actualTicketData = await response.json();
+            if ('error' in actualTicketResponse) {
+              const errorResponse = actualTicketResponse as ApiErrorResponse;
+              throw new Error(typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при получении билетов");
+            }
+            
+            const actualTicketData = actualTicketResponse;
             
             if (actualTicketData) {
               // Use our helper function to parse the response

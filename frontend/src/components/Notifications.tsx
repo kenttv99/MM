@@ -35,7 +35,7 @@ const Notifications: React.FC = () => {
       await apiFetch("/notifications/view", {
         method: "POST",
         headers,
-        body: JSON.stringify({ template_id: templateId }),
+        data: JSON.stringify({ template_id: templateId }),
       });
     } catch (error) {
       console.warn("Failed to mark notification as viewed:", error);

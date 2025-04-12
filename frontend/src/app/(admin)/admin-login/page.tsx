@@ -55,7 +55,7 @@ export default function AdminLoginPage() {
       
       const data = await apiFetch<{ access_token: string; id: number; email: string; fio?: string }>("/admin/login", {
         method: "POST",
-        body: JSON.stringify(formValues),
+        data: JSON.stringify(formValues),
         bypassLoadingStageCheck: true, // Ensure this works during authentication
         headers: {
           'Content-Type': 'application/json' // Ensure proper content type

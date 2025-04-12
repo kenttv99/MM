@@ -1,5 +1,7 @@
-const { authLoading, isAuthChecked } = useAuth();
+import { useAuth } from "@/contexts/AuthContext";
 
-console.log('[UserEventTickets] Fetching tickets data...');
+const { isLoading, isAuthChecked } = useAuth();
 
-console.log('[UserEventTickets] Fetch operation completed or errored:', { response: response ? 'received' : 'none', error }); 
+console.log('[UserEventTickets] Initializing user tickets component...');
+
+console.log('[UserEventTickets] Fetching tickets data...'); 

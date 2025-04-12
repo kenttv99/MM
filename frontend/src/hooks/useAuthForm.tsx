@@ -7,6 +7,18 @@ import { apiFetch } from "@/utils/api";
 import { UseAuthFormProps } from "@/types/index";
 
 type AuthFormValues = Record<string, string>;
+
+// Тип ответа API
+interface ApiErrorResponse {
+  error: string;
+  status: number;
+}
+
+interface ApiAbortedResponse {
+  aborted: boolean;
+  reason?: string;
+}
+
 type AuthResponse = {
   access_token?: string;
   id?: number;
@@ -63,40 +75,42 @@ export const useAuthForm = ({
         const data = await apiFetch<AuthResponse>(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formValues),
+          data: JSON.stringify(formValues),
           bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки для запросов аутентификации
         });
 
         if ('aborted' in data) {
-          throw new Error(data.reason ? String(data.reason) : "Request was aborted");
+          const abortedResponse = data as ApiAbortedResponse;
+          throw new Error(abortedResponse.reason || "Запрос был прерван");
         }
 
         if ('error' in data) {
           // Преобразуем технические сообщения об ошибках в понятные для пользователя
-          let userFriendlyError = data.error;
+          const errorResponse = data as ApiErrorResponse;
+          let userFriendlyError = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при авторизации";
           let hint = "";
           
-          if (typeof data.error === 'string') {
+          if (typeof errorResponse.error === 'string') {
             // Обработка ошибок аутентификации
-            if (data.error.includes('Unauthorized') || data.error.includes('401')) {
+            if (userFriendlyError.includes('Unauthorized') || userFriendlyError.includes('401')) {
               userFriendlyError = "Неверный логин или пароль";
               hint = "";
-            } else if (data.error.includes('password')) {
+            } else if (userFriendlyError.includes('password')) {
               userFriendlyError = "Ошибка с паролем";
               hint = "Пароль должен содержать не менее 8 символов, включая буквы и цифры";
-            } else if (data.error.includes('email')) {
+            } else if (userFriendlyError.includes('email')) {
               userFriendlyError = "Ошибка с email";
               hint = "Пожалуйста, введите корректный email адрес";
-            } else if (data.error.includes('user') || data.error.includes('пользователь')) {
+            } else if (userFriendlyError.includes('user') || userFriendlyError.includes('пользователь')) {
               userFriendlyError = "Пользователь не найден";
               hint = "Пользователь с таким email уже существует";
-            } else if (data.error.includes('credentials') || data.error.includes('неверные учетные данные')) {
+            } else if (userFriendlyError.includes('credentials') || userFriendlyError.includes('неверные учетные данные')) {
               userFriendlyError = "Неверные учетные данные";
               hint = "Неверный email или пароль. Проверьте введенные данные";
-            } else if (data.error.includes('network') || data.error.includes('сеть')) {
+            } else if (userFriendlyError.includes('network') || userFriendlyError.includes('сеть')) {
               userFriendlyError = "Ошибка сети";
               hint = "Проверьте подключение к интернету и попробуйте снова";
-            } else if (data.error.includes('server') || data.error.includes('сервер')) {
+            } else if (userFriendlyError.includes('server') || userFriendlyError.includes('сервер')) {
               userFriendlyError = "Ошибка сервера";
               hint = "Пожалуйста, попробуйте позже";
             }

@@ -25,7 +25,7 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = ({ isOpen, onClose
       isOpen={isOpen}
       onClose={onClose}
       title="Смена пароля"
-      error={error}
+      error={error || undefined}
       success={isSuccess ? "Пароль успешно изменен!" : undefined}
       className="max-w-[90vw] min-w-[300px] w-full sm:max-w-md"
     >

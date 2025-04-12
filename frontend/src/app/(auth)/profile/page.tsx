@@ -1,7 +1,7 @@
 // frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, Suspense, lazy } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContext";
@@ -14,85 +14,28 @@ import ChangePasswordForm from "@/components/ChangePasswordForm";
 import { motion } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
 import { apiFetch } from "@/utils/api";
-import UserEventTickets, { UserEventTicketsRef } from "@/components/UserEventTickets";
+
+// Ленивая загрузка компонента без дополнительной задержки
+const LazyTicketsContainer = lazy(() => import("@/components/UserEventTickets").then(module => {
+  // Оборачиваем компонент билетов в контейнер
+  return {
+    default: () => (
+      <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
+        <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
+        <module.default />
+      </div>
+    )
+  };
+}));
 
 const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
   const { setStage, detectAndFixLoadingInconsistency } = useLoading();
   const router = useRouter();
-
-  // Add a ref for the UserEventTickets component
-  const ticketsComponentRef = useRef<UserEventTicketsRef>(null);
   
-  // Function to force refresh tickets
-  const refreshTickets = useCallback(() => {
-    console.log('ProfilePage: Forcing tickets refresh');
-    
-    // Use the ref method if available
-    if (ticketsComponentRef.current) {
-      console.log('ProfilePage: Using direct refreshTickets method');
-      ticketsComponentRef.current.refreshTickets();
-    }
-  }, []);
-
-  // Check for notification about ticket updates - just log them
-  useEffect(() => {
-    const handleTicketUpdate = (event: Event) => {
-      console.log('ProfilePage: Received ticket update event');
-      
-      // If the event has detail data, log it
-      if (event instanceof CustomEvent && event.detail) {
-        const { source, action, ticketId, eventId } = event.detail;
-        console.log('ProfilePage: Ticket update details:', { 
-          source, 
-          action, 
-          ticketId,
-          eventId
-        });
-      }
-      
-      // Refresh tickets when we receive an update
-      refreshTickets();
-    };
-    
-    window.addEventListener('ticket-update', handleTicketUpdate);
-    return () => {
-      window.removeEventListener('ticket-update', handleTicketUpdate);
-    };
-  }, [refreshTickets]);
+  // Флаг для отслеживания, готов ли профиль к отображению билетов
+  const [isProfileReady, setIsProfileReady] = useState(false);
   
-  // Add effect to handle browser navigation events
-  useEffect(() => {
-    // Function to handle page show events (back/forward navigation)
-    const handlePageShow = (e: PageTransitionEvent) => {
-      // If the page is being restored from cache (back button)
-      if (e.persisted) {
-        console.log('ProfilePage: Page restored from cache, forcing tickets update');
-        // Increment the key to completely re-mount the tickets component - removed to prevent unnecessary remounting
-        // setTicketsComponentKey(prev => prev + 1);
-        // Trigger refresh
-        refreshTickets();
-      }
-    };
-    
-    // Handle popstate events (URL changes without page reload)
-    const handlePopState = () => {
-      console.log('ProfilePage: Browser navigation detected, forcing tickets update');
-      // Increment the key to completely re-mount the tickets component - removed to prevent unnecessary remounting
-      // setTicketsComponentKey(prev => prev + 1);
-      // Trigger refresh
-      refreshTickets();
-    };
-    
-    window.addEventListener('pageshow', handlePageShow);
-    window.addEventListener('popstate', handlePopState);
-    
-    return () => {
-      window.removeEventListener('pageshow', handlePageShow);
-      window.removeEventListener('popstate', handlePopState);
-    };
-  }, [refreshTickets]);
-
   const [formState, setFormState] = useState<FormState>({
     fio: "",
     telegram: "",
@@ -111,9 +54,15 @@ const ProfilePage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
-
-  // Add state to reference the tickets component - using constant instead of state
-  const ticketsComponentKey = 0; // Используем константу вместо состояния, так как изменение ключа больше не требуется
+  
+  // Активируем отображение билетов только после загрузки профиля
+  useEffect(() => {
+    if (userData && hasFetched.current) {
+      // Немедленно монтируем компонент билетов без задержки
+      setIsProfileReady(true);
+      console.log('ProfilePage: Profile ready, showing tickets container');
+    }
+  }, [userData, hasFetched.current]);
 
   const validateForm = useCallback((state: FormState = formState) => {
     const errors: ValidationErrors = {};
@@ -800,14 +749,15 @@ const ProfilePage: React.FC = () => {
           {fetchError && <ErrorDisplay error={fetchError} className="mt-4" />}
           {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
         </div>
-        <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
-          <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-          {userData && (
-            <div key={`tickets-wrapper-${ticketsComponentKey}`}>
-              <UserEventTickets ref={ticketsComponentRef} />
+        {isProfileReady && (
+          <Suspense fallback={
+            <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
             </div>
-          )}
-        </div>
+          }>
+            <LazyTicketsContainer />
+          </Suspense>
+        )}
         {isChangePasswordOpen && <ChangePasswordForm
           isOpen={isChangePasswordOpen}
           onClose={() => setIsChangePasswordOpen(false)}

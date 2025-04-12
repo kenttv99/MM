@@ -24,6 +24,7 @@ interface EditEventFormProps {
   imagePreview: string | null;
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   handleFileChange: (file: File | null, isRemoved?: boolean) => void;
+  handleSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
   setFieldValue: (name: keyof EventFormData, value: unknown) => void;
   isLoading: boolean;
   isPageLoading: boolean;
@@ -54,6 +55,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   imagePreview,
   handleChange,
   handleFileChange,
+  handleSubmit,
   setFieldValue,
   isLoading,
   isPageLoading,
@@ -72,7 +74,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [isHeadingDropdownOpen, setIsHeadingDropdownOpen] = useState(false);
   const [selectedHeadingLevel, setSelectedHeadingLevel] = useState<number>(2);
   const [imageError, setImageError] = useState<string | null>(null);
-  const [ticketTypeError, setTicketTypeError] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [slugStatus, setSlugStatus] = useState<{ isValid: boolean | null; message: string | null }>({ isValid: null, message: null });
@@ -379,145 +380,13 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
   // Обработчик нажатия на кнопку "Отмена"
   const handleCancel = () => {
-    // Устанавливаем флаг необходимости обновления данных при возврате на дашборд
-    localStorage.setItem("dashboard_need_refresh", "true");
+    // Сбрасываем локальные сообщения об ошибках и успехе
+    setLocalError(null);
+    setLocalSuccess(null);
+    // Также сбрасываем глобальные сообщения
+    setError(null);
+    setSuccess(null);
     router.push("/dashboard");
-  };
-
-  // Функция для отправки формы после валидации
-  const submitFormHandler = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (typeof setError === 'function') {
-      setError("");
-    }
-    setLocalError("");
-    setLocalSuccess("");
-    setIsPageLoading(true);
-
-    try {
-      // Создаем объект FormData для отправки
-      const formDataToSend = new FormData();
-      
-      // Добавляем все основные поля
-      formDataToSend.append("title", formData.title);
-      formDataToSend.append("description", formData.description || "");
-      
-      // Добавляем даты
-      if (formData.start_date) {
-        const startDateStr = formData.start_date + (formData.start_time ? `T${formData.start_time}:00` : "");
-        formDataToSend.append("start_date", startDateStr);
-      }
-      
-      if (formData.end_date) {
-        const endDateStr = formData.end_date + (formData.end_time ? `T${formData.end_time}:00` : "");
-        formDataToSend.append("end_date", endDateStr);
-      }
-      
-      // Добавляем остальные поля
-      if (formData.location) {
-        formDataToSend.append("location", formData.location);
-      }
-      
-      formDataToSend.append("price", String(formData.price || 0));
-      formDataToSend.append("published", String(formData.published || false));
-      formDataToSend.append("status", formData.status || "draft");
-      formDataToSend.append("ticket_type_name", formData.ticket_type_name || "standart");
-      formDataToSend.append("ticket_type_available_quantity", String(formData.ticket_type_available_quantity || 0));
-      
-      // Обработка изображения
-      if (formData.image_file) {
-        formDataToSend.append("image_file", formData.image_file);
-      }
-      
-      formDataToSend.append("remove_image", String(formData.remove_image || false));
-      
-      // МАКСИМАЛЬНО ПРОСТАЯ ОБРАБОТКА URL SLUG - без дополнительной обработки
-      if (formData.url_slug) {
-        // Просто отправляем текущее значение URL slug
-        formDataToSend.append("url_slug", formData.url_slug);
-        console.log(`Form: Sending URL slug: "${formData.url_slug}"`);
-      }
-      
-      // Добавляем временные метки
-      const now = new Date().toISOString();
-      formDataToSend.append("created_at", now);
-      formDataToSend.append("updated_at", now);
-      
-      // Добавляем ID, если редактируем существующее событие
-      if (!isNewEvent && formData.id) {
-        formDataToSend.append("id", formData.id.toString());
-      }
-      
-      // Делаем запрос к API
-      let response;
-      if (!isNewEvent && formData.id) {
-        // Обновляем существующее событие
-        response = await fetch(`/admin_edits/${formData.id}/`, {
-          method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem("admin_token")}`,
-          },
-          credentials: 'same-origin',
-          body: formDataToSend
-        });
-      } else {
-        // Создаем новое событие
-        response = await fetch('/admin_edits/', {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${localStorage.getItem("admin_token")}`,
-          },
-          credentials: 'same-origin',
-          body: formDataToSend
-        });
-      }
-      
-      // Проверяем успешность запроса
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Ошибка сервера: ${response.status} ${errorText}`);
-      }
-      
-      // Получаем ответ сервера
-      const resultData = await response.json();
-      console.log("Form: Server response:", resultData);
-      
-      // Формируем полный URL-слаг для отображения
-      let fullSlug = resultData.url_slug;
-      if (resultData.start_date && resultData.id) {
-        const year = new Date(resultData.start_date).getFullYear();
-        fullSlug = `${resultData.url_slug}-${year}-${resultData.id}`;
-      }
-      
-      // Показываем успешное сообщение
-      const successMessage = isNewEvent
-        ? `Мероприятие создано! URL: ${fullSlug}`
-        : `Мероприятие обновлено! URL: ${fullSlug}`;
-      
-      setLocalSuccess(successMessage);
-      if (typeof setSuccess === 'function') {
-        setSuccess(successMessage);
-      }
-      
-      // Обновляем флаг необходимости обновления данных
-      localStorage.setItem("dashboard_need_refresh", "true");
-      localStorage.removeItem('event_form_draft');
-      
-      // Перенаправляем на дашборд после успеха
-      setTimeout(() => {
-        router.push("/dashboard");
-      }, 2000);
-      
-    } catch (error) {
-      console.error("Error submitting form:", error);
-      if (typeof setError === 'function') {
-        setError(error instanceof Error ? error.message : "Произошла ошибка при отправке формы");
-      } else {
-        setLocalError(error instanceof Error ? error.message : "Произошла ошибка при отправке формы");
-      }
-    } finally {
-      setIsPageLoading(false);
-    }
   };
 
   // Упрощенная валидация URL slug
@@ -596,6 +465,14 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     setFieldValue('url_slug_changed', true);
   }, [setFieldValue]);
 
+  // Используем setIsPageLoading при загрузке компонента
+  useEffect(() => {
+    setIsPageLoading(isPageLoading);
+    return () => {
+      setIsPageLoading(false);
+    };
+  }, [isPageLoading, setIsPageLoading]);
+
   if (isLoading) {
     return <div className="text-center py-10">Загрузка данных мероприятия...</div>;
   }
@@ -642,8 +519,19 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
           </div>
 
-          {localError && <ErrorDisplay error={localError} />}
-          {localSuccess && <SuccessDisplay message={localSuccess} />}
+          {localError && (
+            <ErrorDisplay
+              error={localError}
+              className="mb-4"
+            />
+          )}
+          
+          {localSuccess && (
+            <SuccessDisplay 
+              message={localSuccess}
+              className="mb-4"
+            />
+          )}
 
           {!isNewEvent && (
             <div className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-6">
@@ -655,11 +543,6 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                     <h3 className="text-lg font-medium">Билеты</h3>
                   </div>
                   <div className="space-y-4">
-                    {ticketTypeError && (
-                      <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md">
-                        {ticketTypeError}
-                      </div>
-                    )}
                     <p className="text-2xl font-bold text-blue-600">{soldQuantity} / {availableQuantity}</p>
                   </div>
                   <p className="text-sm text-gray-600">Продано билетов</p>
@@ -697,7 +580,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
           )}
 
-          <form onSubmit={submitFormHandler} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
+          <form onSubmit={handleSubmit} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Название мероприятия*</label>
               <input

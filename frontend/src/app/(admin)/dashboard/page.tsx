@@ -49,7 +49,7 @@ interface Event {
   published: boolean;
   created_at: string;
   updated_at: string;
-  status: string;
+  status: "completed" | "draft" | "registration_open" | "registration_closed";
   registrations_count: number;
   ticket_type?: TicketType;
   url_slug?: string;
@@ -163,7 +163,7 @@ const DashboardSkeleton = () => (
 
 export default function Dashboard() {
   const router = useRouter();
-  const { stage, setStage } = useLoading();
+  const { currentStage, setStage } = useLoading();
   const { isAuthenticated, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
   
   const [events, setEvents] = useState<Event[]>([]);
@@ -201,6 +201,12 @@ export default function Dashboard() {
       
       if ('aborted' in fetchedUsers) {
         console.log('Dashboard: Users request was aborted:', fetchedUsers.reason);
+        return false;
+      }
+      
+      if ('error' in fetchedUsers) {
+        console.error('Dashboard: Error in users response:', fetchedUsers.error);
+        setError(typeof fetchedUsers.error === 'string' ? fetchedUsers.error : 'Ошибка при загрузке пользователей');
         return false;
       }
       
@@ -248,6 +254,12 @@ export default function Dashboard() {
         return false;
       }
       
+      if ('error' in fetchedEvents) {
+        console.error('Dashboard: Error in events response:', fetchedEvents.error);
+        setError(typeof fetchedEvents.error === 'string' ? fetchedEvents.error : 'Ошибка при загрузке мероприятий');
+        return false;
+      }
+      
       setEvents(fetchedEvents);
       console.log(`Dashboard: Fetched ${fetchedEvents.length} events`);
       setDataLoaded(prev => ({ ...prev, events: true }));
@@ -272,7 +284,7 @@ export default function Dashboard() {
     
     // Сразу устанавливаем стадию загрузки COMPLETED для предотвращения блокировки запросов
     setStage(LoadingStage.COMPLETED);
-    console.log('Dashboard: Setting stage to COMPLETED, current stage =', stage);
+    console.log('Dashboard: Setting stage to COMPLETED, current stage =', currentStage);
     
     // Если мы вернулись с редактирования и нужно обновить данные, сбрасываем состояние загрузки
     if (localStorage.getItem("dashboard_need_refresh") === "true") {
@@ -282,7 +294,7 @@ export default function Dashboard() {
         events: false
       });
     }
-  }, [stage, setStage]);
+  }, [currentStage, setStage]);
 
   // Эффект для проверки авторизации и загрузки данных
   useEffect(() => {

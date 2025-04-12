@@ -37,6 +37,7 @@ interface LoadingContextType {
   error: string | null;
   setError: (error: string | null) => void;
   detectAndFixLoadingInconsistency: () => boolean;
+  isAuthChecked: boolean;
 }
 
 // Добавим базовые настройки для логов
@@ -125,10 +126,11 @@ function dispatchStageChangeEvent(stage: LoadingStage, stageChangeHistoryRef: Re
 }
 
 export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [stage, setStage] = useState<LoadingStage>(LoadingStage.INITIAL);
-  const [isLoading, setIsLoading] = useState(true);
-  const [progress, setProgress] = useState(0);
+  const [stage, setStage] = useState<LoadingStage>(LoadingStage.AUTHENTICATION);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [progress, setProgress] = useState<number>(0);
   const [error, setError] = useState<string | null>(null);
+  const [isAuthChecked, setIsAuthChecked] = useState<boolean>(false);
   const isMounted = useRef(true);
   const pathname = usePathname();
   const isInitialized = useRef(false);
@@ -504,6 +506,9 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setStage(LoadingStage.STATIC_CONTENT);
         }
       }
+      
+      // Устанавливаем флаг isAuthChecked
+      setIsAuthChecked(true);
     };
     
     window.addEventListener('auth-stage-change', handleAuthStageChange as EventListener);
@@ -977,6 +982,18 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [detectAndFixLoadingInconsistency]);
 
+  // Добавляем эффект для обновления isAuthChecked при изменении стадии
+  useEffect(() => {
+    // Когда мы переходим от AUTHENTICATION к STATIC_CONTENT или любой другой стадии
+    // это означает, что проверка авторизации завершена
+    if (stage !== LoadingStage.AUTHENTICATION && stage !== LoadingStage.INITIAL) {
+      if (!isAuthChecked) {
+        setIsAuthChecked(true);
+        logInfo('Auth check completed, updating isAuthChecked state');
+      }
+    }
+  }, [stage, isAuthChecked]);
+
   const value = useMemo(() => ({
     isStaticLoading: loadingStateRef.current.isStaticLoading,
     isDynamicLoading: loadingStateRef.current.isDynamicLoading,
@@ -991,7 +1008,8 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setProgress,
     error,
     setError,
-    detectAndFixLoadingInconsistency
+    detectAndFixLoadingInconsistency,
+    isAuthChecked
   }), [
     loadingStateRef.current.isStaticLoading,
     loadingStateRef.current.isDynamicLoading,
@@ -1001,9 +1019,13 @@ export const LoadingProvider: React.FC<{ children: React.ReactNode }> = ({ child
     stage,
     updateStage,
     isLoading,
+    setIsLoading,
     progress,
+    setProgress,
     error,
-    detectAndFixLoadingInconsistency
+    setError,
+    detectAndFixLoadingInconsistency,
+    isAuthChecked
   ]);
 
   return (

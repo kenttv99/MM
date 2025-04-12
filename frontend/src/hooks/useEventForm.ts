@@ -175,11 +175,11 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       const response = await fetchEvent(eventId);
       
       if (!response.success) {
-        console.error(`Error fetching event: ${response.message}`);
-        if (response.authError) {
+        console.error(`Error fetching event: ${response.message || 'Unknown error'}`);
+        if ('authError' in response && response.authError) {
           throw new Error("Сессия администратора истекла. Выполняется перенаправление на страницу входа...");
         } else {
-          throw new Error(response.message);
+          throw new Error('message' in response && response.message ? response.message : "Событие не найдено");
         }
       }
       
@@ -187,7 +187,19 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         throw new Error("Событие не найдено");
       }
       
-      eventCache[eventId] = response.event;
+      // Проверяем, что response.event имеет структуру EventData перед сохранением в кэш
+      if ('title' in response.event && 
+          'start_date' in response.event && 
+          'price' in response.event && 
+          'published' in response.event &&
+          'created_at' in response.event &&
+          'updated_at' in response.event) {
+        // Приводим тип к EventData
+        eventCache[eventId] = response.event as EventData;
+      } else {
+        console.warn('useEventForm: Received event data has unexpected structure');
+        throw new Error("Полученные данные события имеют неверный формат");
+      }
       
       if (!mounted.current) return;
       
@@ -331,17 +343,25 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       console.log('useEventForm: FormData keys:', Object.keys(cleanedFormData));
       console.log('useEventForm: URL slug:', cleanedFormData.url_slug);
       
+      // Преобразуем null в undefined для соответствия типу EventUpdateData
+      const processedData = {
+        ...cleanedFormData,
+        // Convert null to undefined for image_file and image_url to match the expected type
+        image_file: cleanedFormData.image_file === null ? undefined : cleanedFormData.image_file,
+        image_url: cleanedFormData.image_url === null ? undefined : cleanedFormData.image_url
+      };
+      
       const result = formData.id
-        ? await updateEvent(formData.id, cleanedFormData)
-        : await createEvent(cleanedFormData);
+        ? await updateEvent(String(formData.id), processedData)
+        : await createEvent(processedData);
       
       // Handle structured error responses
       if (!result.success) {
         console.log('useEventForm: Received error response:', result);
         
-        if (result.authError) {
+        if ('authError' in result && result.authError) {
           // Проверяем сообщение об ошибке 403 Forbidden (недостаточно прав)
-          const isForbiddenError = result.message && (
+          const isForbiddenError = 'message' in result && result.message && typeof result.message === 'string' && (
             result.message.includes('недостаточно прав') || 
             result.message.includes('не авторизованы') ||
             result.message.includes('нет доступа')
@@ -350,7 +370,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
           if (isForbiddenError) {
             // Показываем ошибку о недостатке прав, но не делаем редирект
             console.log('useEventForm: Forbidden error (403), no redirect needed');
-            setError(result.message);
+            setError('message' in result && result.message ? result.message : 'Ошибка доступа');
             
             // Сохраняем черновик формы на случай повторной попытки
             localStorage.setItem('event_form_draft', JSON.stringify(formData));
@@ -375,7 +395,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
           }
           
           // Другая ошибка авторизации - сохраняем данные формы и делаем редирект
-          setError(`${result.message} Перенаправление на страницу входа...`);
+          setError(`${('message' in result && result.message ? result.message : 'Ошибка авторизации')} Перенаправление на страницу входа...`);
           
           // Wait a moment to show the error message
           setTimeout(() => {
@@ -387,7 +407,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
           return;
         } else {
           // Regular error - just show the message
-          setError(result.message);
+          setError('message' in result && result.message ? result.message : 'Ошибка при сохранении формы');
           setIsLoading(false);
           return;
         }
@@ -396,7 +416,13 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       // Success case
       console.log('useEventForm: Submission successful');
       if (result.event && result.event.id) {
-        eventCache[result.event.id.toString()] = result.event;
+        // Ensure the event object has the required EventData properties before caching
+        if ('title' in result.event && 'start_date' in result.event && 
+            'price' in result.event && 'published' in result.event) {
+          eventCache[result.event.id.toString()] = result.event as EventData;
+        } else {
+          console.warn('useEventForm: Event data missing required fields, not caching');
+        }
         // Clear the draft on success
         localStorage.removeItem('event_form_draft');
       }
@@ -405,7 +431,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         setSuccess(formData.id ? "Мероприятие успешно обновлено" : "Мероприятие успешно создано");
       }
       
-      if (onSuccess && result.event) onSuccess(result.event);
+      if (onSuccess && result.event) onSuccess(result.event as EventData);
     } catch (err) {
       console.error('useEventForm: Unhandled error during submission:', err);
       const errorMessage = err instanceof Error ? err.message : 'Произошла неизвестная ошибка';
@@ -447,5 +473,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     loadEvent,
     setFieldValue,
     setImagePreview,
+    setError,
+    setSuccess
   };
 };

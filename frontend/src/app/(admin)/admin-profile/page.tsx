@@ -68,8 +68,8 @@ const ProfileSkeleton = () => (
 );
 
 export default function AdminProfilePage() {
-  const { isAuthenticated, adminData, isLoading: authLoading, logout } = useAdminAuth();
-  const { stage, setStage, setDynamicLoading } = useLoading();
+  const { isAuthenticated, adminData, loading: authLoading, logout } = useAdminAuth();
+  const { currentStage, setStage, setDynamicLoading } = useLoading();
   const router = useRouter();
   
   const [formValues, setFormValues] = useState<AdminData>({ email: "", fio: "", id: 0 });
@@ -86,7 +86,7 @@ export default function AdminProfilePage() {
     setClientReady(true);
     
     // Обновляем стадию загрузки (на случай, если мы в другой стадии)
-    if (stage !== LoadingStage.COMPLETED) {
+    if (currentStage !== LoadingStage.COMPLETED) {
       setStage(LoadingStage.COMPLETED);
     }
     
@@ -97,7 +97,7 @@ export default function AdminProfilePage() {
     } else {
       setProfileLoaded(true); // Всё равно отмечаем как загруженное, чтобы не показывать скелетон вечно
     }
-  }, [adminData, stage, setStage]);
+  }, [adminData, currentStage, setStage]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -127,12 +127,16 @@ export default function AdminProfilePage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token.trim()}`,
         },
-        body: JSON.stringify({ fio: formValues.fio }),
+        data: JSON.stringify({ fio: formValues.fio }),
         bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
       });
       
       if ('aborted' in data) {
         throw new Error(data.reason || "Запрос был прерван");
+      }
+      
+      if ('error' in data) {
+        throw new Error(typeof data.error === 'string' ? data.error : 'Ошибка при обновлении профиля');
       }
       
       setFormValues((prev) => ({ ...prev, fio: data.fio }));

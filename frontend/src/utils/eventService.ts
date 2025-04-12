@@ -1,5 +1,5 @@
 // frontend/src/utils/eventService.ts
-import { EventFormData, EventResponse } from '@/types/events';
+import { EventFormData, EventResponse, EventData } from '@/types/events';
 
 export const prepareEventFormData = (eventData: EventFormData): FormData => {
   const formData = new FormData();
@@ -618,7 +618,7 @@ export const updateEvent = async (
   success: boolean;
   message?: string;
   warningOnly?: boolean;
-  event?: Record<string, unknown>; // Using unknown instead of any
+  event?: EventData | Record<string, unknown>; // Support both types
 }> => {
   console.log(`eventService: Starting updateEvent for ID: ${eventId}`);
   try {
@@ -897,51 +897,35 @@ export const updateEvent = async (
 
 export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
   console.log(`eventService: Starting fetchEvent for event ID ${eventId}`);
-  const token = localStorage.getItem("admin_token");
-  if (!token) {
-    console.log("eventService: No admin token found for fetchEvent");
-    return { 
-      success: false,
-      message: "Необходима авторизация администратора",
-      authError: true 
-    };
-  }
-
+  
   try {
-    // Проверка сессии на сервере
-    const isSessionValid = await ensureAdminSession();
-    if (!isSessionValid) {
-      console.log("eventService: Admin session is invalid");
+    const token = localStorage.getItem("admin_token");
+    if (!token) {
+      console.log("eventService: No admin token available for fetchEvent");
       return {
         success: false,
-        message: "Сессия администратора истекла. Необходимо войти заново.",
+        message: "Не найден токен авторизации",
         authError: true
       };
     }
+
+    const url = `/admin_edits/${eventId}/`;
+    console.log(`eventService: Making GET request to ${url}`);
     
-    console.log(`eventService: Making API request to fetch event ${eventId}`);
-    
-    // Убедимся, что URL заканчивается слешем для избежания перенаправления
-    const fetchUrl = eventId.endsWith('/') 
-      ? `/admin_edits/${eventId}` 
-      : `/admin_edits/${eventId}/`;
-    
-    const response = await fetch(fetchUrl, {
+    const response = await fetch(url, {
       method: "GET",
       headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`
       },
-      credentials: 'same-origin'
+      credentials: "same-origin"
     });
 
-    // Проверяем наличие обновленного токена в заголовках
+    // Обработка обновления токена
     handleTokenRefresh(response);
-
-    console.log(`eventService: Fetch event response status: ${response.status}`);
     
-    // Обработка ошибок аутентификации
+    console.log(`eventService: fetchEvent response status: ${response.status}`);
+    
     if (response.status === 401) {
       console.log("eventService: Authentication error 401 in fetchEvent, clearing session");
       localStorage.removeItem("admin_token");
@@ -949,80 +933,59 @@ export const fetchEvent = async (eventId: string): Promise<EventResponse> => {
       return {
         success: false,
         message: "Ошибка аутентификации. Пожалуйста, войдите снова.",
-        authError: true,
+        authError: true
       };
     }
     
     if (response.status === 403) {
       console.log("eventService: Authorization error 403 in fetchEvent, NOT clearing session");
-      
-      // Пробуем получить текст ошибки
-      const errorText = await response.text();
-      console.log("eventService: Error response body:", errorText);
-      
       return {
         success: false,
         message: "У вас недостаточно прав для выполнения этой операции.",
-        authError: true, // Указываем, что это ошибка авторизации, но не очищаем токены
+        authError: true
       };
     }
-    
-    if (response.status === 404) {
+
+    if (!response.ok) {
+      console.log(`eventService: Error response from server: ${response.statusText}`);
       return {
         success: false,
-        message: "Событие не найдено",
+        message: `Ошибка при получении данных мероприятия: ${response.statusText}`
       };
     }
+
+    // Получаем данные события
+    const data = await response.json();
+    console.log(`eventService: Received event data:`, data);
     
-    // Обрабатываем успешный ответ или другие ошибки
-    try {
-      const responseData = await response.json();
-      console.log("eventService: Response data:", responseData);
+    // Проверяем структуру полученных данных на соответствие EventData
+    if (data && typeof data === 'object' && 
+        'title' in data && 
+        'start_date' in data && 
+        'price' in data && 
+        'published' in data) {
       
-      if (response.status === 200) {
-        console.log("eventService: Event fetched successfully");
-        return {
-          success: true,
-          event: responseData,
-          message: "Событие успешно загружено",
-        };
-      } else {
-        console.warn(`eventService: Unexpected response status: ${response.status}`);
-        return {
-          success: false,
-          message: responseData.message || responseData.detail || `Неизвестная ошибка при загрузке события (${response.status})`,
-        };
-      }
-    } catch (error) {
-      console.error("eventService: Error parsing response:", error);
+      // Все необходимые поля EventData присутствуют, приводим к нужному типу
+      const eventData: EventData = data;
+      
+      return {
+        success: true,
+        message: "Данные мероприятия успешно получены",
+        event: eventData
+      };
+    } else {
+      console.warn("eventService: Received event data has unexpected structure", data);
       return {
         success: false,
-        message: "Ошибка обработки ответа от сервера",
+        message: "Полученные данные имеют неожиданную структуру"
       };
     }
   } catch (error) {
-    console.error("eventService: Error fetching event:", error);
-    
-    // Определяем тип ошибки для более детального сообщения пользователю
-    let errorMessage: string;
-    
-    if (error instanceof TypeError && error.message === "Failed to fetch") {
-      errorMessage = "Ошибка подключения к серверу. Проверьте ваше интернет-соединение или обратитесь к администратору.";
-      console.error("eventService: Network connection error - Failed to fetch");
-    } else if (error instanceof DOMException && error.name === "AbortError") {
-      errorMessage = "Запрос отменен. Пожалуйста, попробуйте снова.";
-      console.error("eventService: Request was aborted");
-    } else if (error instanceof Error) {
-      errorMessage = `Ошибка при загрузке события: ${error.message}`;
-      console.error(`eventService: Error with message: ${error.message}`);
-    } else {
-      errorMessage = "Неизвестная ошибка при загрузке события.";
-      console.error("eventService: Unknown error type:", error);
-    }
-    
+    const err = error as Error;
+    console.error("eventService: Error in fetchEvent:", err);
     return {
       success: false,
-      message: errorMessage,
+      message: `Ошибка при получении данных мероприятия: ${err.message}`
     };
   }
 };

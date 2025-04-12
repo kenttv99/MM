@@ -7,18 +7,12 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import React from "react";
 
-// Простой логгер
+// Add debugLog at the module level (after imports)
 const debugLog = (category: string, message: string, data?: unknown) => {
   const isDevMode = process.env.NODE_ENV === 'development';
   if (!isDevMode) return;
-  
+
   const prefix = `UserEventTickets [${category}]:`;
-  
-  // Ограничиваем повторяющиеся логи, особенно при загрузке страницы
-  if (message.includes('Recomputing filtered tickets') || message.includes('Applying all filters') || message.includes('Applying filters')) {
-    // Пропускаем эти логи, чтобы не засорять консоль
-    return;
-  }
   
   if (data !== undefined) {
     console.log(`${prefix} ${message}`, data);
@@ -476,7 +470,7 @@ const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
 // Convert to forwardRef with imperative handle
 const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(() => {
-  const { isAuth: _isAuth, isLoading: authLoading, isAuthChecked } = useAuth();
+  const { isAuth: _isAuth, isLoading: authLoading, isAuthChecked, userData } = useAuth();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _isAuthUnused = _isAuth; // Suppress unused warning
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -492,7 +486,6 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
   const [cancelledTicketIds, setCancelledTicketIds] = useState<Set<string>>(new Set());
   const [cancelError, setCancelError] = useState<string | undefined>();
   const [cancelSuccess, setCancelSuccess] = useState<string | undefined>();
-  const [retryCount, setRetryCount] = useState(0);
   const [isFetching, setIsFetching] = useState(false); // Используем состояние вместо ref для управления загрузкой
   
   // Фильтры билетов
@@ -515,11 +508,9 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
   const fetchAttempted = useRef(false);
   const ticketsContainerRef = useRef<HTMLDivElement>(null);
   const isTicketBeingCancelled = useRef(false);
-  const previousPath = useRef<string>('');
-  const activeAbortController = useRef<AbortController | null>(null); // Для отслеживания активного запроса
-  const lastFetchTime = useRef<number>(0); // Для предотвращения частых запросов
-  const lastUnmountTime = useRef<number>(0); // Для отслеживания времени последнего размонтирования
-  const pendingFetchResult = useRef<UserTicket[] | null>(null); // Для хранения результатов запроса, если компонент размонтирован
+  // Comment out or remove unused previousPath
+  // const previousPath = useRef<string>('');
+  const lastHiddenAt = useRef<number>(0);
   
   // Создаем значение контекста
   const filtersContextValue = { filters, setFilters };
@@ -539,325 +530,127 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
   }, []);
   
   // Функция отмены билета
-  const cancelTicket = useCallback((ticketId: string) => {
-    setCancelledTicketIds(prev => {
-      const newSet = new Set(prev);
-      newSet.add(ticketId);
-      return newSet;
-    });
-  }, []);
+  // const cancelTicket = useCallback((ticketId: string) => {
+  //   setCancelledTicketIds(prev => {
+  //     const newSet = new Set(prev);
+  //     newSet.add(ticketId);
+  //     return newSet;
+  //   });
+  // }, []);
 
-  // Функция для сортировки билетов по статусу и дате
-  const sortByStatusAndDate = useCallback((tickets: UserTicket[]): UserTicket[] => {
-    if (!tickets || !tickets.length) return [];
-    
-    // Status priority (highest to lowest)
-    const statusPriority: Record<string, number> = {
-      "approved": 0, // Highest priority
-      "pending": 1,
-      "cancelled": 2,
-      "completed": 3
-    };
-    
-    return [...tickets].sort((a, b) => {
-      // Проверка данных перед сортировкой
-      if (!a || !b || !a.event || !b.event) return 0;
-      
-      // Сначала сортируем по приоритету статуса
-      const aStatus = a.status || 'pending';
-      const bStatus = b.status || 'pending';
-      const statusDiff = (statusPriority[aStatus] ?? 999) - (statusPriority[bStatus] ?? 999);
-      
-      if (statusDiff !== 0) return statusDiff;
-      
-      // Затем сортируем по дате начала события (ближайшие сначала)
-      try {
-        const dateA = new Date(a.event.start_date || Date.now());
-        const dateB = new Date(b.event.start_date || Date.now());
-        return dateA.getTime() - dateB.getTime();
-      } catch (err) {
-        debugLog('Error', 'Error sorting tickets by date', err);
-        return 0;
-      }
-    });
-  }, []);
-
-  // Обработка и удаление дубликатов билетов
-  const processTickets = useCallback((ticketsData: UserTicket[]): UserTicket[] => {
-    if (!ticketsData || ticketsData.length === 0) return [];
-    
-    debugLog('Processing', 'Processing tickets', { count: ticketsData.length });
-    
-    // Создаем Map для гарантии уникальности по ID
-    const uniqueTicketsMap = new Map<number, UserTicket>();
-    
-    // Добавляем только билеты с приоритетным статусом
-    ticketsData.forEach(ticket => {
-      if (!ticket || !ticket.event) return;
-      
-      // Пропускаем билеты, которые пользователь отменил
-      if (cancelledTicketIds.has(ticket.id.toString())) {
-        debugLog('Processing', `Skipping cancelled ticket ID: ${ticket.id}`);
-        return;
-      }
-      
-      // Глубокое копирование для предотвращения мутаций
-      const ticketCopy = { ...ticket, event: { ...ticket.event } };
-      
-      // Обновляем статус билета на основе статуса события
-      // Но не меняем отмененные билеты
-      if (ticketCopy.event.status === "completed" && ticketCopy.status !== "cancelled") {
-        ticketCopy.status = "completed";
-      }
-      
-        uniqueTicketsMap.set(ticketCopy.id, ticketCopy);
-    });
-    
-    // Извлекаем уникальные билеты
-    return Array.from(uniqueTicketsMap.values());
-  }, [cancelledTicketIds]);
+  // Comment out or remove unused sortByStatusAndDate
+  // const sortByStatusAndDate = useCallback((ticketsToSort: UserTicket[]) => {
+  //   return [...ticketsToSort].sort((a, b) => {
+  //     // Сортировка по статусу: pending, approved, completed, cancelled
+  //     const statusOrder = {
+  //       pending: 0,
+  //       approved: 1,
+  //       completed: 2,
+  //       cancelled: 3
+  //     };
+  //     const statusDiff = statusOrder[a.status] - statusOrder[b.status];
+  //     if (statusDiff !== 0) return statusDiff;
+  //     
+  //     // Если статусы одинаковые, сортируем по дате регистрации (новые сверху)
+  //     return new Date(b.registration_date).getTime() - new Date(a.registration_date).getTime();
+  //   });
+  // }, []);
 
   // Применение всех фильтров
-  const applyAllFilters = useCallback((ticketsToFilter: UserTicket[]) => {
-    if (!ticketsToFilter.length) return [];
-    
-    debugLog('Filters', 'Applying all filters', { count: ticketsToFilter.length, filters });
-    
-    // Применяем фильтрацию по статусу и дате
-    const filtered = applyFiltersToTickets(ticketsToFilter, filters);
-    
-    // Затем сортируем отфильтрованные билеты
-    return sortByStatusAndDate(filtered);
-  }, [filters, sortByStatusAndDate]);
+  const applyAllFilters = useCallback(
+    (ticketsToFilter: UserTicket[]) => {
+      return applyFiltersToTickets(ticketsToFilter, filters);
+    },
+    [filters]
+  );
   
-  // Define fetchTickets with useCallback before it's used
-  const fetchTickets = useCallback(async () => {
-    debugLog('API', 'fetchTickets started');
-    console.log('🔍 DIRECT CONSOLE: fetchTickets is executing now');
+  const TICKETS_CACHE_KEY = 'tickets_cache';
+  const TICKETS_CACHE_TIMESTAMP_KEY = 'tickets_cache_timestamp';
+  const CACHE_VALIDITY = 300000; // 5 minutes (was 30000 - 30 seconds)
 
-    // Проверка на наличие сетевого соединения
-    if (!navigator.onLine) {
-      debugLog('API', 'No internet connection detected');
-      if (isMounted.current) {
-        setError('Нет соединения с интернетом. Проверьте подключение и попробуйте снова.');
-        setIsLoading(false);
-      }
-      setIsFetching(false);
-      fetchAttempted.current = false;
-      return;
-    }
-
-    // Предотвращаем повторный запрос если процесс уже идет
-    if (isFetching) {
-      debugLog('Lifecycle', 'Request already in progress, duplicate prevented');
-      return;
-    }
-
-    // Добавляем защиту от частых запросов (дебounce 3 секунды, увеличено для учета размонтирования)
-    const currentTime = Date.now();
-    const timeSinceLastFetch = currentTime - lastFetchTime.current;
-    const timeSinceLastUnmount = currentTime - lastUnmountTime.current;
-    if (timeSinceLastFetch < 3000 || (timeSinceLastUnmount < 1000 && timeSinceLastFetch < 5000)) {
-      debugLog('Lifecycle', 'Fetch request throttled due to recent activity', { timeSinceLastFetch, timeSinceLastUnmount });
-      // Если компонент смонтирован, можно показать сообщение о задержке
-      if (isMounted.current && timeSinceLastUnmount < 1000) {
-        setIsLoading(true); // Показываем загрузку, чтобы пользователь знал, что процесс идет
-      }
-      return;
-    }
-    lastFetchTime.current = currentTime;
+  const getCachedTickets = useCallback((): UserTicket[] | null => {
+    const cached = localStorage.getItem(TICKETS_CACHE_KEY);
+    const timestamp = localStorage.getItem(TICKETS_CACHE_TIMESTAMP_KEY);
+    const now = Date.now();
     
-    try {
-      // Mark request attempt
-      setIsFetching(true);
-      fetchAttempted.current = true;
-      if (isMounted.current) {
-        setIsLoading(true);
-      }
+    if (cached && cached !== '[]' && timestamp) {
+      const cacheAge = now - parseInt(timestamp);
+      debugLog('Cache', `Cache age: ${cacheAge}ms, validity: ${CACHE_VALIDITY}ms`);
       
-      const token = localStorage.getItem('token');
-      if (!token) {
-        debugLog('Auth', 'Token not found');
-        if (isMounted.current) {
-          setError("Необходима авторизация");
-          setIsLoading(false);
-        }
-        setIsFetching(false);
-        fetchAttempted.current = false;
-        return;
-      }
-      
-      // Создаем контроллер для возможности отмены запроса
-      const controller = new AbortController();
-      activeAbortController.current = controller; // Сохраняем для возможности отмены при размонтировании
-      
-      // Задаем таймаут для запроса - 20 секунд
-      const timeoutId = setTimeout(() => {
-        controller.abort('Timeout after 20 seconds');
-        debugLog('API', 'Request aborted due to timeout');
-        
-        // После отмены запроса, сразу сбрасываем состояние загрузки
-        if (isMounted.current) {
-          setIsLoading(false);
-          setError("Не удалось загрузить билеты. Пожалуйста, проверьте соединение с интернетом.");
-        }
-        setIsFetching(false);
-        fetchAttempted.current = false; // Сбрасываем для повторной попытки
-        hasInitialData.current = true;
-        isInitialFetchDone.current = true;
-        // Инициируем повторную попытку загрузки через эффект, а не прямой вызов
-        debugLog('API', 'Initiating retry after timeout abort');
-        if (isMounted.current) {
-          setRetryCount(prev => prev + 1); // Увеличиваем счетчик для инициирования повторной попытки через эффект
-        }
-      }, 20000); // Таймаут 20 секунд
-      
-      // Получаем параметры для запроса
-      const cacheKey = `${Date.now()}_${Math.random().toString(36).substring(2)}`;
-      
-      // Формируем URL с параметрами как строку запроса
-      let url = `${process.env.NEXT_PUBLIC_API_URL || ''}/user_edits/my-tickets?_nocache=${cacheKey}`;
-      
-      // Добавляем фильтры
-      if (filters.status.length > 0) {
-        url += `&status=${filters.status[0]}`;
-      }
-      
-      if (filters.dateFrom) {
-        url += `&date_from=${filters.dateFrom}`;
-      }
-      
-      if (filters.dateTo) {
-        url += `&date_to=${filters.dateTo}`;
-      }
-      
-      // Выполняем запрос
-      debugLog('API', 'Sending network request', { url });
-      console.log('🔍 DIRECT CONSOLE: Sending request to', url);
-      try {
-        const response = await fetch(url, {
-          method: 'GET',
-          headers: { 
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            'Cache-Control': 'no-cache'
-          },
-          signal: controller.signal
-        });
-        
-        // Очищаем таймаут сразу после получения ответа
-        clearTimeout(timeoutId);
-        activeAbortController.current = null; // Сбрасываем после завершения запроса
-        
-        if (!response.ok) {
-          // Обработка ошибок HTTP
-          debugLog('API', `HTTP error: ${response.status} ${response.statusText}`);
-          
-          // Особая обработка для 401 - unauthorized
-          if (response.status === 401) {
-            debugLog('API', 'Unauthorized access, redirecting to login');
-            if (isMounted.current) {
-              setError("Требуется авторизация");
-            }
-            localStorage.removeItem('token');
-            localStorage.removeItem('userData');
-            return;
+      if (cacheAge < CACHE_VALIDITY) {
+        try {
+          const parsedData = JSON.parse(cached);
+          if (Array.isArray(parsedData) && parsedData.length > 0) {
+            debugLog('Cache', `Using valid cached tickets (${parsedData.length} items)`);
+            return parsedData;
           }
-          
-          // Для других ошибок просто показываем сообщение
-          throw new Error(`Ошибка сервера: ${response.status} ${response.statusText}`);
+        } catch (error) {
+          debugLog('Cache', 'Error parsing cached data', error);
         }
-        
-        const jsonData = await response.json();
-        debugLog('API', 'Network request completed', { ticketCount: Array.isArray(jsonData) ? jsonData.length : (jsonData.data?.length || jsonData.tickets?.length || jsonData.items?.length || 0) });
-        
-        // Нормализуем данные
-        let ticketsData: UserTicket[] = [];
-        if (Array.isArray(jsonData)) {
-          ticketsData = jsonData;
-        } else if (jsonData.data && Array.isArray(jsonData.data)) {
-          ticketsData = jsonData.data;
-        } else if (jsonData.tickets && Array.isArray(jsonData.tickets)) {
-          ticketsData = jsonData.tickets;
-        } else if (jsonData.items && Array.isArray(jsonData.items)) {
-          ticketsData = jsonData.items;
-        } else {
-          // Неизвестный формат данных
-          debugLog('API', 'Unknown data format', jsonData);
-          throw new Error('Неизвестный формат данных от сервера');
-        }
-        
-        debugLog('API', `Received ${ticketsData.length} tickets`);
-        
-        // Обработка билетов
-        const processedTickets = processTickets(ticketsData);
-        const filteredResults = applyAllFilters(processedTickets);
-        
-        // Сохраняем результат запроса, даже если компонент размонтирован
-        pendingFetchResult.current = processedTickets;
-        
-        // Обновляем состояние только если компонент все еще смонтирован
-        if (isMounted.current) {
-          setTickets(processedTickets);
-          setFilteredTickets(filteredResults);
-          setError(null);
-          setIsLoading(false);
-          pendingFetchResult.current = null; // Очищаем после применения
-        }
-        
-        // Обновляем флаги
-        hasInitialData.current = true;
-        isInitialFetchDone.current = true;
-        
-        debugLog('API', 'Tickets fetch completed successfully');
-      } catch (fetchError) {
-        // Ошибка запроса
-        if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
-          debugLog('API', 'Request was aborted');
-          if (isMounted.current) {
-            setError("Запрос был отменен. Попробуйте снова.");
-          }
-        } else {
-          console.error('Error fetching tickets:', fetchError);
-          debugLog('API', 'Error fetching tickets', fetchError);
-          if (isMounted.current) {
-            setError("Ошибка при загрузке билетов: " + (fetchError instanceof Error ? fetchError.message : 'Неизвестная ошибка'));
-          }
-        }
-        
-        // Сбрасываем состояние только если компонент смонтирован
-        if (isMounted.current) {
-          setIsLoading(false);
-        }
-        setIsFetching(false);
-        activeAbortController.current = null; // Сбрасываем после ошибки
+      } else {
+        debugLog('Cache', 'Cache expired', { cacheAge, validity: CACHE_VALIDITY });
       }
-    } catch (err) {
-      // Любая другая ошибка
-      console.error('🔍 DIRECT CONSOLE: Error in fetchTickets', err);
-      debugLog('API', 'Error in fetchTickets', err);
-      if (isMounted.current) {
-        setError(err instanceof Error ? err.message : 'Ошибка при загрузке билетов');
-      }
-      
-      // В случае ошибки устанавливаем пустые билеты только если компонент смонтирован
-      if (isMounted.current) {
-        setTickets([]);
-        setFilteredTickets([]);
-      }
-      
-      // Обновляем флаги и состояние
-      hasInitialData.current = true;
-      isInitialFetchDone.current = true;
-      if (isMounted.current) {
-        setIsLoading(false);
-      }
-      activeAbortController.current = null; // Сбрасываем после ошибки
-    } finally {
-      debugLog('API', 'fetchTickets completed');
-      setIsFetching(false); // Гарантируем сброс флага в любом случае
+    } else {
+      debugLog('Cache', 'Cache missing or empty', { cached: !!cached, isEmpty: cached === '[]' });
     }
-  }, [filters, processTickets, applyAllFilters, tickets.length, retryCount, isFetching]);
+    
+    return null;
+  }, []);
+
+  const fetchTickets = useCallback(async () => {
+    debugLog('API', '=== Starting fetchTickets execution ===', { userId: userData?.id, isFetching });
+    
+    if (!userData || !userData.id) {
+      debugLog('API', 'User data or ID not available, skipping fetch');
+      return;
+    }
+
+    // Если уже идет загрузка, не начинаем новую
+    if (isFetching) {
+      debugLog('API', 'Already fetching, skipping duplicate fetch');
+      return;
+    }
+
+    setIsFetching(true);
+    debugLog('API', 'Setting isFetching to true for tickets request');
+
+    try {
+      debugLog('API', 'Fetching tickets from server', { userId: userData.id });
+      const response = await fetch(`/api/user/tickets?userId=${userData.id}`);
+      
+      if (!response.ok) {
+        debugLog('API', 'Error fetching tickets', { status: response.status, statusText: response.statusText });
+        throw new Error(`Failed to fetch tickets: ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      debugLog('API', 'Tickets received from server', { count: data.length });
+
+      // Обработка данных через applyAllFilters, если есть данные
+      if (data && Array.isArray(data)) {
+        setTickets(data);
+        debugLog('API', 'Tickets state updated from server', { count: data.length });
+        
+        // Сохраняем билеты в кэш
+        try {
+          localStorage.setItem(TICKETS_CACHE_KEY, JSON.stringify(data));
+          localStorage.setItem(TICKETS_CACHE_TIMESTAMP_KEY, Date.now().toString());
+          debugLog('Cache', 'Updated tickets cache', { count: data.length });
+        } catch (error) {
+          console.error('Error caching tickets:', error);
+        }
+      } else {
+        debugLog('API', 'Server returned invalid data structure', data);
+      }
+    } catch (error) {
+      debugLog('API', 'Error in fetchTickets', error);
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      fetchAttempted.current = true;
+      setIsFetching(false); // Гарантируем сброс флага в любом случае
+      debugLog('API', '=== Completed fetchTickets execution ===', { isFetching: false });
+    }
+  }, [userData, isFetching]);
   
   // Add refreshTickets for use with the ref - moved after fetchTickets definition
   const refreshTickets = useCallback(() => {
@@ -884,107 +677,90 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     debugLog('UserEventTickets', 'Initiating direct fetch for refresh');
     fetchTickets();
   }, [isLoading, isFetching, fetchTickets]);
-  
-  // Modified ticket update event listener to better handle external events
-  useEffect(() => {
-    const handleTicketUpdate = (event: Event) => {
-      // Пропускаем наши собственные события
-      if (event instanceof CustomEvent && event.detail && event.detail.source === 'user-event-tickets') {
-        debugLog('UserEventTickets', 'Ignoring our own ticket-update event');
+
+  // Ensure efficient event handling with useCallback
+  const handleTicketUpdate = useCallback((event: Event) => {
+    if (event instanceof CustomEvent && event.detail && event.detail.source === 'user-event-tickets') {
+      debugLog('UserEventTickets', 'Ignoring our own ticket-update event');
+      return;
+    }
+
+    if (isTicketBeingCancelled.current) {
+      debugLog('UserEventTickets', 'Skipping ticket-update event during active cancellation');
+      return;
+    }
+
+    if (!isMounted.current || isFetching) {
+      debugLog('UserEventTickets', 'Component not mounted or fetch in progress, skipping event');
+      return;
+    }
+
+    debugLog('UserEventTickets', 'External ticket-update event received');
+
+    if (event instanceof CustomEvent && event.detail) {
+      const { source, action, newTicket, ticketId, preventRefresh } = event.detail;
+
+      debugLog('UserEventTickets', 'Event details', { source, action, preventRefresh });
+
+      if (preventRefresh) {
+        debugLog('UserEventTickets', 'Skipping refresh as requested by event');
         return;
       }
-      
-      // Не обрабатываем события во время отмены билета
-      if (isTicketBeingCancelled.current) {
-        debugLog('UserEventTickets', 'Skipping ticket-update event during active cancellation');
+
+      if (source !== 'user-event-tickets' && action === 'cancel' && ticketId) {
+        debugLog('UserEventTickets', `External cancel received for ticket ${ticketId} - removing from list`);
+
+        setTickets(prevTickets => prevTickets.filter(t => t.id !== ticketId));
+        setFilteredTickets(prevFiltered => prevFiltered.filter(t => t.id !== ticketId));
         return;
       }
-      
-      // Проверяем, инициализирован ли компонент
-      if (!isMounted.current || isFetching) {
-        debugLog('UserEventTickets', 'Component not mounted or fetch in progress, skipping event');
-        return;
-      }
-      
-      debugLog('UserEventTickets', 'External ticket-update event received');
-      
-      // Обработка события с детальной информацией
-      if (event instanceof CustomEvent && event.detail) {
-        const { source, action, newTicket, ticketId, preventRefresh } = event.detail;
-        
-        debugLog('UserEventTickets', 'Event details', { source, action, preventRefresh });
-        
-        // Пропускаем обновление, если явно указано
-        if (preventRefresh) {
-          debugLog('UserEventTickets', 'Skipping refresh as requested by event');
-          return;
-        }
-        
-        // Для событий отмены билета удаляем билет из списка без полного обновления
-        if (source !== 'user-event-tickets' && action === 'cancel' && ticketId) {
-          debugLog('UserEventTickets', `External cancel received for ticket ${ticketId} - removing from list`);
-          
-          // Удаляем отмененный билет без полного обновления
-          setTickets(prevTickets => prevTickets.filter(t => t.id !== ticketId));
-          setFilteredTickets(prevFiltered => prevFiltered.filter(t => t.id !== ticketId));
-          return;
-        }
-        
-        // Обработка события регистрации с полными данными билета
-        if ((source === 'event-registration' || source === 'event-page') && action === 'register') {
-          debugLog('UserEventTickets', 'Received registration event, source:', source);
-          
-          // Сохраняем флаг в sessionStorage для обнаружения навигации после регистрации
-          sessionStorage.setItem('recent_registration', 'true');
-          
-          // Если у нас есть полные данные билета, добавляем его напрямую
-          if (newTicket) {
-            debugLog('UserEventTickets', 'Received new ticket data, adding to list', newTicket);
-            
-            // Добавляем новый билет напрямую в состояние без полной перезагрузки
-            setTickets(prev => {
-              // Проверяем, есть ли уже такой билет
-              if (prev.some(t => t.id === newTicket.id)) {
-                debugLog('UserEventTickets', 'Ticket already exists, not adding duplicate');
-                return prev;
+
+      if ((source === 'event-registration' || source === 'event-page') && action === 'register') {
+        debugLog('UserEventTickets', 'Received registration event, source:', source);
+
+        sessionStorage.setItem('recent_registration', 'true');
+
+        if (newTicket) {
+          debugLog('UserEventTickets', 'Received new ticket data, adding to list', newTicket);
+
+          setTickets(prev => {
+            if (prev.some(t => t.id === newTicket.id)) {
+              debugLog('UserEventTickets', 'Ticket already exists, not adding duplicate');
+              return prev;
+            }
+
+            const updatedTickets = [...prev, newTicket];
+            setTimeout(() => {
+              if (isMounted.current) {
+                setFilteredTickets(applyAllFilters(updatedTickets));
               }
-              
-              // Добавляем новый билет и применяем фильтры
-              const updatedTickets = [...prev, newTicket];
-              
-              // Обновляем отфильтрованные билеты
-              setTimeout(() => {
-                if (isMounted.current) {
-                  setFilteredTickets(applyAllFilters(updatedTickets));
-                }
-              }, 0);
-              
-              return updatedTickets;
-            });
-            
-            // Отмечаем, что данные загружены
-            hasInitialData.current = true;
-            isInitialFetchDone.current = true;
-            return;
-          }
+            }, 0);
+
+            return updatedTickets;
+          });
+
+          hasInitialData.current = true;
+          isInitialFetchDone.current = true;
+          return;
         }
       }
-      
-      // Для других событий выполняем полное обновление только если нет текущих запросов
-      if (!isFetching && !fetchAttempted.current) {
-        debugLog('UserEventTickets', 'External event requires refresh - will fetchTickets()');
-        fetchTickets();
-      } else {
-        debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
-      }
-    };
-    
+    }
+
+    if (!isFetching && !fetchAttempted.current) {
+      debugLog('UserEventTickets', 'External event requires refresh - will fetchTickets()');
+      fetchTickets();
+    } else {
+      debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
+    }
+  }, [fetchTickets, applyAllFilters, isFetching]);
+
+  // Add event listener for ticket updates
+  useEffect(() => {
     window.addEventListener('ticket-update', handleTicketUpdate);
-    
     return () => {
       window.removeEventListener('ticket-update', handleTicketUpdate);
     };
-  }, [fetchTickets, applyAllFilters, isFetching]); // Remove isLoading from dependencies to prevent overfetching
+  }, [handleTicketUpdate]);
 
   // Add scroll event listener for infinite scrolling
   useEffect(() => {
@@ -1006,239 +782,98 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     };
   }, []); // Remove dependencies causing errors
 
-  // Effect to fetch tickets when the component mounts or remounts
+  // Fix dependencies for component mounting useEffect
   useEffect(() => {
-    // Устанавливаем флаг монтирования
-    isMounted.current = true;
+    if (!isMounted.current) return;
     debugLog('UserEventTickets', 'Component mounted', { authLoading, isAuthChecked, ticketsLoaded: tickets.length });
-    
-    // Проверяем, есть ли сохраненные данные из предыдущего запроса
-    if (pendingFetchResult.current && pendingFetchResult.current.length > 0 && isMounted.current) {
-      debugLog('UserEventTickets', 'Applying pending fetch results on mount', { ticketCount: pendingFetchResult.current.length });
-      setTickets(pendingFetchResult.current);
-      setFilteredTickets(applyAllFilters(pendingFetchResult.current));
-      setError(null);
-      setIsLoading(false);
-      hasInitialData.current = true;
-      isInitialFetchDone.current = true;
-      pendingFetchResult.current = null; // Очищаем после применения
-    } else if (tickets.length === 0 && isAuthChecked && !isFetching && !authLoading) {
-      // Простая логика: если данные не загружены, загружаем их, но только если нет текущего запроса и authLoading завершено
-      debugLog('UserEventTickets', 'Initiating ticket fetch on mount', { authLoading, isAuthChecked });
-      setIsLoading(true);
-      setIsFetching(true);
-      fetchTickets();
-    } else if (tickets.length > 0) {
-      debugLog('UserEventTickets', 'Data already loaded, skipping fetch', { ticketsLoaded: tickets.length });
-      setIsLoading(false);
-    } else if (authLoading) {
-      debugLog('UserEventTickets', 'Auth still loading, delaying fetch until stable', { authLoading, isAuthChecked });
-      setIsLoading(true); // Показываем загрузку, пока ждем стабильности
+    isMounted.current = true;
+
+    // Check for cached tickets immediately on mount
+    const cachedTickets = getCachedTickets();
+    debugLog('UserEventTickets', 'Checked for cached tickets', { cachedTickets: cachedTickets ? cachedTickets.length : null, rawData: localStorage.getItem(TICKETS_CACHE_KEY) });
+    if (cachedTickets && cachedTickets.length > 0) {
+      debugLog('UserEventTickets', 'Applying cached tickets on mount', { count: cachedTickets.length });
+      setTickets(cachedTickets);
+      setIsLoading(false); // Reset loading state if cached data is available
+      debugLog('UserEventTickets', 'Loading state reset to false due to cached tickets');
     } else {
-      debugLog('UserEventTickets', 'Fetch already in progress or not needed', { isFetching: isFetching });
+      debugLog('UserEventTickets', 'No valid cached tickets found in localStorage');
+    }
+
+    // Only initiate fetch if not already loading and auth is checked
+    if (!authLoading && isAuthChecked && !isLoading) {
+      debugLog('UserEventTickets', 'Initiating ticket fetch on mount', { authLoading, isAuthChecked });
+      fetchTickets();
     }
 
     return () => {
       debugLog('UserEventTickets', 'Component unmounting', { ticketsLoaded: tickets.length });
-      isMounted.current = false; // Устанавливаем флаг, что компонент размонтирован
-      lastUnmountTime.current = Date.now(); // Запоминаем время размонтирования
-      // Не отменяем активный запрос, чтобы он мог завершиться и сохранить данные
-      // if (activeAbortController.current) {
-      //   debugLog('Lifecycle', 'Aborting active fetch request on unmount');
-      //   activeAbortController.current.abort('Component unmounted');
-      //   activeAbortController.current = null;
-      // }
-      // Не сбрасываем isFetching, чтобы сохранить состояние для возможного повторного монтирования
+      isMounted.current = false;
     };
-  }, [fetchTickets, isAuthChecked, tickets.length, authLoading, isFetching, applyAllFilters]); // Добавляем applyAllFilters для обработки сохраненных данных
-  
+  }, [authLoading, isAuthChecked, isLoading, fetchTickets, tickets, getCachedTickets]);
+
   // Add effect to detect route changes and refresh tickets
   useEffect(() => {
     const handleRouteChange = () => {
-      const currentPath = window.location.pathname;
-      
-      // Skip if we're already on the same path
-      if (currentPath === previousPath.current) {
-        return;
-      }
-      
-      // Check if this is a navigation to a page with our component
-      if (currentPath.includes('/profile') || currentPath.includes('/cabinet')) {
-        debugLog('UserEventTickets', 'Navigation detected to profile page, current path:', currentPath);
-        
-        // Check for sessionStorage data that might indicate recent registration
-        try {
-          const regData = sessionStorage.getItem('recent_registration');
-          if (regData) {
-            debugLog('UserEventTickets', 'Found recent registration in sessionStorage', regData);
-            sessionStorage.removeItem('recent_registration');
-            
-            // Force a refresh since we might have new registration data only if no ongoing fetch
-            if (!isFetching && !fetchAttempted.current) {
-              debugLog('UserEventTickets', 'Initiating fetch after recent registration');
-              fetchTickets();
-            } else {
-              debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
-            }
-          } else {
-            // Only refresh if component is still mounted and no ongoing fetch
-            if (isMounted.current && !isFetching && !fetchAttempted.current) {
-              debugLog('UserEventTickets', 'Initiating fetch on navigation to profile page');
-              fetchTickets();
-            } else {
-              debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
-            }
-          }
-        } catch (error) {
-          // Default to regular refresh if sessionStorage access fails
-          debugLog('Error', 'Error accessing sessionStorage:', error);
-          if (isMounted.current && !isFetching && !fetchAttempted.current) {
-            debugLog('UserEventTickets', 'Initiating fetch despite sessionStorage error');
-            fetchTickets();
-          } else {
-            debugLog('UserEventTickets', 'Skipping refresh due to ongoing fetch or attempt');
-          }
-        }
-      }
-      // Update the previous path
-      previousPath.current = currentPath;
+      debugLog('UserEventTickets', 'Route change detected, forcing ticket refresh');
+      fetchTickets();
     };
 
-    // Record initial path
-    if (!previousPath.current) {
-      previousPath.current = window.location.pathname;
-      
-      // Initial check - if we're on the profile page
-      if (previousPath.current.includes('/profile') || previousPath.current.includes('/cabinet')) {
-        // Check for sessionStorage data
-        const regData = sessionStorage.getItem('recent_registration');
-        if (regData) {
-          debugLog('UserEventTickets', 'Found sessionStorage data on initial load', regData);
-          // Only clear if we're going to use it
-          sessionStorage.removeItem('recent_registration'); 
-          
-          // Force refresh right away on initial mount only if no ongoing fetch
-          if (!isFetching && !fetchAttempted.current) {
-            debugLog('UserEventTickets', 'Initiating fetch on initial load with recent registration');
-            fetchTickets();
-          } else {
-            debugLog('UserEventTickets', 'Skipping initial refresh due to ongoing fetch or attempt');
-          }
-        }
-      }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('popstate', handleRouteChange);
+      window.addEventListener('pushstate', handleRouteChange);
+      window.addEventListener('replacestate', handleRouteChange);
     }
-
-    // For Next.js App Router, add event listeners
-    window.addEventListener('popstate', handleRouteChange);
     
     return () => {
+      if (typeof window !== 'undefined') {
       window.removeEventListener('popstate', handleRouteChange);
+        window.removeEventListener('pushstate', handleRouteChange);
+        window.removeEventListener('replacestate', handleRouteChange);
+      }
     };
-  }, [fetchTickets, isFetching]); // Remove isLoading from dependencies to prevent overfetching
+  }, [fetchTickets]);
 
-  // Обработка изменений в localStorage и visibility
+  // Fix useEffect dependencies for handleVisibilityChange
   useEffect(() => {
     const handleVisibilityChange = () => {
-      const lastHiddenTime = Date.now(); // Moved outside useRef to avoid hook inside callback issue
-      if (document.visibilityState === 'visible' && !isLoading) {
-        // Check if we were hidden for a meaningful amount of time (e.g., 5+ seconds)
+      if (document.visibilityState === 'hidden') {
+        lastHiddenAt.current = Date.now();
+        debugLog('UserEventTickets', `Page hidden at ${new Date().toLocaleTimeString()}`);
+      } else if (lastHiddenAt.current > 0) {
         const now = Date.now();
-        const lastHiddenAt = lastHiddenTime;
-        
-        if (lastHiddenAt && (now - lastHiddenAt > 5000)) {
-          debugLog('UserEventTickets', `Page became visible after being hidden for ${(now - lastHiddenAt)/1000} seconds`);
-          
-          // Check if there's a user session before fetching
-          if (isAuthChecked && !authLoading && !isFetching) {
-            debugLog('UserEventTickets', 'Initiating fetch on page visibility after long hidden period');
-            fetchTickets();
-          } else {
-            debugLog('UserEventTickets', 'Skipping fetch on visibility due to auth check or ongoing fetch', { isAuthChecked, authLoading, isFetching });
-          }
+        const hiddenDuration = now - lastHiddenAt.current;
+        debugLog('UserEventTickets', 'Page became visible', { hiddenDuration });
+        if (hiddenDuration > 60000 && isAuthChecked && !authLoading && userData) {
+          debugLog('UserEventTickets', 'Page was hidden for over a minute, refreshing tickets', { hiddenDuration });
+          fetchTickets();
         }
-      } else if (document.visibilityState === 'hidden') {
-        // Record when the page was hidden
-        debugLog('UserEventTickets', 'Page hidden at', new Date(lastHiddenTime).toLocaleTimeString());
+        lastHiddenAt.current = 0;
       }
     };
 
-    // Handle localStorage changes that might affect our tickets
-    const handleStorageChange = (e: StorageEvent) => {
-      // Only react to changes relevant to us
-      if (e.key === 'cancelled_ticket_ids' && e.newValue !== null) {
-        try {
-          // Use a try-catch since JSON parsing can fail
-          const parsedIds = JSON.parse(e.newValue);
-          debugLog('UserEventTickets', 'Detected localStorage update for cancelled_ticket_ids', parsedIds);
-          
-          // If we have tickets loaded, update our local state
-          if (tickets.length > 0 && !isLoading) {
-            // Convert to a Set for efficient lookups
-            const cancelledIds = new Set(parsedIds);
-            
-            // Update both tickets arrays by filtering out cancelled tickets
-            const updatedTickets = tickets.filter(ticket => !cancelledIds.has(ticket.id.toString()));
-            const updatedFilteredTickets = filteredTickets.filter(ticket => !cancelledIds.has(ticket.id.toString()));
-            
-            // Only update if there's an actual change
-            if (updatedTickets.length !== tickets.length) {
-              debugLog('UserEventTickets', 'Updating local tickets based on localStorage change');
-              setTickets(updatedTickets);
-              setFilteredTickets(updatedFilteredTickets);
-              
-              // Update our local cancelled IDs set
-              setCancelledTicketIds(new Set(parsedIds));
-            }
-          }
-        } catch (error) {
-          console.error('Error parsing cancelled_ticket_ids from localStorage:', error);
-        }
-      }
-    };
-
-    // Register event listeners
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('storage', handleStorageChange);
-
-    // Clean up function
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('storage', handleStorageChange);
-      
-      // Save cancelled IDs to localStorage when component unmounts
-      if (cancelledTicketIds.size > 0) {
-        const idsArray = Array.from(cancelledTicketIds);
-        try {
-          localStorage.setItem('cancelled_ticket_ids', JSON.stringify(idsArray));
-          debugLog('UserEventTickets', 'Updated localStorage with cancelled ticket IDs', idsArray);
-        } catch (error) {
-          console.error('Error updating localStorage with cancelled ticket IDs:', error);
-        }
-      }
-    };
-  }, [tickets, filteredTickets, cancelledTicketIds, isLoading, isAuthChecked, authLoading, fetchTickets]);
-
-  // Мемоизированная фильтрация билетов
-  const filteredTicketsData = useMemo(() => {
-    if (!tickets || tickets.length === 0) {
-      return [];
+    if (typeof window !== 'undefined') {
+      window.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
-    debugLog('UserEventTickets', 'Recomputing filtered tickets', { 
-      ticketsCount: tickets.length 
-    });
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [isAuthChecked, authLoading, userData, fetchTickets]);
 
-    // Применяем фильтры к билетам
-    const result = applyAllFilters(tickets);
-    return result;
-  }, [tickets, filters, sortByStatusAndDate]); // Более точные зависимости для минимизации пересчетов
+  // Make sure filteredTicketsMemo has proper dependencies
+  const filteredTicketsMemo = useMemo(() => {
+    return applyAllFilters(tickets);
+  }, [applyAllFilters, tickets]);
 
-  // Обновляем отфильтрованные билеты при изменении результатов мемоизации
+  // Use filteredTicketsMemo to set filteredTickets
   useEffect(() => {
-    setFilteredTickets(filteredTicketsData);
-  }, [filteredTicketsData]);
+    setFilteredTickets(filteredTicketsMemo);
+  }, [filteredTicketsMemo]);
 
-  // Сохранение отмененных билетов при изменении
+  // Ensure localStorage access for cancelled tickets is minimized
   useEffect(() => {
     if (cancelledTicketIds.size > 0) {
       const idsArray = Array.from(cancelledTicketIds);
@@ -1251,83 +886,75 @@ const UserEventTickets = forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
     }
   }, [cancelledTicketIds]);
 
-  // Инициализация отмененных билетов при загрузке компонента
-  useEffect(() => {
-    try {
-      const storedTickets = localStorage.getItem('cancelledTickets');
-      if (storedTickets) {
-        const ticketsArray = JSON.parse(storedTickets) as string[];
-        setCancelledTicketIds(new Set(ticketsArray));
-        debugLog('UserEventTickets', 'Loaded cancelled tickets from localStorage', { count: ticketsArray.length });
-      }
-    } catch (error) {
-      console.error('Error loading cancelled tickets from localStorage:', error);
-    }
-  }, []);
-
   // Add handleCancelConfirm function to handle ticket cancellation
   const handleCancelConfirm = useCallback(async () => {
-    if (!selectedTicket) return;
-    
-    // Mark that we're in the process of cancelling
-    isTicketBeingCancelled.current = true;
+    if (!selectedTicket) {
+      setCancelError('Ошибка: билет не выбран');
+      return;
+    }
     setCancelRegistrationLoading(true);
-    setCancelError(undefined);
-    setCancelSuccess(undefined);
-    
+    setCancelError('');
+    setCancelSuccess('');
     try {
-      // Get the auth token
+      debugLog('Cancellation', 'Sending cancellation request', { ticketId: selectedTicket.id });
       const token = localStorage.getItem('token');
       if (!token) {
-        setCancelError('Необходима авторизация');
-        return;
+        throw new Error('Токен авторизации не найден');
       }
-      
-      // Make API call to cancel ticket
-      const response = await apiFetch<{error?: string}>(`/user_edits/tickets/${selectedTicket.id}/cancel`, {
+      const response = await apiFetch<APIResponse<unknown>>(`/registration/cancel`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+        data: { registration_id: selectedTicket.id },
       });
-      
+      debugLog('Cancellation', 'Cancellation response received', response);
       if ('error' in response) {
-        setCancelError(response.error || 'Ошибка при отмене регистрации');
-        return;
+        throw new Error(response.error ? response.error.toString() : 'Ошибка отмены регистрации');
       }
-      
-      // Success - add to cancelled IDs and update UI
-      cancelTicket(selectedTicket.id.toString());
-      
-      // Display success message
       setCancelSuccess('Регистрация успешно отменена');
-      
-      // Update tickets list by removing the cancelled ticket
-      setTickets(prev => prev.filter(t => t.id !== selectedTicket.id));
-      setFilteredTickets(prev => prev.filter(t => t.id !== selectedTicket.id));
-      
-      // Dispatch event for other components
+      // Обновляем счетчик отмен для текущего билета
+      const updatedTicket = { ...selectedTicket, cancellation_count: (selectedTicket.cancellation_count || 0) + 1, status: 'cancelled' as const };
+      // Обновляем список билетов
+      const updatedTickets = tickets.map(t => t.id === updatedTicket.id ? updatedTicket : t);
+      setTickets(updatedTickets);
+      setFilteredTickets(applyAllFilters(updatedTickets));
+      // Добавляем ID билета в список отмененных
+      setCancelledTicketIds(prev => new Set(prev).add(updatedTicket.id.toString()));
+      // Обновляем localStorage для отмененных билетов
+      const idsArray = Array.from(new Set([...cancelledTicketIds, updatedTicket.id.toString()]));
+      localStorage.setItem('cancelled_ticket_ids', JSON.stringify(idsArray));
+      debugLog('Cancellation', 'Updated cancelled ticket IDs', idsArray);
+      // Отправляем событие об обновлении билета
+      if (typeof window !== 'undefined') {
       const event = new CustomEvent('ticket-update', {
         detail: {
-          source: 'user-event-tickets',
+            source: 'UserEventTickets',
           action: 'cancel',
-          ticketId: selectedTicket.id
+            ticketId: updatedTicket.id,
+            eventId: updatedTicket.event.id
         }
       });
       window.dispatchEvent(event);
-      
-      // Close modal after delay
+        debugLog('Cancellation', 'Dispatched ticket-update event', { ticketId: updatedTicket.id });
+      }
       setTimeout(() => {
         setIsModalOpen(false);
         setSelectedTicket(null);
+        setCancelSuccess('');
         isTicketBeingCancelled.current = false;
       }, 2000);
-      
     } catch (error) {
-      console.error('Error cancelling ticket:', error);
-      setCancelError('Произошла ошибка при отмене регистрации');
+      debugLog('Cancellation', 'Error during cancellation', error);
+      setCancelError(error instanceof Error ? error.message : 'Неизвестная ошибка при отмене регистрации');
+      setTimeout(() => {
+        setCancelError('');
+        isTicketBeingCancelled.current = false;
+      }, 3000);
     } finally {
       setCancelRegistrationLoading(false);
     }
-  }, [selectedTicket, cancelTicket]);
+  }, [selectedTicket, applyAllFilters, cancelledTicketIds, tickets]);
 
   if (error) {
     return (

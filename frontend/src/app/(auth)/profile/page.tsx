@@ -61,9 +61,6 @@ const ProfilePage: React.FC = () => {
     };
   }, [refreshTickets]);
   
-  // Add state to reference the tickets component
-  const [ticketsComponentKey, setTicketsComponentKey] = useState(0);
-  
   // Add effect to handle browser navigation events
   useEffect(() => {
     // Function to handle page show events (back/forward navigation)
@@ -71,8 +68,8 @@ const ProfilePage: React.FC = () => {
       // If the page is being restored from cache (back button)
       if (e.persisted) {
         console.log('ProfilePage: Page restored from cache, forcing tickets update');
-        // Increment the key to completely re-mount the tickets component
-        setTicketsComponentKey(prev => prev + 1);
+        // Increment the key to completely re-mount the tickets component - removed to prevent unnecessary remounting
+        // setTicketsComponentKey(prev => prev + 1);
         // Trigger refresh
         refreshTickets();
       }
@@ -81,8 +78,8 @@ const ProfilePage: React.FC = () => {
     // Handle popstate events (URL changes without page reload)
     const handlePopState = () => {
       console.log('ProfilePage: Browser navigation detected, forcing tickets update');
-      // Increment the key to completely re-mount the tickets component
-      setTicketsComponentKey(prev => prev + 1);
+      // Increment the key to completely re-mount the tickets component - removed to prevent unnecessary remounting
+      // setTicketsComponentKey(prev => prev + 1);
       // Trigger refresh
       refreshTickets();
     };
@@ -114,6 +111,9 @@ const ProfilePage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
+
+  // Add state to reference the tickets component - using constant instead of state
+  const ticketsComponentKey = 0; // Используем константу вместо состояния, так как изменение ключа больше не требуется
 
   const validateForm = useCallback((state: FormState = formState) => {
     const errors: ValidationErrors = {};

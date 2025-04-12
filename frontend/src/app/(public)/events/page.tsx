@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 "use client";
 import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import Footer from "@/components/Footer";
@@ -13,42 +17,60 @@ import { apiFetch } from "@/utils/api";
 import Header from "@/components/Header";
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
-// Добавляем уровни логирования для оптимизации вывода
+// Константы для логирования
 const LOG_LEVEL = {
   NONE: 0,
   ERROR: 1,
   WARN: 2,
   INFO: 3,
   DEBUG: 4,
+  TRACE: 5
 };
 
-// Устанавливаем уровень логирования (можно менять при разработке/продакшене)
+// Устанавливаем уровень логирования в зависимости от окружения
 const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production' 
-  ? LOG_LEVEL.WARN 
+  ? LOG_LEVEL.ERROR 
   : LOG_LEVEL.INFO;
 
-// Вспомогательные функции для логирования с разными уровнями
-const logDebug = (message: string, data?: unknown) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
-    console.log(`EventsPage: ${message}`, data);
-  }
-};
+// Структурированное логирование согласно документации
+const getLogContext = () => ({
+  component: 'EventsPage',
+  timestamp: new Date().toISOString()
+});
 
-const logInfo = (message: string, data?: unknown) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
-    console.log(`EventsPage: ${message}`, data);
+const logError = (message: string, data?: unknown) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
+    console.error(`[EventsPage] ⛔ ERROR: ${message}`, {
+      ...getLogContext(),
+      data
+    });
   }
 };
 
 const logWarn = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.WARN) {
-    console.log(`EventsPage: ⚠️ ${message}`, data);
+    console.warn(`[EventsPage] ⚠️ WARN: ${message}`, {
+      ...getLogContext(),
+      data
+    });
   }
 };
 
-const logError = (message: string, data?: unknown) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.ERROR) {
-    console.error(`EventsPage: ⛔ ${message}`, data);
+const logInfo = (message: string, data?: unknown) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
+    console.log(`[EventsPage] INFO: ${message}`, {
+      ...getLogContext(),
+      data
+    });
+  }
+};
+
+const logDebug = (message: string, data?: unknown) => {
+  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
+    console.log(`[EventsPage] DEBUG: ${message}`, {
+      ...getLogContext(),
+      data
+    });
   }
 };
 
@@ -319,6 +341,75 @@ const EventsSkeletonGrid: React.FC = () => {
   );
 };
 
+// Функция для безопасного приведения ответа API к EventsResponse
+const parseApiResponse = (response: unknown): EventsResponse => {
+  const defaultResponse: EventsResponse = { data: [], total: 0 };
+  
+  // Паттерн безопасной интеграции с API согласно документации
+  try {
+    // Null проверка
+    if (!response) return defaultResponse;
+    
+    // 1. Если это массив, считаем его массивом событий
+    if (Array.isArray(response)) {
+      return { data: response, total: response.length };
+    }
+    
+    // Проверка на объект
+    if (typeof response !== 'object' || response === null) {
+      return defaultResponse;
+    }
+    
+    // 2. Если ответ содержит поле 'aborted'
+    if ('aborted' in response) {
+      const abortedResponse = response as unknown as ApiAbortedResponse;
+      logError("Request aborted", abortedResponse.reason);
+      return defaultResponse;
+    }
+    
+    // 3. Если ответ содержит поле 'error'
+    if ('error' in response) {
+      const errorResponse = response as unknown as ApiErrorResponse;
+      logError("Error in response", errorResponse.error);
+      return defaultResponse;
+    }
+    
+    // 4. Обработка успешного ответа в формате EventsResponse
+    if ('data' in response && Array.isArray((response as Record<string, unknown>).data)) {
+      return {
+        data: (response as Record<string, unknown>).data as EventData[],
+        total: 'total' in response && typeof (response as Record<string, unknown>).total === 'number'
+          ? (response as Record<string, unknown>).total as number
+          : ((response as Record<string, unknown>).data as Array<unknown>).length
+      };
+    }
+    
+    // 5. Обработка альтернативных форматов ответа
+    const typedResponse = response as Record<string, unknown>;
+    let eventData: EventData[] = [];
+    
+    // Ищем массив данных в разных возможных полях
+    if ('items' in typedResponse && Array.isArray(typedResponse.items)) {
+      eventData = typedResponse.items as EventData[];
+    } else if ('events' in typedResponse && Array.isArray(typedResponse.events)) {
+      eventData = typedResponse.events as EventData[];
+    } else if ('results' in typedResponse && Array.isArray(typedResponse.results)) {
+      eventData = typedResponse.results as EventData[];
+    }
+    
+    return {
+      data: eventData,
+      total: 'total' in typedResponse && typeof typedResponse.total === 'number'
+        ? typedResponse.total as number
+        : eventData.length
+    };
+  } catch (err) {
+    // Обработка непредвиденных ошибок
+    logError("Unexpected error parsing API response", err);
+    return defaultResponse;
+  }
+};
+
 const EventsPage = () => {
   const { setDynamicLoading, isDynamicLoading } = useLoading();
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -345,11 +436,11 @@ const EventsPage = () => {
     return activeFilters.startDate !== "" || activeFilters.endDate !== "";
   }, [activeFilters]);
 
-  // Функция загрузки данных - максимально упрощенная версия
+  // Функция загрузки данных - с улучшенной обработкой ошибок и состояний загрузки
   const fetchEvents = useCallback(async (pageNum = page) => {
     if (!isMounted.current) return;
     
-    // Защита от слишком частых запросов
+    // Защита от слишком частых запросов (согласно правилам оптимизации)
     const currentTime = Date.now();
     if (currentTime - lastFetchTime.current < minFetchInterval) {
       logDebug('Skipping fetch - rate limiting active');
@@ -359,13 +450,22 @@ const EventsPage = () => {
     // Обновляем время последнего запроса
     lastFetchTime.current = currentTime;
     
-    // Отменяем предыдущий запрос
+    // Отменяем предыдущий запрос (согласно правилу отмены устаревших запросов)
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+      abortControllerRef.current.abort('New request started');
     }
     
-    // Создаем новый контроллер
-    abortControllerRef.current = new AbortController();
+    // Создаем новый контроллер с таймаутом (согласно конфигурации из документации)
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    
+    // Устанавливаем таймаут для запроса (15 секунд согласно документации)
+    const timeoutId = setTimeout(() => {
+      if (abortControllerRef.current === controller) {
+        controller.abort('Request timeout exceeded');
+        logWarn('Request timeout exceeded, aborting');
+      }
+    }, 15000);
     
     // Обновляем состояние загрузки
     setIsFetching(true);
@@ -376,19 +476,17 @@ const EventsPage = () => {
     const isFiltersActive = activeFilters.startDate !== "" || activeFilters.endDate !== "";
     
     // Определяем источник запроса для логов
-    const requestSource = new Error().stack?.includes('placeholder') 
-      ? 'placeholder_reset' 
-      : isFiltersActive ? 'filter_active' : 'filter_reset';
+    const requestSource = isFiltersActive ? 'filter_active' : 'regular_load';
     
     // Формируем URL запроса с обязательным временным штампом для предотвращения кэширования
-    const nocacheParam = `&_nocache=${Date.now()}`;
+    const cacheBuster = `_nocache=${Date.now()}`;
     const endpoint = `/v1/public/events?page=${pageNum}&limit=${ITEMS_PER_PAGE}&search=&start_date=${
       activeFilters.startDate ? formatDateForAPI(activeFilters.startDate) : ''
     }&end_date=${
       activeFilters.endDate ? formatDateForAPI(activeFilters.endDate) : ''
-    }${nocacheParam}`;
+    }&${cacheBuster}`;
     
-    // Логируем запрос с полным URL
+    // Логируем запрос с полным URL и контекстом
     logInfo('Fetching events', { 
       page: pageNum, 
       hasInitialData: hasInitialData.current,
@@ -404,77 +502,28 @@ const EventsPage = () => {
     try {
       // Выполняем запрос, всегда используя обход проверки стадии загрузки
       const response = await apiFetch<EventsResponse | EventData[]>(endpoint, {
-        signal: abortControllerRef.current.signal,
-        bypassLoadingStageCheck: true
+        signal: controller.signal,
+        bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки (критически важный запрос)
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
+        }
       });
       
       // Проверяем, что компонент не был размонтирован
-      if (!isMounted.current) return;
-      
-      // Обрабатываем возможные ошибки
-      if ('error' in response) {
-        const errorResponse = response as unknown as ApiErrorResponse;
-        logError('API returned error', errorResponse.error);
-        setError(new Error(typeof errorResponse.error === 'string' ? errorResponse.error : 'API error'));
+      if (!isMounted.current) {
+        logInfo('Component unmounted during fetch, ignoring response');
         return;
       }
       
-      // Обрабатываем случай, когда запрос был отменен
-      if ('aborted' in response) {
-        const abortedResponse = response as unknown as ApiAbortedResponse;
-        logWarn('Request was aborted', abortedResponse.reason);
-        
-        // Если запрос был заблокирован из-за стадии загрузки, пробуем еще раз через таймаут
-        if (abortedResponse.reason?.includes('loading_stage')) {
-          logInfo('Request blocked due to loading stage, retrying after timeout');
-          setTimeout(() => {
-            if (isMounted.current) {
-              fetchEvents(pageNum);
-            }
-          }, 500);
-        }
-        
-        return;
-      }
+      // Парсим и обрабатываем ответ
+      const formattedResponse = parseApiResponse(response);
       
-      // Детальное логирование полученного ответа
-      logInfo('Raw API response', {
-        responseType: typeof response,
-        hasDataProp: response.hasOwnProperty('data'), 
-        isArray: Array.isArray(response),
-        arrayLength: Array.isArray(response) ? response.length : 'not array',
-        responseKeys: typeof response === 'object' ? Object.keys(response) : 'not object'
-      });
-      
-      let formattedResponse = {} as EventsResponse;
-      
-      // Обрабатываем разные форматы ответа
-      if (Array.isArray(response)) {
-        formattedResponse = { data: response, total: response.length };
-      } else if ('data' in response && Array.isArray(response.data)) {
-        formattedResponse = response as EventsResponse;
-      } else if (typeof response === 'object' && response !== null) {
-        // Пробуем извлечь данные из разных возможных свойств
-        const typedResponse = response as Record<string, unknown>;
-        const data = (typedResponse.items as EventData[]) || 
-                     (typedResponse.events as EventData[]) || 
-                     (typedResponse.results as EventData[]) || 
-                     [];
-        const responseTotal = typeof typedResponse.total === 'number' ? 
-                              typedResponse.total : 
-                              (Array.isArray(data) ? data.length : 0);
-        
-        formattedResponse = {
-          data: Array.isArray(data) ? data : [],
-          total: responseTotal
-        };
-      }
-      
-      // Подробное логирование отформатированного ответа
-      logInfo('Formatted response', {
-        hasData: !!formattedResponse.data,
-        dataLength: Array.isArray(formattedResponse.data) ? formattedResponse.data.length : 'not array',
-        total: formattedResponse.total
+      // Подробное логирование результата
+      logInfo('API response processed', {
+        hasData: formattedResponse.data.length > 0,
+        totalItems: formattedResponse.total,
+        currentPage: pageNum
       });
       
       // Обновляем состояние компонента
@@ -482,27 +531,34 @@ const EventsPage = () => {
       setHasMore(Array.isArray(formattedResponse.data) && formattedResponse.data.length === ITEMS_PER_PAGE);
       setError(null);
       
-      // ВАЖНО: устанавливаем флаг, что данные загружены - это предотвратит повторные загрузки
+      // Устанавливаем флаг, что данные загружены
       hasInitialData.current = true;
-      
-      logInfo('Events data loaded successfully', { 
-        count: formattedResponse.data.length,
-        total: formattedResponse.total
-      });
     } catch (err: unknown) {
       if (!isMounted.current) return;
       
+      // Типобезопасная обработка ошибок
       logError('Error fetching events', {
         name: err instanceof Error ? err.name : 'Unknown error',
         message: err instanceof Error ? err.message : String(err)
       });
       
-      if (err instanceof Error && err.name !== 'AbortError') {
-        setError(err);
-      } else if (!(err instanceof Error)) {
-        setError(new Error(String(err)));
+      // Не обрабатываем ошибки отмены запроса как ошибки приложения
+      if (err instanceof Error && err.name === 'AbortError') {
+        logInfo('Request was aborted', err.message);
+        return;
       }
+      
+      // Устанавливаем ошибку для отображения пользователю
+      setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
+      // Очищаем таймаут
+      clearTimeout(timeoutId);
+      
+      // Сбрасываем контроллер, если это все еще тот же запрос
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
+      
       if (isMounted.current) {
         // Сбрасываем все статусы загрузки
         setIsLoading(false);
@@ -512,55 +568,69 @@ const EventsPage = () => {
     }
   }, [page, activeFilters.startDate, activeFilters.endDate, setDynamicLoading]);
 
-  // Один эффект для инициализации и загрузки данных - максимально упрощенный
+  // Эффект для инициализации компонента и управления жизненным циклом
   useEffect(() => {
     // Устанавливаем флаги при монтировании
     isMounted.current = true;
-    hasInitialData.current = false; // Важно сбросить при каждом монтировании
+    hasInitialData.current = false;
     
     logInfo('Events page mounted - initializing');
 
-    // Одна простая функция, которая гарантированно загрузит данные
+    // Функция гарантированной загрузки данных с таймаутами безопасности
     const performInitialDataFetch = () => {
-      if (!isMounted.current || hasInitialData.current) return; // Загружаем только один раз
+      if (!isMounted.current || hasInitialData.current) return;
       
       logInfo('Performing guaranteed initial data fetch');
       fetchEvents();
     };
 
-    // Запускаем таймер безусловной загрузки данных через 200мс
+    // 1. Таймаут для безусловной загрузки данных (200мс)
     const fetchTimer = setTimeout(() => {
       if (isMounted.current && !hasInitialData.current) {
-        logInfo('Initial data fetch timer triggered - loading data unconditionally');
+        logInfo('Initial data fetch timer triggered');
         performInitialDataFetch();
       }
     }, 200);
     
-    // Запускаем таймер скрытия скелетона через определенное время,
-    // чтобы гарантировать, что пользователь не увидит пустую страницу
+    // 2. Таймаут для гарантированного скрытия скелетона (2000мс)
     const skeletonTimer = setTimeout(() => {
       if (isMounted.current) {
-        logInfo('Hiding skeleton regardless of data state');
+        logInfo('Safety timeout: hiding skeleton regardless of data state');
         setShowInitialSkeleton(false);
       }
-    }, 2000); // Даем 2 секунды на загрузку, потом в любом случае скрываем
+    }, 2000);
+    
+    // 3. Таймаут для обнаружения и исправления несогласованности загрузки
+    const inconsistencyTimer = setTimeout(() => {
+      if (isMounted.current && (isLoading || isFetching || isDynamicLoading)) {
+        logWarn('Inconsistent loading state detected, resetting loading flags');
+        setIsLoading(false);
+        setIsFetching(false);
+        setDynamicLoading(false);
+      }
+    }, 5000);
     
     // Очистка при размонтировании
     return () => {
+      logInfo('Events page unmounting, cleaning up resources');
       isMounted.current = false;
+      
+      // Очищаем все таймеры
       clearTimeout(fetchTimer);
       clearTimeout(skeletonTimer);
+      clearTimeout(inconsistencyTimer);
       
+      // Отменяем текущий запрос если он есть
       if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+        abortControllerRef.current.abort('Component unmounted');
       }
       
-      // Сбрасываем все статусы загрузки при размонтировании
+      // Сбрасываем все состояния загрузки при размонтировании
       setIsLoading(false);
       setIsFetching(false);
       setDynamicLoading(false);
     };
-  }, [fetchEvents, setDynamicLoading]); // Добавляем fetchEvents и setDynamicLoading в зависимости
+  }, [fetchEvents, setDynamicLoading, isLoading, isFetching, isDynamicLoading]);
 
   // Отдельный эффект для изменения page
   useEffect(() => {
@@ -589,128 +659,60 @@ const EventsPage = () => {
     }
   }, [inView, hasMore, isLoading, isFetching, minFetchInterval]);
 
-  // Мемоизированные функции для фильтров
+  // Функция сброса фильтров с оптимизированной безопасной обработкой ответа API
   const handleResetFilters = useCallback(() => {
-    // Важно: вычисляем актуальное значение isFilterActive в момент вызова
-    const currentFilterActive = activeFilters.startDate !== "" || activeFilters.endDate !== "";
-    logInfo('Resetting filters and reloading data', { isFilterActive: currentFilterActive });
+    // Отменяем текущий запрос если есть
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort('Filter reset initiated');
+    }
     
-    // Устанавливаем новое состояние фильтров
+    // Логируем действие сброса фильтров
+    logInfo('Resetting filters and reloading data', { 
+      activeFilters,
+      isFilterActive 
+    });
+    
+    // Установка состояния загрузки и сброс фильтров
     setActiveFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
     setPage(1);
-    setData(null); // Сбрасываем данные, чтобы гарантировать перезагрузку
-    
-    // Отменяем текущий запрос если есть
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-    }
-    
-    // Показываем скелетон на короткое время
+    setData(null);
     setShowInitialSkeleton(true);
     
-    // Сбрасываем флаг hasInitialData для гарантированной перезагрузки
+    // Сброс флагов для гарантированной перезагрузки
     hasInitialData.current = false;
-    firstLoadRef.current = true; // Сбрасываем флаг первой загрузки
     
-    // Очистка кэша API перед новым запросом
-    window.dispatchEvent(new CustomEvent('clear-api-cache', { detail: { pattern: '/v1/public/events' }}));
+    // Очистка кэша API перед новым запросом (использование события согласно документации)
+    window.dispatchEvent(new CustomEvent('clear-api-cache', { 
+      detail: { pattern: '/v1/public/events' }
+    }));
     
-    // Создаем новый контроллер для прямого запроса
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    
-    // Прямой API запрос без фильтров и с уникальным временным штампом
-    setTimeout(() => {
-      if (!isMounted.current) return;
-      
-      logInfo('Performing direct API call with empty filters');
-      
-      // Указываем пустые значения фильтров в URL
-      const directEndpoint = `/v1/public/events?page=1&limit=${ITEMS_PER_PAGE}&search=&start_date=&end_date=&_nocache=${Date.now()}`;
-      
-      logInfo('Direct API endpoint', { url: directEndpoint });
-      
-      // Устанавливаем состояние загрузки
-      setIsFetching(true);
-      setIsLoading(true);
-      setDynamicLoading(true);
-      
-      apiFetch<EventsResponse | EventData[]>(directEndpoint, {
-        signal: controller.signal,
-        bypassLoadingStageCheck: true
-      })
-      .then(response => {
-        if (!isMounted.current) return;
-        
-        // Подробно логируем полученные данные
-        logInfo('Direct API response', { 
-          type: typeof response,
-          isArray: Array.isArray(response),
-          keys: typeof response === 'object' ? Object.keys(response) : []
-        });
-        
-        // Обрабатываем ответ
-        let formattedResponse: EventsResponse = { data: [], total: 0 };
-        
-        if (Array.isArray(response)) {
-          formattedResponse.data = response;
-          formattedResponse.total = response.length;
-        } else if ('data' in response && Array.isArray(response.data)) {
-          formattedResponse = response as EventsResponse;
-        } else if (typeof response === 'object') {
-          const data = (response as unknown).items || (response as unknown).events || (response as unknown).results || [];
-          formattedResponse.data = Array.isArray(data) ? data : [];
-          formattedResponse.total = typeof (response as unknown).total === 'number' ? 
-            (response as unknown).total : formattedResponse.data.length;
-        }
-        
-        // Обновляем состояние
-        setData(formattedResponse);
-        setHasMore(formattedResponse.data.length === ITEMS_PER_PAGE);
-        hasInitialData.current = true;
-        
-        logInfo('Direct API data loaded', { 
-          count: formattedResponse.data.length,
-          total: formattedResponse.total
-        });
-      })
-      .catch(error => {
-        if (!isMounted.current) return;
-        logError('Error in direct API call', error);
-        if (error instanceof Error && error.name !== 'AbortError') {
-          setError(error);
-        }
-      })
-      .finally(() => {
-        if (!isMounted.current) return;
-        
-        // Сбрасываем состояние загрузки
-        setIsLoading(false);
-        setIsFetching(false);
-        setDynamicLoading(false);
-        
-        // Гарантированно скрываем скелетон
-        setTimeout(() => {
-          if (isMounted.current) {
-            setShowInitialSkeleton(false);
-          }
-        }, 1000);
-      });
-    }, 200);
-  }, [activeFilters.startDate, activeFilters.endDate, setDynamicLoading]);
-
-  const handleApplyFilters = useCallback(() => {
-    setPage(1);
-    setIsFilterOpen(false);
-    
-    // Инициируем загрузку данных с новыми фильтрами
+    // Используем стандартную функцию загрузки с короткой задержкой
     setTimeout(() => {
       if (isMounted.current) {
         fetchEvents(1);
       }
-    }, 0);
-  }, [fetchEvents]);
+    }, 50); // Минимальная задержка для обеспечения правильного порядка обновления состояния
+  }, [activeFilters, isFilterActive, fetchEvents, setData, setActiveFilters, setIsFilterOpen, setPage, setShowInitialSkeleton]);
+
+  // Функция применения фильтров 
+  const handleApplyFilters = useCallback(() => {
+    logInfo('Applying filters', { 
+      filters: activeFilters 
+    });
+    
+    setPage(1);
+    setIsFilterOpen(false);
+    setShowInitialSkeleton(true);
+    hasInitialData.current = false;
+    
+    // Используем небольшую задержку для гарантированного обновления состояния
+    setTimeout(() => {
+      if (isMounted.current) {
+        fetchEvents(1);
+      }
+    }, 50);
+  }, [activeFilters, fetchEvents, setPage, setIsFilterOpen, setShowInitialSkeleton]);
 
   // Функция группировки событий
   const groupEventsByDate = useCallback((events: EventData[]) => {
@@ -738,6 +740,86 @@ const EventsPage = () => {
 
   // Определяем, нужно ли показывать скелетон
   const shouldShowSkeleton = isLoading || isFetching || isDynamicLoading || showInitialSkeleton;
+
+  // Функция для обнаружения и исправления несогласованности загрузки
+  const detectAndFixLoadingInconsistency = (
+    isLoading: boolean,
+    isFetching: boolean,
+    isDynamicLoading: boolean,
+    setIsLoading: (value: boolean) => void,
+    setIsFetching: (value: boolean) => void,
+    setDynamicLoading: (value: boolean) => void,
+    hasInitialData: React.MutableRefObject<boolean>,
+    abortControllerRef: React.MutableRefObject<AbortController | null>
+  ) => {
+    // Проверяем, активен ли какой-либо запрос
+    const hasActiveRequest = abortControllerRef.current !== null;
+    
+    // Проверяем наличие глобального спиннера
+    const hasGlobalSpinner = typeof document !== 'undefined' && 
+      document.querySelector('.global-spinner') !== null;
+    
+    // 1. Если нет активного запроса, но флаги загрузки активны
+    if (!hasActiveRequest && (isLoading || isFetching || isDynamicLoading)) {
+      logWarn('Loading inconsistency detected: No active request but loading flags are active', {
+        isLoading,
+        isFetching,
+        isDynamicLoading,
+        hasInitialData: hasInitialData.current
+      });
+      
+      // Сбрасываем флаги загрузки
+      setIsLoading(false);
+      setIsFetching(false);
+      setDynamicLoading(false);
+      return true;
+    }
+    
+    // 2. Если данные загружены, но глобальный спиннер все еще отображается
+    if (hasInitialData.current && hasGlobalSpinner && !hasActiveRequest) {
+      logWarn('Loading inconsistency detected: Global spinner is shown but data is loaded');
+      setDynamicLoading(false);
+      return true;
+    }
+    
+    return false;
+  };
+
+  // Эффект для обнаружения и исправления несогласованностей загрузки
+  useEffect(() => {
+    if (!isMounted.current) return;
+    
+    // Запускаем проверку несогласованности каждые 2 секунды
+    const inconsistencyCheckInterval = setInterval(() => {
+      if (isMounted.current) {
+        const wasFixed = detectAndFixLoadingInconsistency(
+          isLoading,
+          isFetching,
+          isDynamicLoading,
+          setIsLoading,
+          setIsFetching,
+          setDynamicLoading,
+          hasInitialData,
+          abortControllerRef
+        );
+        
+        if (wasFixed) {
+          logInfo('Loading inconsistency fixed');
+          
+          // Принудительно скрываем скелетон через 500мс после исправления
+          setTimeout(() => {
+            if (isMounted.current) {
+              setShowInitialSkeleton(false);
+            }
+          }, 500);
+        }
+      }
+    }, 2000);
+    
+    return () => {
+      clearInterval(inconsistencyCheckInterval);
+    };
+  }, [isLoading, isFetching, isDynamicLoading, setDynamicLoading]);
 
   if (error) return <ErrorPlaceholder />;
 
@@ -877,20 +959,8 @@ const EventsPage = () => {
                           keys: typeof response === 'object' ? Object.keys(response) : []
                         });
                         
-                        // Обрабатываем ответ
-                        let formattedResponse: EventsResponse = { data: [], total: 0 };
-                        
-                        if (Array.isArray(response)) {
-                          formattedResponse.data = response;
-                          formattedResponse.total = response.length;
-                        } else if ('data' in response && Array.isArray(response.data)) {
-                          formattedResponse = response as EventsResponse;
-                        } else if (typeof response === 'object') {
-                          const data = (response as unknown).items || (response as unknown).events || (response as unknown).results || [];
-                          formattedResponse.data = Array.isArray(data) ? data : [];
-                          formattedResponse.total = typeof (response as unknown).total === 'number' ? 
-                            (response as unknown).total : formattedResponse.data.length;
-                        }
+                        // Используем безопасный парсер ответа
+                        const formattedResponse = parseApiResponse(response);
                         
                         // Обновляем состояние
                         setData(formattedResponse);

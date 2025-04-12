@@ -197,8 +197,8 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
             }
           }, retryDelay);
         } else {
-          setError(typedError.message || "Ошибка загрузки данных пользователя");
-          if (onError) onError(typedError instanceof Error ? typedError : new Error(typedError.message || "Ошибка загрузки данных пользователя"));
+          setError(typedError instanceof Error ? typedError.message : "Ошибка загрузки данных пользователя");
+          if (onError) onError(typedError instanceof Error ? typedError : new Error("Ошибка загрузки данных пользователя"));
         }
       }
     } finally {
@@ -342,7 +342,7 @@ const EditUserForm: React.FC<EditUserFormProps> = ({ userId, onSuccess, onError 
       console.error(`EditUserForm: Error reloading user data (request ${currentRequestId}):`, typedError);
       
       if (mountedRef.current) {
-        setError(typedError.message || "Ошибка загрузки данных пользователя");
+        setError(typedError instanceof Error ? typedError.message : "Ошибка загрузки данных пользователя");
         setIsFetching(false);
       }
     } finally {

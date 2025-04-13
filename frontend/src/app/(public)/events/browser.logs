@@ -1,21 +1,13 @@
-main-app.js?v=1744555695138:1836 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+main-app.js?v=1744559911520:1836 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
 Header.tsx:41 Header: Header component mounted {authLoading: true, isAuthChecked: false, currentStage: 'initial'}
-logger.ts:200 EventsPage: Events page mounted - initializing loading stage [component=EventsPage] {mountId: '7gne17op'}
 logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'data_loading'}
 logger.ts:200 LoadingStageContext: Changing loading stage: initial -> data_loading 
 logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
-logger.ts:200 EventsPage: Initial data loading effect triggered [component=EventsPage] {mountId: '7gne17op', currentStage: 'initial'}
-logger.ts:200 EventsPage: Loading stage changed [component=EventsPage] {stage: 'initial', hasInitialData: false, hasAttemptedFetch: false}
 logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
 logger.ts:200 AuthContext: Starting initial authentication check 
 logger.ts:200 AuthContext: Found user data in localStorage: {id: 2, fio: 'Батищева', email: 'batishchevaa19@gmail.com', telegram: '@Nandaranii', whatsapp: '89966921961', …}
 logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage (from localStorage) 
-logger.ts:200 EventsPage: Events page unmounting [component=EventsPage] {mountId: '7gne17op'}
-logger.ts:200 EventsPage: Events page unmounting, cleaning up resources [component=EventsPage] {mountId: '7gne17op'}
-logger.ts:200 EventsPage: Events page mounted - initializing loading stage [component=EventsPage] {mountId: '7gne17op'}
 logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
-logger.ts:200 EventsPage: Initial data loading effect triggered [component=EventsPage] {mountId: '7gne17op', currentStage: 'initial'}
-logger.ts:200 EventsPage: Loading stage changed [component=EventsPage] {stage: 'initial', hasInitialData: false, hasAttemptedFetch: false}
 logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
 logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'data_loading'}
 logger.ts:200 LoadingStageContext: Changing loading stage: initial -> data_loading 
@@ -23,28 +15,16 @@ logger.ts:200 API: Loading stage changed [module=api version=1.0.0 reason=explic
 logger.ts:200 LoadingStageContext: Changing loading stage: data_loading -> static_content 
 logger.ts:200 API: Loading stage changed [module=api version=1.0.0 reason=explicit_set allowRegression=true] {prev: 'data_loading', current: 'static_content'}
 logger.ts:200 LoadingStageContext: Changing loading stage: data_loading -> static_content 
-logger.ts:200 EventsPage: Events page unmounting [component=EventsPage] {mountId: '7gne17op'}
 Header.tsx:78 AvatarDisplay: Using avatarUrl prop /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
 Header.tsx:126 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg', cacheBuster: '1744359145805'}
 Header.tsx:41 Header: Showing header based on auth check or loading stage {isAuthChecked: true, currentStage: 'static_content', hasShownHeader: true}
-logger.ts:200 EventsPage: Events page mounted - initializing loading stage [component=EventsPage] {mountId: '7gne17op'}
 logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'static_content'}
-logger.ts:200 EventsPage: Initial data loading effect triggered [component=EventsPage] {mountId: '7gne17op', currentStage: 'static_content'}
-logger.ts:200 EventsPage: Loading stage changed [component=EventsPage] {stage: 'static_content', hasInitialData: false, hasAttemptedFetch: false}
 Header.tsx:78 AvatarDisplay: Using avatarUrl prop /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
 Header.tsx:126 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg', cacheBuster: '1744359145805'}
-logger.ts:200 EventsPage: Triggering initial data fetch [component=EventsPage] {mountId: '7gne17op'}
-logger.ts:200 EventsPage: Direct API events fetch initiated [component=EventsPage] {ref: 'v3d8wj76', page: 1, filters: {…}, isInitialLoad: true}
-logger.ts:200 EventsPage: Using eventService to fetch events [component=EventsPage] {ref: 'v3d8wj76', page: 1, filters: undefined, filterActive: ''}
-logger.ts:200 eventService: Fetching events list {requestId: 'yghuf50m', page: 1, filters: 'none', hasSignal: true}
-logger.ts:200 eventService: Making API request {requestId: 'yghuf50m', url: '/v1/public/events?page=1&limit=6'}
-logger.ts:200 EventsPage: Loading stage changed [component=EventsPage] {stage: 'static_content', hasInitialData: false, hasAttemptedFetch: true}
+logger.ts:200 EventsPage: Fetching events data [component=EventsPage] {page: 1, hasFilters: ''}
+logger.ts:200 eventService: Fetching events list {requestId: 'iwqmex1n', page: 1, filters: '{"startDate":"","endDate":""}', hasSignal: true}
+logger.ts:200 eventService: Making API request {requestId: 'iwqmex1n', url: '/v1/public/events?page=1&limit=6&start_date=&end_date='}
 Header.tsx:132 AvatarDisplay: Avatar preloaded successfully: /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
-logger.ts:200 eventService: Events fetch successful {requestId: 'yghuf50m', count: 1, currentPage: 1, totalPages: 1, hasMore: false}
-logger.ts:200 EventsPage: Events response received successfully [component=EventsPage] {ref: 'v3d8wj76', dataLength: 1}
-logger.ts:200 EventsPage: Events data processed successfully [component=EventsPage] {ref: 'v3d8wj76', hasData: true}
-logger.ts:200 EventsPage: Fetch events operation completed [component=EventsPage] {ref: 'v3d8wj76', isMounted: true, hasData: true}
-logger.ts:200 EventsPage: Loading stage changed [component=EventsPage] {stage: 'static_content', hasInitialData: true, hasAttemptedFetch: true}
+logger.ts:200 eventService: Events fetch successful {requestId: 'iwqmex1n', count: 1, currentPage: 1, totalPages: 1, hasMore: false}
+logger.ts:200 EventsPage: Received events data [component=EventsPage] {count: 1}
 logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage (success) 
-logger.ts:200 EventsPage: Setting COMPLETED stage after data loaded [component=EventsPage] {previousStage: 'static_content'}
-logger.ts:200 EventsPage: Forcing transition to COMPLETED stage [component=EventsPage] {currentStage: 'static_content'}

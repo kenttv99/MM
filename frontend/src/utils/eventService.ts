@@ -1305,18 +1305,17 @@ export async function fetchEvents(
     params.append('page', page.toString());
     params.append('limit', '6'); // Стандартный лимит для страницы
     
-    // Добавляем параметры фильтрации, если они есть
-    if (filters) {
-      if (filters.startDate) {
-        params.append('start_date', filters.startDate);
-        logger.debug('Adding start_date filter', { value: filters.startDate });
-      }
-      
-      if (filters.endDate) {
-        params.append('end_date', filters.endDate);
-        logger.debug('Adding end_date filter', { value: filters.endDate });
-      }
-    }
+    // Всегда добавляем параметры фильтрации, даже если они пустые
+    const startDate = filters?.startDate || '';
+    const endDate = filters?.endDate || '';
+    
+    params.append('start_date', startDate);
+    params.append('end_date', endDate);
+    
+    logger.debug('Adding filters to request', { 
+      start_date: startDate || 'empty', 
+      end_date: endDate || 'empty' 
+    });
     
     // Формируем URL для запроса
     const url = `/v1/public/events?${params.toString()}`;

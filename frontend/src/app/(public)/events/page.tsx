@@ -18,6 +18,8 @@ import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 import { fetchEvents as fetchEventsService } from '@/utils/eventService';
 // Импорты для фильтрации
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
+// Импортируем компонент Footer
+import Footer from "@/components/Footer";
 
 // Настройка логирования для модуля согласно принципам документации
 configureModuleLogging('EventsPage', {
@@ -200,7 +202,7 @@ const formatDateForDisplay = (dateString: string): string => {
 };
 
 const formatDateForAPI = (dateString: string): string => {
-  if (!dateString) return "";
+  if (!dateString || dateString.trim() === "") return "";
   try {
     // Преобразуем строку даты в объект Date
     const date = new Date(dateString);
@@ -378,8 +380,12 @@ const EventsPage = () => {
   const [hasMore, setHasMore] = useState<boolean>(true);
   const minFetchInterval = 1000; // Минимальный интервал между запросами (мс)
   
-  // Состояние фильтров
+  // Состояние фильтров - временные и примененные
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [tempFilters, setTempFilters] = useState<DateFilters>({
+    startDate: "",
+    endDate: ""
+  });
   const [activeFilters, setActiveFilters] = useState<DateFilters>({
     startDate: "",
     endDate: ""
@@ -395,26 +401,20 @@ const EventsPage = () => {
   
   // При монтировании компонента устанавливаем стадию загрузки
   useEffect(() => {
-    logger.info('Events page mounted - initializing loading stage', { mountId });
-    
-    // При первом монтировании устанавливаем стадию DATA_LOADING
+    // Упрощенное логирование при монтировании
     if (currentStage !== LoadingStage.ERROR) {
       setStage(LoadingStage.DATA_LOADING);
-      
-      // Включаем индикатор динамической загрузки
       setDynamicLoading(true);
     }
     
     // Доп. логика для обеспечения перехода в COMPLETED
     const completionTimer = setTimeout(() => {
       if (isMounted.current && hasInitialData.current && currentStage !== LoadingStage.COMPLETED) {
-        logger.info('Forcing transition to COMPLETED stage', { currentStage });
         setStage(LoadingStage.COMPLETED);
       }
     }, 3000);
     
     return () => {
-      logger.info('Events page unmounting', { mountId });
       clearTimeout(completionTimer);
     };
   }, [mountId, currentStage, setStage, setDynamicLoading]);
@@ -453,7 +453,7 @@ const EventsPage = () => {
     return groupEventsByDate(data.data);
   }, [data?.data, groupEventsByDate]);
   
-  // Вычисляем активность фильтров
+  // Вычисляем активность фильтров на основе применённых фильтров
   const isFilterActive = useMemo(() => {
     return activeFilters.startDate !== "" || activeFilters.endDate !== "";
   }, [activeFilters]);
@@ -468,7 +468,8 @@ const EventsPage = () => {
       abortControllerRef.current = null;
     }
     
-    // Сбрасываем фильтры и закрываем панель фильтрации
+    // Сбрасываем временные и активные фильтры
+    setTempFilters({ startDate: "", endDate: "" });
     setActiveFilters({ startDate: "", endDate: "" });
     setIsFilterOpen(false);
     
@@ -487,20 +488,23 @@ const EventsPage = () => {
     // Запускаем обновленный запрос с короткой задержкой
     setTimeout(() => {
       if (isMounted.current) {
-        fetchEvents({ forceTrigger: true });
+        fetchEventsWithFilters({ startDate: "", endDate: "" });
       }
     }, 50);
   }, [activeFilters, setStage, setDynamicLoading]);
 
   // Функция для применения фильтров
   const handleApplyFilters = useCallback(() => {
-    logger.info('Applying filters', { filters: activeFilters });
+    logger.info('Applying filters', { tempFilters });
     
     // Проверяем текущее состояние и отменяем запрос, если он выполняется
     if (abortControllerRef.current) {
       abortControllerRef.current.abort('Filter apply');
       abortControllerRef.current = null;
     }
+    
+    // Применяем временные фильтры как активные
+    setActiveFilters(tempFilters);
     
     // Сбрасываем страницу на первую и закрываем панель фильтрации
     setPage(1);
@@ -518,29 +522,20 @@ const EventsPage = () => {
     // Запускаем запрос данных с примененными фильтрами
     setTimeout(() => {
       if (isMounted.current) {
-        fetchEvents({ forceTrigger: true });
+        // Напрямую используем актуальные значения tempFilters
+        fetchEventsWithFilters(tempFilters);
       }
     }, 50);
-  }, [activeFilters, setStage, setDynamicLoading]);
+  }, [tempFilters, setStage, setDynamicLoading]);
 
-  // Основная функция получения событий
-  const fetchEvents = useCallback(async (options: FetchOptions = {}) => {
-    // Проверяем, смонтирован ли компонент
-    if (!isMounted.current) {
-      logger.info('Fetch events called but component is not mounted, skipping', { ref: fetchEventsRef.current });
-      return;
-    }
-
+  // Вспомогательная функция для запуска fetchEvents с заданными фильтрами
+  const fetchEventsWithFilters = useCallback((filters: DateFilters) => {
     // Создаем уникальный ID для запроса
     const localRef = Math.random().toString(36).substring(2, 10);
     fetchEventsRef.current = localRef;
     
-    logger.info('Direct API events fetch initiated', { 
-      ref: localRef,
-      page,
-      filters: activeFilters,
-      isInitialLoad: !hasInitialData.current
-    });
+    // Минимальное логирование - только важная информация о запросе
+    logger.info('Fetching events data', { page, hasFilters: filters.startDate || filters.endDate });
     
     // Устанавливаем состояние загрузки
     setIsFetching(true);
@@ -564,149 +559,129 @@ const EventsPage = () => {
     
     try {
       // Проверяем наличие непустых фильтров
-      const hasActiveStartDate = activeFilters.startDate && activeFilters.startDate.trim() !== '';
-      const hasActiveEndDate = activeFilters.endDate && activeFilters.endDate.trim() !== '';
-      const filterActive = hasActiveStartDate || hasActiveEndDate;
+      const hasActiveStartDate = filters.startDate && filters.startDate.trim() !== '';
+      const hasActiveEndDate = filters.endDate && filters.endDate.trim() !== '';
       
-      // Подготавливаем фильтры, если они активны
-      const serviceFilters = filterActive ? {
-        startDate: hasActiveStartDate ? formatDateForAPI(activeFilters.startDate) : undefined,
-        endDate: hasActiveEndDate ? formatDateForAPI(activeFilters.endDate) : undefined
-      } : undefined;
+      // Всегда передаем фильтры в сервис, даже если они не активны
+      const serviceFilters = {
+        startDate: hasActiveStartDate ? formatDateForAPI(filters.startDate) : '',
+        endDate: hasActiveEndDate ? formatDateForAPI(filters.endDate) : ''
+      };
       
       // Отмечаем, что была попытка загрузки
       hasAttemptedInitialFetch.current = true;
       
-      logger.info('Using eventService to fetch events', { 
-        ref: localRef,
-        page,
-        filters: serviceFilters,
-        filterActive
-      });
-      
       // Делаем запрос с функцией из сервиса
-      const response = await fetchEventsService(page, serviceFilters, signal);
-      
-      // Финальная проверка монтирования перед обновлением состояния
-      if (!isMounted.current) {
-        logger.info('Fetch events completed, but component unmounted', { 
-          ref: localRef
-        });
-        return;
-      }
-      
-      // Обрабатываем данные
-      if (response.success) {
-        logger.info('Events response received successfully', { 
-          ref: localRef,
-          dataLength: response.data?.length ?? 0
-        });
-        
-        // Используем полученные данные из API
-        const parsedData = {
-          data: response.data || [],
-          page: response.page || page,
-          totalPages: response.totalPages || 1,
-          hasMore: response.hasMore || false
-        };
-        
-        setData(prev => {
-          // Для первой страницы просто возвращаем новые данные
-          if (page === 1) return parsedData;
+      fetchEventsService(page, serviceFilters, signal)
+        .then(response => {
+          // Финальная проверка монтирования перед обновлением состояния
+          if (!isMounted.current) return;
           
-          // Для последующих страниц объединяем данные
-          if (prev && parsedData) {
-            return {
-              ...parsedData,
-              data: [...(prev.data || []), ...(parsedData.data || [])]
+          // Обрабатываем данные
+          if (response.success) {
+            // Сокращаем логи - только важная информация о полученных данных
+            if (response.data && response.data.length > 0) {
+              logger.info('Received events data', { count: response.data.length });
+            } else {
+              logger.info('No events data found');
+            }
+            
+            // Используем полученные данные из API
+            const parsedData = {
+              data: response.data || [],
+              page: response.page || page,
+              totalPages: response.totalPages || 1,
+              hasMore: response.hasMore || false
             };
+            
+            setData(prev => {
+              // Для первой страницы просто возвращаем новые данные
+              if (page === 1) return parsedData;
+              
+              // Для последующих страниц объединяем данные
+              if (prev && parsedData) {
+                return {
+                  ...parsedData,
+                  data: [...(prev.data || []), ...(parsedData.data || [])]
+                };
+              }
+              
+              return parsedData;
+            });
+            
+            // Обновляем hasMore
+            setHasMore(parsedData.hasMore);
+            
+            // Устанавливаем флаг наличия данных и скрываем скелетон
+            hasInitialData.current = true;
+            setShowInitialSkeleton(false);
+            
+            // Сбрасываем флаги загрузки
+            setDynamicLoading(false);
+            
+            // Устанавливаем стадию COMPLETED
+            setStage(LoadingStage.COMPLETED);
+            
+            // Сбрасываем ошибку, если она была
+            if (loadingErrorFromContext) {
+              setError(null);
+            }
+          } else {
+            // Если получили неуспешный ответ от сервиса, выбрасываем ошибку
+            throw new Error(response.error || 'Failed to fetch events data');
+          }
+        })
+        .catch(error => {
+          // Обрабатываем случай отмены запроса
+          if (error instanceof Error && error.name === 'AbortError') {
+            // Для отмены запроса упрощаем логирование
+            return;
           }
           
-          return parsedData;
+          // Логируем ошибку - это важно оставить для отладки
+          logger.error('Error fetching events data', {
+            error: error instanceof Error ? error.message : String(error)
+          });
+          
+          // Обновляем состояние ошибки и скрываем скелетон
+          if (isMounted.current) {
+            setShowInitialSkeleton(false);
+            setStage(LoadingStage.ERROR);
+            setError(error instanceof Error ? 
+              error.message : 
+              'Произошла ошибка при загрузке мероприятий'
+            );
+          }
+        })
+        .finally(() => {
+          // Сбрасываем состояние загрузки
+          if (isMounted.current) {
+            setIsFetching(false);
+            lastFetchTime.current = Date.now();
+            
+            // Синхронизируем флаги состояния для корректного рендеринга
+            if (hasInitialData.current) {
+              setShowInitialSkeleton(false);
+            }
+          }
+          
+          // Очищаем контроллер прерывания
+          if (abortControllerRef.current) {
+            abortControllerRef.current = null;
+          }
         });
-        
-        // Обновляем hasMore
-        setHasMore(parsedData.hasMore);
-        
-        // Устанавливаем флаг наличия данных и скрываем скелетон
-        hasInitialData.current = true;
-        setShowInitialSkeleton(false);
-        
-        // Сбрасываем флаги загрузки
-        setDynamicLoading(false);
-        
-        // Устанавливаем стадию COMPLETED
-        setStage(LoadingStage.COMPLETED);
-        
-        // Сбрасываем ошибку, если она была
-        if (loadingErrorFromContext) {
-          setError(null);
-        }
-        
-        logger.info('Events data processed successfully', { 
-          ref: localRef,
-          hasData: parsedData?.data && parsedData.data.length > 0
-        });
-      } else {
-        // Если получили неуспешный ответ от сервиса, выбрасываем ошибку
-        throw new Error(response.error || 'Failed to fetch events data');
-      }
     } catch (error) {
-      // Обрабатываем случай отмены запроса
-      if (error instanceof Error && error.name === 'AbortError') {
-        logger.info('Fetch aborted', { ref: localRef, reason: error.message });
-        return;
-      }
-      
-      // Логируем ошибку
-      logger.error('Error fetching events data', {
-        ref: localRef,
+      // Логируем критическую ошибку
+      logger.error('Critical error initiating fetch', {
         error: error instanceof Error ? error.message : String(error)
       });
-      
-      // Обновляем состояние ошибки и скрываем скелетон
-      if (isMounted.current) {
-        setShowInitialSkeleton(false);
-        
-        // Устанавливаем стадию ошибки
-        setStage(LoadingStage.ERROR);
-        
-        // Устанавливаем текст ошибки в контекст
-        setError(error instanceof Error ? 
-          error.message : 
-          'Произошла ошибка при загрузке мероприятий'
-        );
-      }
-    } finally {
-      // Сбрасываем состояние загрузки
-      if (isMounted.current) {
-        setIsFetching(false);
-        lastFetchTime.current = Date.now();
-        
-        // Синхронизируем флаги состояния для корректного рендеринга
-        if (hasInitialData.current) {
-          setShowInitialSkeleton(false);
-        }
-      }
-      
-      // Очищаем контроллер прерывания
-      if (abortControllerRef.current) {
-        abortControllerRef.current = null;
-      }
-      
-      logger.info('Fetch events operation completed', { 
-        ref: localRef,
-        isMounted: isMounted.current,
-        hasData: hasInitialData.current
-      });
+      // Сбрасываем состояние загрузки в случае ошибки
+      setIsFetching(false);
     }
-  }, [page, activeFilters, isMounted, setStage, setData, setHasMore, setShowInitialSkeleton, 
-      setDynamicLoading, loadingErrorFromContext, setError]);
+  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError]);
 
   // Эффект для загрузки начальных данных при монтировании
   useEffect(() => {
-    logger.info('Initial data loading effect triggered', { mountId, currentStage });
-    
     // Устанавливаем флаг монтирования
     isMounted.current = true;
     
@@ -715,8 +690,7 @@ const EventsPage = () => {
       // Небольшая задержка для избежания проблем с быстрым монтированием/размонтированием
       const initialFetchTimer = setTimeout(() => {
         if (isMounted.current) {
-          logger.info('Triggering initial data fetch', { mountId });
-          fetchEvents({ forceTrigger: true });
+          fetchEventsWithFilters({ startDate: "", endDate: "" });
         }
       }, 50);
       
@@ -728,7 +702,7 @@ const EventsPage = () => {
     return () => {
       // Ничего не делаем, если уже была загрузка
     };
-  }, [mountId, fetchEvents, currentStage]);
+  }, [mountId, currentStage]);
   
   // Обработчик автоматической загрузки следующей страницы при прокрутке
   useEffect(() => {
@@ -736,20 +710,13 @@ const EventsPage = () => {
       // Проверяем, прошло ли минимальное время с последнего запроса
       const now = Date.now();
       if (now - lastFetchTime.current >= minFetchInterval) {
-        logger.info('Loading next page on scroll', { 
-          currentPage: page,
-          inView,
-          hasMore
-        });
-        
-        // Увеличиваем номер страницы и запускаем загрузку
+        // Упрощенное логирование при загрузке следующей страницы
         setPage(prevPage => prevPage + 1);
       } else {
         // Если прошло недостаточно времени, откладываем загрузку
         const delay = minFetchInterval - (now - lastFetchTime.current);
         const timer = setTimeout(() => {
           if (isMounted.current && inView) {
-            logger.info('Delayed next page load', { currentPage: page });
             setPage(prevPage => prevPage + 1);
           }
         }, delay);
@@ -762,36 +729,12 @@ const EventsPage = () => {
   // Эффект для загрузки данных при изменении номера страницы
   useEffect(() => {
     if (page > 1 && hasInitialData.current && !isFetching) {
-      logger.info('Loading additional page', { page });
-      fetchEvents();
+      fetchEventsWithFilters(activeFilters);
     }
-  }, [page, fetchEvents, isFetching]);
-  
-  // Эффект для отмены запросов при размонтировании
-  useEffect(() => {
-    return () => {
-      logger.info('Events page unmounting, cleaning up resources', { mountId });
-      
-      // Устанавливаем флаг размонтирования
-      isMounted.current = false;
-      
-      // Отменяем любые незавершенные запросы
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort('Component unmounted');
-        abortControllerRef.current = null;
-      }
-    };
-  }, [mountId]);
+  }, [page, isFetching]);
   
   // Эффект для отслеживания стадии загрузки и контроля корректных переходов
   useEffect(() => {
-    // Логируем изменение стадии загрузки
-    logger.info('Loading stage changed', { 
-      stage: currentStage,
-      hasInitialData: hasInitialData.current,
-      hasAttemptedFetch: hasAttemptedInitialFetch.current
-    });
-    
     // Если данные загружены, но стадия загрузки не COMPLETED, устанавливаем COMPLETED
     if (hasInitialData.current && 
         !isFetching && 
@@ -801,35 +744,11 @@ const EventsPage = () => {
       // Небольшая задержка для предотвращения конфликтов с другими переходами
       const stageChangeTimer = setTimeout(() => {
         if (isMounted.current && hasInitialData.current) {
-          logger.info('Setting COMPLETED stage after data loaded', { 
-            previousStage: currentStage 
-          });
           setStage(LoadingStage.COMPLETED);
         }
       }, 500);
       
       return () => clearTimeout(stageChangeTimer);
-    }
-    
-    // Если мы находимся в стадии DATA_LOADING или DYNAMIC_CONTENT слишком долго,
-    // принудительно переходим к COMPLETED, если данные уже загружены
-    if ((currentStage === LoadingStage.DATA_LOADING || currentStage === LoadingStage.DYNAMIC_CONTENT) && 
-        hasInitialData.current && 
-        !isFetching) {
-      
-      const forceStageTimer = setTimeout(() => {
-        if (isMounted.current && 
-            (currentStage === LoadingStage.DATA_LOADING || currentStage === LoadingStage.DYNAMIC_CONTENT) && 
-            hasInitialData.current) {
-          
-          logger.info('Forcing COMPLETED stage after timeout', { 
-            stage: currentStage 
-          });
-          setStage(LoadingStage.COMPLETED);
-        }
-      }, 2000);
-      
-      return () => clearTimeout(forceStageTimer);
     }
   }, [currentStage, isFetching, setStage]);
   
@@ -846,7 +765,7 @@ const EventsPage = () => {
               setPage(1);
               hasInitialData.current = false;
               hasAttemptedInitialFetch.current = false;
-              fetchEvents({ forceTrigger: true });
+              fetchEventsWithFilters({ startDate: "", endDate: "" });
             }}
             className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
           >
@@ -897,13 +816,21 @@ const EventsPage = () => {
             {/* Выпадающий фильтр */}
             {isFilterOpen && (
               <DateFilter
-                startDate={activeFilters.startDate}
-                endDate={activeFilters.endDate}
-                onStartDateChange={(value) => setActiveFilters(prev => ({ ...prev, startDate: value }))}
-                onEndDateChange={(value) => setActiveFilters(prev => ({ ...prev, endDate: value }))}
-                onApply={handleApplyFilters}
+                startDate={tempFilters.startDate}
+                endDate={tempFilters.endDate}
+                onStartDateChange={(value) => {
+                  setTempFilters(prev => ({ ...prev, startDate: value }));
+                }}
+                onEndDateChange={(value) => {
+                  setTempFilters(prev => ({ ...prev, endDate: value }));
+                }}
+                onApply={() => {
+                  handleApplyFilters();
+                }}
                 onClose={() => setIsFilterOpen(false)}
-                onReset={handleResetFilters}
+                onReset={() => {
+                  setTempFilters({ startDate: "", endDate: "" });
+                }}
                 startDateRef={startDateInputRef}
                 endDateRef={endDateInputRef}
               />
@@ -1010,6 +937,9 @@ const EventsPage = () => {
           <p className="text-center text-gray-600 py-8">Все мероприятия загружены</p>
         )}
       </div>
+      
+      {/* Добавляем Footer в конец страницы */}
+      <Footer />
     </div>
   );
 };

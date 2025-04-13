@@ -12,7 +12,7 @@ import { EventData } from "@/types/events";
 import { useInView } from "react-intersection-observer";
 import { createLogger, LogLevel, configureModuleLogging } from '@/utils/logger';
 // Импортируем необходимые хуки из соответствующих контекстов
-import { useLoading, LoadingStage } from '@/contexts/LoadingContextLegacy';
+import { useLoading, LoadingStage } from '@/contexts/loading/LoadingContextLegacy';
 import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 // Импортируем функцию fetchEvents из eventService
 import { fetchEvents as fetchEventsService } from '@/utils/eventService';
@@ -417,7 +417,7 @@ const EventsPage = () => {
     return () => {
       clearTimeout(completionTimer);
     };
-  }, [mountId, currentStage, setStage, setDynamicLoading]);
+  }, [mountId, currentStage, setStage, setDynamicLoading, isMounted]);
   
   // Функция группировки событий по датам
   const groupEventsByDate = useCallback((events: EventData[]) => {
@@ -457,76 +457,6 @@ const EventsPage = () => {
   const isFilterActive = useMemo(() => {
     return activeFilters.startDate !== "" || activeFilters.endDate !== "";
   }, [activeFilters]);
-
-  // Функция для сброса фильтров
-  const handleResetFilters = useCallback(() => {
-    logger.info('Resetting filters', { activeFilters });
-    
-    // Проверяем текущее состояние и отменяем запрос, если он выполняется
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort('Filter reset');
-      abortControllerRef.current = null;
-    }
-    
-    // Сбрасываем временные и активные фильтры
-    setTempFilters({ startDate: "", endDate: "" });
-    setActiveFilters({ startDate: "", endDate: "" });
-    setIsFilterOpen(false);
-    
-    // Сбрасываем страницу и устанавливаем состояние загрузки
-    setPage(1);
-    setData(null);
-    setShowInitialSkeleton(true);
-    
-    // Сбрасываем флаг начальных данных для принудительной перезагрузки
-    hasInitialData.current = false;
-    
-    // Устанавливаем соответствующую стадию загрузки
-    setStage(LoadingStage.DATA_LOADING);
-    setDynamicLoading(true);
-    
-    // Запускаем обновленный запрос с короткой задержкой
-    setTimeout(() => {
-      if (isMounted.current) {
-        fetchEventsWithFilters({ startDate: "", endDate: "" });
-      }
-    }, 50);
-  }, [activeFilters, setStage, setDynamicLoading]);
-
-  // Функция для применения фильтров
-  const handleApplyFilters = useCallback(() => {
-    logger.info('Applying filters', { tempFilters });
-    
-    // Проверяем текущее состояние и отменяем запрос, если он выполняется
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort('Filter apply');
-      abortControllerRef.current = null;
-    }
-    
-    // Применяем временные фильтры как активные
-    setActiveFilters(tempFilters);
-    
-    // Сбрасываем страницу на первую и закрываем панель фильтрации
-    setPage(1);
-    setIsFilterOpen(false);
-    setData(null);
-    
-    // Показываем скелетон загрузки и сбрасываем флаг начальных данных
-    setShowInitialSkeleton(true);
-    hasInitialData.current = false;
-    
-    // Устанавливаем соответствующую стадию загрузки
-    setStage(LoadingStage.DATA_LOADING);
-    setDynamicLoading(true);
-    
-    // Запускаем запрос данных с примененными фильтрами
-    setTimeout(() => {
-      if (isMounted.current) {
-        // Напрямую используем актуальные значения tempFilters
-        fetchEventsWithFilters(tempFilters);
-      }
-    }, 50);
-  }, [tempFilters, setStage, setDynamicLoading]);
 
   // Вспомогательная функция для запуска fetchEvents с заданными фильтрами
   const fetchEventsWithFilters = useCallback((filters: DateFilters) => {
@@ -678,7 +608,77 @@ const EventsPage = () => {
       // Сбрасываем состояние загрузки в случае ошибки
       setIsFetching(false);
     }
-  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError]);
+  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, fetchEventsService, isMounted]);
+
+  // Функция для сброса фильтров
+  const handleResetFilters = useCallback(() => {
+    logger.info('Resetting filters', { activeFilters });
+    
+    // Проверяем текущее состояние и отменяем запрос, если он выполняется
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort('Filter reset');
+      abortControllerRef.current = null;
+    }
+    
+    // Сбрасываем временные и активные фильтры
+    setTempFilters({ startDate: "", endDate: "" });
+    setActiveFilters({ startDate: "", endDate: "" });
+    setIsFilterOpen(false);
+    
+    // Сбрасываем страницу и устанавливаем состояние загрузки
+    setPage(1);
+    setData(null);
+    setShowInitialSkeleton(true);
+    
+    // Сбрасываем флаг начальных данных для принудительной перезагрузки
+    hasInitialData.current = false;
+    
+    // Устанавливаем соответствующую стадию загрузки
+    setStage(LoadingStage.DATA_LOADING);
+    setDynamicLoading(true);
+    
+    // Запускаем обновленный запрос с короткой задержкой
+    setTimeout(() => {
+      if (isMounted.current) {
+        fetchEventsWithFilters({ startDate: "", endDate: "" });
+      }
+    }, 50);
+  }, [activeFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
+
+  // Функция для применения фильтров
+  const handleApplyFilters = useCallback(() => {
+    logger.info('Applying filters', { tempFilters });
+    
+    // Проверяем текущее состояние и отменяем запрос, если он выполняется
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort('Filter apply');
+      abortControllerRef.current = null;
+    }
+    
+    // Применяем временные фильтры как активные
+    setActiveFilters(tempFilters);
+    
+    // Сбрасываем страницу на первую и закрываем панель фильтрации
+    setPage(1);
+    setIsFilterOpen(false);
+    setData(null);
+    
+    // Показываем скелетон загрузки и сбрасываем флаг начальных данных
+    setShowInitialSkeleton(true);
+    hasInitialData.current = false;
+    
+    // Устанавливаем соответствующую стадию загрузки
+    setStage(LoadingStage.DATA_LOADING);
+    setDynamicLoading(true);
+    
+    // Запускаем запрос данных с примененными фильтрами
+    setTimeout(() => {
+      if (isMounted.current) {
+        // Напрямую используем актуальные значения tempFilters
+        fetchEventsWithFilters(tempFilters);
+      }
+    }, 50);
+  }, [tempFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
 
   // Эффект для загрузки начальных данных при монтировании
   useEffect(() => {
@@ -702,7 +702,7 @@ const EventsPage = () => {
     return () => {
       // Ничего не делаем, если уже была загрузка
     };
-  }, [mountId, currentStage]);
+  }, [mountId, currentStage, fetchEventsWithFilters, isMounted]);
   
   // Обработчик автоматической загрузки следующей страницы при прокрутке
   useEffect(() => {
@@ -724,14 +724,14 @@ const EventsPage = () => {
         return () => clearTimeout(timer);
       }
     }
-  }, [inView, hasMore, isFetching, page, minFetchInterval]);
+  }, [inView, hasMore, isFetching, page, minFetchInterval, isMounted]);
   
   // Эффект для загрузки данных при изменении номера страницы
   useEffect(() => {
     if (page > 1 && hasInitialData.current && !isFetching) {
       fetchEventsWithFilters(activeFilters);
     }
-  }, [page, isFetching]);
+  }, [page, isFetching, activeFilters, fetchEventsWithFilters]);
   
   // Эффект для отслеживания стадии загрузки и контроля корректных переходов
   useEffect(() => {
@@ -750,7 +750,7 @@ const EventsPage = () => {
       
       return () => clearTimeout(stageChangeTimer);
     }
-  }, [currentStage, isFetching, setStage]);
+  }, [currentStage, isFetching, setStage, isMounted]);
   
   // Рендер состояния ошибки
   if (currentStage === LoadingStage.ERROR) {

@@ -43,49 +43,45 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
   // Function to detect and fix loading inconsistencies
   const detectAndFixLoadingInconsistency = useCallback((): boolean => {
+    // Активные запросы из глобального состояния
+    const activeRequests = typeof window !== 'undefined' ? window.__activeRequestCount || 0 : 0;
     let inconsistencyDetected = false;
     
-    // Check for UI lock - static loading with no active requests
-    if (isStaticLoading && typeof window !== 'undefined' && 
-        window.__activeRequestCount === 0 && 
-        currentStage !== LoadingStage.AUTHENTICATION) {
-      loadingLogger.warn('Detected UI lock - static loading with no active requests', {
-        currentStage,
-        requestCount: window.__activeRequestCount
-      });
-      setStaticLoading(false);
-      inconsistencyDetected = true;
-    }
-    
-    // Check for orphaned dynamic loading state
-    if (isDynamicLoading && typeof window !== 'undefined' && 
-        window.__activeRequestCount === 0 && 
-        currentStage !== LoadingStage.AUTHENTICATION) {
-      loadingLogger.warn('Detected orphaned dynamic loading state with no active requests', {
-        currentStage,
-        requestCount: window.__activeRequestCount
-      });
-      setDynamicLoading(false);
-      inconsistencyDetected = true;
-    }
-    
-    // If in completed stage but still loading, reset loading
-    if (currentStage === LoadingStage.COMPLETED && (isStaticLoading || isDynamicLoading)) {
-      loadingLogger.warn('Loading flags still set in COMPLETED stage', {
+    // Несогласованность 1: Флаги загрузки активны, но нет активных запросов
+    if ((isStaticLoading || isDynamicLoading) && activeRequests === 0 && 
+        currentStage !== LoadingStage.AUTHENTICATION && currentStage !== LoadingStage.INITIAL) {
+      loadingLogger.warn('Detected loading flags with no active requests', {
+        stage: currentStage,
         isStaticLoading,
-        isDynamicLoading
+        isDynamicLoading,
+        requestCount: activeRequests
       });
+      
+      // Сбрасываем все флаги загрузки
       resetLoading();
       inconsistencyDetected = true;
     }
     
-    // If in error stage but no error message, set stage back to authentication
+    // Несогласованность 2: Стадия завершена, но флаги загрузки активны
+    if (currentStage === LoadingStage.COMPLETED && (isStaticLoading || isDynamicLoading)) {
+      loadingLogger.warn('Loading flags still active in COMPLETED stage');
+      resetLoading();
+      inconsistencyDetected = true;
+    }
+    
+    // Несогласованность 3: Ошибка без сообщения
     if (currentStage === LoadingStage.ERROR && !error) {
-      loadingLogger.warn('In ERROR stage but no error message set');
-      // Очищаем ошибку перед попыткой смены стадии
+      loadingLogger.warn('ERROR stage without error message');
       clearError();
-      // Пытаемся восстановить систему после ошибки
       setStage(LoadingStage.AUTHENTICATION);
+      inconsistencyDetected = true;
+    }
+    
+    // Несогласованность 4: Стадия DYNAMIC_CONTENT без активных запросов
+    if (currentStage === LoadingStage.DYNAMIC_CONTENT && activeRequests === 0 && 
+        !isStaticLoading && !isDynamicLoading) {
+      loadingLogger.info('All loading completed in DYNAMIC_CONTENT stage, advancing to COMPLETED');
+      setStage(LoadingStage.COMPLETED);
       inconsistencyDetected = true;
     }
     
@@ -95,8 +91,6 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     isStaticLoading, 
     isDynamicLoading, 
     error,
-    setStaticLoading,
-    setDynamicLoading,
     resetLoading,
     setStage,
     clearError
@@ -119,10 +113,9 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   useEffect(() => {
     if (currentStage === LoadingStage.ERROR) {
       const autoRecoveryTimer = setTimeout(() => {
-        if (currentStage === LoadingStage.ERROR) {
-          loadingLogger.info('Auto-recovery from ERROR state triggered');
-          recoverFromError();
-        }
+        // Проверяем текущее состояние перед восстановлением, чтобы избежать лишних обращений
+        // к устаревшему состоянию currentStage внутри recoverFromError
+        recoverFromError();
       }, 15000); // 15 секунд на автоматическое восстановление
       
       return () => clearTimeout(autoRecoveryTimer);

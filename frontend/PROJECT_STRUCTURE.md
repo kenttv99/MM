@@ -26,14 +26,14 @@ frontend/src/
     ├── LoadingContextLegacy.tsx # Compatibility layer for legacy loading system
     ├── index.ts             # Exports all context providers and hooks
     └── loading/             # Modular loading state management system
-        ├── index.ts         # Exports for loading contexts and utilities
-        ├── types.ts         # Type definitions specific to loading system
-        ├── LoadingStageContext.tsx    # Manages application loading stages and transitions
-        ├── LoadingFlagsContext.tsx    # Handles loading flags (isStaticLoading, isDynamicLoading)
-        ├── LoadingProgressContext.tsx # Tracks numerical loading progress
-        ├── LoadingErrorContext.tsx    # Manages loading-related errors
-        ├── LoadingProvider.tsx        # Combined provider for all loading contexts
-        └── README.md                  # Documentation for the loading system
+        ├── index.ts         # Exports: providers, hooks and utilities
+        ├── types.ts         # Type definitions: LoadingStage, StageHistoryEntry, etc.
+        ├── LoadingStageContext.tsx    # Manages stage transitions with validation (427 lines)
+        ├── LoadingFlagsContext.tsx    # Handles loading flags with admin route special logic
+        ├── LoadingProgressContext.tsx # Tracks numerical progress (0-100%)
+        ├── LoadingErrorContext.tsx    # Error handling with auto-clear timers
+        ├── LoadingProvider.tsx        # Main provider: inconsistency checks, error recovery
+        └── README.md                  # Technical documentation (95 lines)
 ```
 
 ## Key Components and Responsibilities
@@ -89,7 +89,64 @@ The `contexts` directory contains React Context providers for global state manag
 
 7. **Authentication Separation**: Separate context providers for regular and admin authentication allow for different authentication flows and access controls.
 
----
+## Обновленные правила использования системы загрузки
+
+### Правильное использование импортов типов
+
+Для обеспечения типовой безопасности и избежания проблем с линтером необходимо правильно импортировать типы:
+
+```typescript
+// Для общего доступа к системе загрузки
+import { useLoading } from '@/contexts/loading';
+
+// Для использования легаси-контекста
+import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+
+// Импорт типов
+import { LoadingStage } from '@/contexts/loading/types';
+```
+
+### Принципы организации компонентов
+
+Для предотвращения проблем с зависимостями хуков компоненты следует организовывать в определенном порядке:
+
+1. Импорты библиотек и контекстов
+2. Настройка логгеров
+3. Интерфейсы и типы компонента
+4. Вспомогательные компоненты
+5. Основной компонент с хуками и состояниями
+6. Вспомогательные функции с хуками (в порядке зависимостей)
+7. Эффекты инициализации и очистки
+8. Рендеринг с обработкой состояний загрузки
+
+### Пример структуры компонента
+
+```typescript
+import React, { useState, useRef, useCallback } from "react";
+import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+import { LoadingStage } from '@/contexts/loading/types';
+
+const logger = createLogger('ComponentName');
+
+interface ComponentProps { /* ... */ }
+
+const Component = (props) => {
+  const isMounted = useRef(true);
+  const { setStage, currentStage } = useLoading();
+  const [data, setData] = useState(null);
+  
+  const fetchData = useCallback(() => {
+    // Базовая функция загрузки данных
+  }, []);
+  
+  const handleAction = useCallback(() => {
+    // Функция, использующая fetchData
+    fetchData();
+  }, [fetchData]);
+  
+  // Остальной код компонента
+};
+```
 
 # Документация по структуре проекта
 
@@ -180,4 +237,119 @@ frontend/src/
 
 6. **Управление таймерами**: Тщательное отслеживание таймеров предотвращает утечки памяти в долго работающем одностраничном приложении.
 
-7. **Разделение аутентификации**: Отдельные провайдеры контекста для обычной и административной аутентификации позволяют использовать различные потоки аутентификации и контроль доступа. 
+7. **Разделение аутентификации**: Отдельные провайдеры контекста для обычной и административной аутентификации позволяют использовать различные потоки аутентификации и контроль доступа.
+
+# Обновленная структура проекта
+
+## Ключевые изменения в системе контекстов
+
+В рамках оптимизации типовой безопасности внесены уточнения по использованию типов в контекстах загрузки:
+
+```
+frontend/src/contexts/loading/
+├── index.ts                  # Единая точка входа для экспорта всех контекстов и типов
+├── types.ts                  # Централизованное хранилище всех типов системы загрузки
+│   └── LoadingStage          # Перечисление стадий загрузки, импортируемое компонентами
+├── LoadingStageContext.tsx   # Управление стадиями загрузки и переходами
+├── LoadingFlagsContext.tsx   # Флаги состояния загрузки (static, dynamic)
+├── LoadingErrorContext.tsx   # Обработка ошибок загрузки
+├── LoadingProgressContext.tsx # Индикация прогресса загрузки
+└── LoadingContextLegacy.tsx  # Слой совместимости с устаревшей системой
+```
+
+### Правильное использование импортов
+
+Для обеспечения типовой безопасности и избежания проблем с зависимостями рекомендуется следующий подход к импортам:
+
+```typescript
+// Для общего доступа к системе загрузки
+import { useLoading } from '@/contexts/loading';
+
+// Для использования легаси-контекста
+import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+
+// Для доступа к конкретным контекстам
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+
+// Для импорта типов
+import { LoadingStage } from '@/contexts/loading/types';
+```
+
+## Обновленные принципы организации компонентов
+
+В соответствии с требованиями типовой безопасности и предотвращения проблем с хуками, компоненты следует организовывать следующим образом:
+
+1. Импорты контекстов и хуков
+2. Определения и настройка логгеров
+3. Интерфейсы и типы компонента
+4. Вспомогательные компоненты и функции 
+5. Основной компонент с рефами и хуками
+6. Вспомогательные функции, использующие хуки (в правильном порядке зависимостей)
+7. Эффекты для инициализации, загрузки данных и очистки
+8. Рендеринг с обработкой разных состояний загрузки
+
+Данная структура обеспечивает предсказуемое поведение хуков и предотвращает ошибки ESLint, связанные с порядком объявлений.
+
+### Пример структуры файла компонента с загрузкой данных
+
+```typescript
+// 1. Импорты
+import React, { useState, useRef, useCallback, useEffect } from "react";
+import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+import { LoadingStage } from '@/contexts/loading/types';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+import { fetchData } from '@/utils/dataService';
+
+// 2. Логгеры
+const logger = createLogger('ComponentName');
+
+// 3. Интерфейсы и типы
+interface ComponentProps {
+  // ...
+}
+
+// 4. Вспомогательные компоненты
+const SkeletonLoader = () => {
+  // ...
+};
+
+// 5. Основной компонент
+const Component: React.FC<ComponentProps> = (props) => {
+  // Рефы
+  const isMounted = useRef(true);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  
+  // Хуки контекстов
+  const { setStage, currentStage } = useLoading();
+  const { setError } = useLoadingError();
+  
+  // Состояния
+  const [data, setData] = useState<Data | null>(null);
+  
+  // 6. Функция загрузки данных
+  const fetchDataWithParams = useCallback(() => {
+    // ...
+  }, [/* зависимости */]);
+  
+  // 7. Эффекты
+  useEffect(() => {
+    // Инициализация
+    
+    return () => {
+      // Очистка
+    };
+  }, [/* зависимости */]);
+  
+  // 8. Рендеринг с обработкой состояний
+  if (currentStage === LoadingStage.ERROR) {
+    // Показываем ошибку
+  }
+  
+  return (
+    // JSX компонента
+  );
+};
+
+export default Component;
+``` 

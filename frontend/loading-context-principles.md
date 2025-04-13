@@ -2,6 +2,85 @@
 
 ## Архитектура системы загрузки
 
+### Важное обновление по импорту типов
+
+При использовании системы загрузки необходимо правильно импортировать типы:
+
+```typescript
+// ❌ Неправильный импорт - может вызвать ошибки линтера
+import { useLoading, LoadingStage } from '@/contexts/loading/LoadingContextLegacy';
+
+// ✅ Правильный импорт - разделяйте импорты контекстов и типов
+import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+import { LoadingStage } from '@/contexts/loading/types';
+```
+
+Тип `LoadingStage` является перечислением, определенным в файле `types.ts` и должен импортироваться оттуда для обеспечения типовой безопасности.
+
+### Порядок определения функций и замыкания
+
+При реализации компонентов с несколькими функциональными обработчиками соблюдайте правильный порядок определения:
+
+```typescript
+// 1. Сначала определите основные функции, которые вызываются другими
+const fetchWithFilters = useCallback(() => {
+  // базовая логика запроса
+}, [dependencies]);
+
+// 2. Затем определите обработчики, которые используют основные функции
+const handleReset = useCallback(() => {
+  fetchWithFilters(initialState);
+}, [fetchWithFilters, initialState]);
+
+const handleApply = useCallback(() => {
+  fetchWithFilters(currentFilters);
+}, [fetchWithFilters, currentFilters]);
+```
+
+Этот порядок особенно важен при работе с фильтрами и состояниями загрузки данных.
+
+## Фреймворк для загрузки компонентов
+
+При создании компонентов с асинхронной загрузкой данных рекомендуется использовать следующий шаблон:
+
+```typescript
+// 1. Сервисные состояния и рефы
+const isMounted = useIsMounted();
+const abortControllerRef = useRef<AbortController | null>(null);
+const hasInitialData = useRef<boolean>(false);
+
+// 2. Хуки контекста загрузки
+const { setStage, currentStage } = useLoading();
+const { setError } = useLoadingError();
+
+// 3. Локальные состояния
+const [isFetching, setIsFetching] = useState(false);
+const [data, setData] = useState(null);
+
+// 4. Функция загрузки данных
+const fetchData = useCallback(() => {
+  // отмена предыдущего запроса и создание нового
+  // обработка результатов
+}, [dependencies]);
+
+// 5. Эффект инициализации
+useEffect(() => {
+  isMounted.current = true;
+  
+  const timer = setTimeout(() => {
+    if (isMounted.current) fetchData();
+  }, 50);
+  
+  return () => {
+    isMounted.current = false;
+    clearTimeout(timer);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+}, [fetchData]);
+```
+
 Система загрузки в приложении построена на основе нескольких ключевых контекстов, которые взаимодействуют между собой для обеспечения плавного пользовательского опыта:
 
 ### 1. Модульная архитектура контекстов загрузки
@@ -9,7 +88,7 @@
 В результате рефакторинга система загрузки была разделена на специализированные контексты:
 
 **LoadingStageContext**:
-- Управление текущей стадией загрузки (AUTHENTICATION, STATIC_CONTENT, DYNAMIC_CONTENT, DATA_LOADING, COMPLETED)
+- Управление текущей стадией загрузки (AUTHENTICATION, STATIC_CONTENT, DYNAMIC_CONTENT, COMPLETED)
 - Контроль переходов между стадиями с валидацией
 - Поддержание истории стадий для предотвращения циклов и регрессии
 - Реализация автоматических таймаутов для прогрессии стадий
@@ -47,7 +126,7 @@
 Приложение проходит через следующие стадии загрузки в строго определенной последовательности:
 
 ```
-INITIAL → AUTHENTICATION → STATIC_CONTENT → DYNAMIC_CONTENT → DATA_LOADING → COMPLETED
+INITIAL → AUTHENTICATION → STATIC_CONTENT → DYNAMIC_CONTENT → COMPLETED
 ```
 
 **INITIAL**:
@@ -68,12 +147,9 @@ INITIAL → AUTHENTICATION → STATIC_CONTENT → DYNAMIC_CONTENT → DATA_LOADI
 
 **DYNAMIC_CONTENT** (Динамический контент):
 - Загружается контент, зависящий от пользователя
-- Разрешены все запросы к API
-- Отображаются персонализированные элементы интерфейса
-
-**DATA_LOADING** (Загрузка данных):
 - Загружаются основные данные приложения (списки, детали и т.д.)
 - Разрешены все запросы к API
+- Отображаются персонализированные элементы интерфейса
 - Показываются индикаторы загрузки данных (скелетоны)
 
 **COMPLETED** (Завершено):
@@ -215,10 +291,9 @@ export function shouldProcessRequest(
              endpoint.includes('/config') ||
              endpoint.includes('/i18n');
       
-    case LoadingStage.DATA_LOADING:
     case LoadingStage.COMPLETED:
     case LoadingStage.DYNAMIC_CONTENT:
-      // На стадиях загрузки данных или завершения разрешаем все запросы
+      // На стадиях загрузки динамического контента или завершения разрешаем все запросы
       return true;
       
     default:
@@ -492,7 +567,7 @@ try {
 - **Периодические проверки**: Каждые 2 секунды выполняется функция `detectAndFixLoadingInconsistency`
 - **Проверка активных флагов**: Если флаги загрузки активны на поздних стадиях без активных запросов, они сбрасываются
 - **Проверка завершения загрузки**: На ранних стадиях при отсутствии флагов загрузки происходит продвижение к следующей стадии
-- **Автоматический переход к COMPLETED**: При завершении всех запросов на стадии DATA_LOADING
+- **Автоматический переход к COMPLETED**: При завершении всех запросов на стадии DYNAMIC_CONTENT
 - **Отслеживание DOM**: Проверка наличия глобального спиннера для синхронизации с состоянием загрузки
 - **Принудительное обновление UI**: Гарантированное скрытие спиннера при завершении всех запросов
 - **Таймеры безопасности**: Дополнительные проверки через 500мс и 1с после завершения запросов
@@ -539,4 +614,71 @@ try {
    - Используйте дополнительные таймеры для проверки состояния загрузки
    - Синхронизируйте глобальные флаги с внутренним состоянием компонентов
    - Проверяйте несогласованность между стадиями и флагами загрузки
-   - Отслеживайте глобальный спиннер в DOM для точной синхронизации 
+   - Отслеживайте глобальный спиннер в DOM для точной синхронизации
+
+## Обработка ошибок загрузки (обновленная)
+
+В случае ошибок при загрузке данных, компоненты должны:
+
+1. Проверять состояние монтирования через `isMounted.current`
+2. Устанавливать соответствующую стадию загрузки `setStage(LoadingStage.ERROR)`
+3. Обновлять состояние ошибки через общий контекст `setError(errorMessage)`
+4. Предоставлять пользователю возможность повторить запрос
+5. Правильно отменять предыдущие запросы перед новыми попытками
+
+Пример обработки ошибок:
+
+```typescript
+.catch(error => {
+  // Пропускаем отмененные запросы
+  if (error instanceof Error && error.name === 'AbortError') {
+    return;
+  }
+  
+  // Логируем ошибку
+  logger.error('Error fetching data', { error });
+  
+  // Обновляем состояние и показываем ошибку
+  if (isMounted.current) {
+    setStage(LoadingStage.ERROR);
+    setError(error instanceof Error ? error.message : 'Произошла ошибка');
+  }
+})
+```
+
+### Компонент отображения ошибки
+
+Рекомендуется использовать единый паттерн для отображения ошибок:
+
+```tsx
+if (currentStage === LoadingStage.ERROR) {
+  return (
+    <div className="p-8 text-center">
+      <h2 className="text-xl font-semibold text-red-600 mb-4">Произошла ошибка</h2>
+      <p className="text-gray-700 mb-4">{loadingErrorFromContext}</p>
+      <button onClick={handleRetry} className="px-4 py-2 bg-orange-500 text-white rounded-lg">
+        Попробовать снова
+      </button>
+    </div>
+  );
+}
+```
+
+### Отмена запросов при изменении параметров
+
+При изменении параметров запроса (например, фильтров) необходимо отменять предыдущие запросы:
+
+```typescript
+// Отменяем предыдущий запрос
+if (abortControllerRef.current) {
+  abortControllerRef.current.abort();
+  abortControllerRef.current = null;
+}
+
+// Создаем новый контроллер
+abortControllerRef.current = new AbortController();
+const signal = abortControllerRef.current.signal;
+
+// Используем signal в запросе
+fetchService(parameters, signal);
+``` 

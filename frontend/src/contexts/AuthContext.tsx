@@ -311,7 +311,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, 3000); // 3 секунды - разумный таймаут для проверки аутентификации
     
     return () => clearTimeout(authCheckTimeout);
-  }, [isAuthChecked, setStage]);
+  }, [isAuthChecked, setStage, setIsAuthCheckedState, handleAuthFailure]);
 
   const updateUserData = useCallback((data: UserData, resetLoading = true) => {
     if (!isMounted.current) return;
@@ -511,7 +511,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       window.removeEventListener('auth-unauthorized', handleUnauthorized as EventListener);
     };
-  }, [isAuthenticated, setStage]);
+  }, [isAuthenticated, setStage, handleAuthFailure]);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     if (!isMounted.current) return false;
@@ -626,7 +626,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [isAuthenticated, setDynamicLoading, setStage]);
 
-  const handleAuthFailure = () => {
+  const handleAuthFailure = useCallback(() => {
     localStorage.removeItem('userData');
     localStorage.removeItem('token');
     setIsAuthenticated(false);
@@ -636,7 +636,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authLogger.info('Authentication failed, cleared user data');
     // Добавляем переход к STATIC_CONTENT для продолжения загрузки страницы
     setStage(LoadingStage.STATIC_CONTENT);
-  };
+  }, [setStage, setIsAuthCheckedState, setIsAuthenticated, setUser]);
 
   const contextValue = useMemo(() => ({
     isAuth: isAuthenticated,

@@ -103,9 +103,9 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       
       // If no active requests, explicitly reset all loading flags
       if (activeRequestsCount === 0) {
-        // Move to DATA_LOADING stage when all requests complete
+        // Move to COMPLETED stage when all requests complete
         if (currentStage === LoadingStage.DYNAMIC_CONTENT) {
-          setStage(LoadingStage.DATA_LOADING);
+          setStage(LoadingStage.COMPLETED);
         }
         
         // Important: explicitly update ref and flag so all components know loading is complete
@@ -114,10 +114,10 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
         // Update global flag so GlobalSpinner can be updated correctly
         lastDynamicLoadingState = false;
         
-        // If we're already at DATA_LOADING stage or higher and no active requests,
-        // transition to COMPLETED to ensure spinner is hidden
+        // If we're already at COMPLETED stage or higher and no active requests,
+        // make sure we're in COMPLETED stage to ensure spinner is hidden
         const stageLevel = getStageLevel(currentStage);
-        if (stageLevel >= 3) { // DATA_LOADING or higher
+        if (stageLevel >= 2) { // DYNAMIC_CONTENT or higher
           setTimeout(() => {
             if (activeRequestsCount === 0 && isMounted.current) {
               setStage(LoadingStage.COMPLETED);

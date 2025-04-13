@@ -1,25 +1,31 @@
-// Export all contexts from a central location
-// This makes imports cleaner in components
+// Центральный файл экспорта для всех контекстов
+// Обеспечивает удобные импорты в компонентах
 
-// Legacy Loading Context
+// Экспортируем новые типы и утилиты из корня загрузки
 export {
-  LoadingProvider as LoadingProviderLegacy,
-  useLoading as useLoadingLegacy,
-  LoadingStage as LoadingStageLegacy
-} from './LoadingContextLegacy';
+  canChangeStage,
+  dispatchStageChangeEvent,
+  getStageLevel,
+  LoadingStage
+} from './loading';
 
-// New modular loading system
+// Новая модульная система загрузки (основной экспорт)
 export {
   LoadingProvider,
   useLoading,
   useLoadingStage,
   useLoadingFlags,
   useLoadingProgress,
-  useLoadingError,
-  LoadingStage as LoadingStageNew
+  useLoadingError
 } from './loading';
 
-// Auth contexts
+// Устаревший контекст загрузки (для обратной совместимости)
+export {
+  LoadingProvider as LegacyLoadingProvider,
+  useLoading as useLegacyLoading
+} from './loading/LoadingContextLegacy';
+
+// Контексты аутентификации
 export { AuthProvider, useAuth } from './AuthContext';
 export { AdminAuthProvider, useAdminAuth } from './AdminAuthContext';
 

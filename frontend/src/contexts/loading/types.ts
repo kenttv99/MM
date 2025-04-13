@@ -3,7 +3,6 @@ export enum LoadingStage {
   AUTHENTICATION = 'authentication',
   STATIC_CONTENT = 'static_content',
   DYNAMIC_CONTENT = 'dynamic_content',
-  DATA_LOADING = 'data_loading',
   COMPLETED = 'completed',
   INITIAL = 'initial', // Only for initial state
   ERROR = 'error'      // For error handling

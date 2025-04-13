@@ -1,5 +1,6 @@
 import React from 'react';
 import { createLogger } from './logger';
+import { LoadingStage } from '@/contexts/loading/types';
 
 const logger = createLogger('TimerManager');
 
@@ -22,6 +23,30 @@ const CONFIG = {
   debugMode: process.env.NODE_ENV !== 'production',
   maxTimersWarningThreshold: 50,
   cleanupInterval: 60000, // 1 minute
+};
+
+// Типы таймеров для отслеживания
+type TimerType = 'timeout' | 'interval';
+
+// Интерфейс для хранения информации о таймере
+interface TimerInfo {
+  id: number;
+  type: TimerType;
+  name?: string;
+  componentName?: string;
+  createdAt: number;
+  cleanedUp: boolean;
+}
+
+// Отслеживаемые таймеры
+const timers = new Map<number, TimerInfo>();
+
+// Получение текущей стадии загрузки из глобального объекта
+const getCurrentLoadingStage = (): LoadingStage | undefined => {
+  if (typeof window !== 'undefined') {
+    return window.__loading_stage__;
+  }
+  return undefined;
 };
 
 /**
@@ -321,4 +346,250 @@ const defaultTimerManager = {
   clearTimersByCategory,
 };
 
-export default defaultTimerManager; 
+export default defaultTimerManager;
+
+// Создание таймаута с отслеживанием
+export function createSafeTimeout(
+  callback: () => void, 
+  delay: number,
+  options: { name?: string; componentName?: string } = {}
+): number {
+  const { name, componentName } = options;
+  
+  // Создаем обертку для callback, которая удалит таймер из отслеживаемых
+  const wrappedCallback = () => {
+    try {
+      callback();
+    } catch (error) {
+      logger.error('Ошибка в callback таймаута', { error, name, componentName });
+    } finally {
+      const timer = timers.get(id);
+      if (timer) {
+        timer.cleanedUp = true;
+      }
+    }
+  };
+  
+  // Создаем таймаут
+  const id = window.setTimeout(wrappedCallback, delay);
+  
+  // Фиксируем информацию о таймере
+  timers.set(id, {
+    id,
+    type: 'timeout',
+    name,
+    componentName,
+    createdAt: Date.now(),
+    cleanedUp: false
+  });
+  
+  // Если имя указано, логируем создание таймера
+  if (name) {
+    logger.debug(`Создан таймаут "${name}"`, { 
+      id, 
+      delay, 
+      componentName, 
+      stage: getCurrentLoadingStage() 
+    });
+  }
+  
+  return id;
+}
+
+// Создание интервала с отслеживанием
+export function createSafeInterval(
+  callback: () => void, 
+  delay: number,
+  options: { name?: string; componentName?: string } = {}
+): number {
+  const { name, componentName } = options;
+  
+  // Создаем обертку для callback с обработкой ошибок
+  const wrappedCallback = () => {
+    try {
+      callback();
+    } catch (error) {
+      logger.error('Ошибка в callback интервала', { error, name, componentName });
+      // При ошибке в интервале останавливаем его для предотвращения повторения ошибок
+      clearSafeInterval(id);
+    }
+  };
+  
+  // Создаем интервал
+  const id = window.setInterval(wrappedCallback, delay);
+  
+  // Фиксируем информацию об интервале
+  timers.set(id, {
+    id,
+    type: 'interval',
+    name,
+    componentName,
+    createdAt: Date.now(),
+    cleanedUp: false
+  });
+  
+  // Если имя указано, логируем создание интервала
+  if (name) {
+    logger.debug(`Создан интервал "${name}"`, { 
+      id, 
+      delay, 
+      componentName, 
+      stage: getCurrentLoadingStage() 
+    });
+  }
+  
+  return id;
+}
+
+// Очистка таймаута с отслеживанием
+export function clearSafeTimeout(id: number): void {
+  clearSafeTimer(id, 'timeout');
+}
+
+// Очистка интервала с отслеживанием
+export function clearSafeInterval(id: number): void {
+  clearSafeTimer(id, 'interval');
+}
+
+// Общая функция очистки таймера
+function clearSafeTimer(id: number, expectedType: TimerType): void {
+  // Проверяем, что таймер существует
+  const timer = timers.get(id);
+  
+  if (!timer) {
+    return;
+  }
+  
+  // Проверяем тип таймера
+  if (timer.type !== expectedType) {
+    logger.warn(`Попытка очистить ${expectedType} с ID ${id}, но это ${timer.type}`, { timer });
+    return;
+  }
+  
+  // Очищаем таймер соответствующей функцией
+  if (timer.type === 'timeout') {
+    window.clearTimeout(id);
+  } else {
+    window.clearInterval(id);
+  }
+  
+  // Обновляем статус таймера
+  timer.cleanedUp = true;
+  
+  // Если имя указано, логируем очистку таймера
+  if (timer.name) {
+    logger.debug(`Очищен ${timer.type} "${timer.name}"`, { 
+      id, 
+      componentName: timer.componentName, 
+      lifetime: Date.now() - timer.createdAt 
+    });
+  }
+}
+
+// Очистка всех таймеров для компонента
+export function clearAllTimersForComponent(componentName: string): void {
+  let clearedCount = 0;
+  
+  // Находим и очищаем все таймеры для указанного компонента
+  timers.forEach((timer, id) => {
+    if (timer.componentName === componentName && !timer.cleanedUp) {
+      if (timer.type === 'timeout') {
+        window.clearTimeout(id);
+      } else {
+        window.clearInterval(id);
+      }
+      
+      timer.cleanedUp = true;
+      clearedCount++;
+    }
+  });
+  
+  if (clearedCount > 0) {
+    logger.info(`Очищено ${clearedCount} таймеров для компонента "${componentName}"`);
+  }
+}
+
+// Получение статистики таймеров
+export function getTimerStats(): { total: number; active: number; byComponent: Record<string, number> } {
+  const stats = {
+    total: timers.size,
+    active: 0,
+    byComponent: {} as Record<string, number>
+  };
+  
+  timers.forEach(timer => {
+    if (!timer.cleanedUp) {
+      stats.active++;
+      
+      // Группируем по компонентам
+      const componentName = timer.componentName || 'unknown';
+      stats.byComponent[componentName] = (stats.byComponent[componentName] || 0) + 1;
+    }
+  });
+  
+  return stats;
+}
+
+// Поиск утечек таймеров (таймеры, которые работают слишком долго)
+export function detectTimerLeaks(thresholdMs: number = 60000): TimerInfo[] {
+  const now = Date.now();
+  const leaks: TimerInfo[] = [];
+  
+  timers.forEach(timer => {
+    if (!timer.cleanedUp && now - timer.createdAt > thresholdMs) {
+      leaks.push({ ...timer });
+    }
+  });
+  
+  if (leaks.length > 0) {
+    logger.warn(`Обнаружено ${leaks.length} потенциальных утечек таймеров`, { leaks });
+  }
+  
+  return leaks;
+}
+
+// Периодическая очистка завершенных таймеров из мапы для предотвращения утечек памяти
+function cleanupTimersMap() {
+  const now = Date.now();
+  const idsToRemove: number[] = [];
+  
+  timers.forEach((timer, id) => {
+    // Удаляем завершенные таймеры старше 5 минут
+    if (timer.cleanedUp && now - timer.createdAt > 300000) {
+      idsToRemove.push(id);
+    }
+  });
+  
+  idsToRemove.forEach(id => timers.delete(id));
+  
+  if (idsToRemove.length > 0) {
+    logger.debug(`Удалено ${idsToRemove.length} завершенных таймеров из памяти`);
+  }
+}
+
+// Запускаем периодическую очистку каждые 5 минут
+if (typeof window !== 'undefined') {
+  setInterval(cleanupTimersMap, 300000);
+}
+
+// Хук для использования в функциональных компонентах React
+export const useTimersManager = (componentName: string) => {
+  // При размонтировании компонента очищаем все его таймеры
+  React.useEffect(() => {
+    return () => {
+      clearAllTimersForComponent(componentName);
+    };
+  }, [componentName]);
+  
+  // Возвращаем функции создания таймеров с предустановленным именем компонента
+  return {
+    setTimeout: (callback: () => void, delay: number, name?: string) => 
+      createSafeTimeout(callback, delay, { name, componentName }),
+    
+    setInterval: (callback: () => void, delay: number, name?: string) => 
+      createSafeInterval(callback, delay, { name, componentName }),
+    
+    clearTimeout: clearSafeTimeout,
+    clearInterval: clearSafeInterval
+  };
+}; 

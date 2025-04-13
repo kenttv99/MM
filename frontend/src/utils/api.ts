@@ -589,6 +589,135 @@ export interface APIOptions {
   transform?: (data: any) => any;
 }
 
+/**
+ * Проверяет, должен ли запрос быть обработан в зависимости от текущей стадии загрузки
+ * Упрощенная версия с более четкой логикой допустимых запросов на каждой стадии
+ */
+export function shouldProcessRequest(endpoint: string, bypassLoadingStageCheck = false, stage?: LoadingStage): boolean {
+  // Если установлен флаг обхода проверки, всегда разрешаем запрос
+  if (bypassLoadingStageCheck) {
+    return true;
+  }
+  
+  // Получаем текущую стадию загрузки
+  const currentStage = stage || (typeof window !== 'undefined' ? 
+    (window as WindowWithLoadingStage).__loading_stage__ : undefined) || 
+    LoadingStage.AUTHENTICATION;
+  
+  // Список всегда разрешенных запросов на любой стадии (критические эндпоинты)
+  const alwaysAllowedPatterns = [
+    '/auth/', 
+    '/events',
+    '/notifications/public',
+    '/me'
+  ];
+  
+  // Проверяем, соответствует ли запрос критическим эндпоинтам
+  const isAlwaysAllowed = alwaysAllowedPatterns.some(pattern => endpoint.includes(pattern));
+  if (isAlwaysAllowed && !endpoint.includes('admin_edits') && !endpoint.includes('user_edits')) {
+    return true;
+  }
+  
+  // Разрешения на основе текущей стадии загрузки
+  switch (currentStage) {
+    case LoadingStage.INITIAL:
+    case LoadingStage.AUTHENTICATION:
+      // В начальных стадиях разрешаем только авторизационные и базовые запросы
+      return endpoint.includes('/auth/') || 
+             endpoint.includes('/me') || 
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/public');
+    
+    case LoadingStage.STATIC_CONTENT:
+      // После авторизации добавляем доступ к статическому контенту и профилю
+      return !endpoint.includes('/admin_edits/') || 
+             endpoint.includes('/static') ||
+             endpoint.includes('/config') ||
+             endpoint.includes('/i18n') ||
+             endpoint.includes('/me') || 
+             endpoint.includes('/profile') ||
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/');
+    
+    case LoadingStage.DYNAMIC_CONTENT:
+    case LoadingStage.COMPLETED:
+      // В продвинутых стадиях разрешаем все запросы
+      return true;
+    
+    case LoadingStage.ERROR:
+      // В состоянии ошибки разрешаем только восстановительные запросы
+      return endpoint.includes('/auth/') || 
+             endpoint.includes('/me') || 
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/public');
+    
+    default:
+      // По умолчанию блокируем запросы с неизвестной стадией
+      return false;
+  }
+}
+
+// Adding missing utility functions for request handling
+
+// Function to generate a unique request ID
+export function generateRequestId(endpoint: string, params: Record<string, unknown>, method: string): string {
+  const paramsStr = params ? JSON.stringify(params) : '';
+  return `${method}:${endpoint}:${paramsStr}`;
+}
+
+// Function to generate a cache key for responses
+export function generateCacheKey(endpoint: string, params: Record<string, unknown>): string {
+  const paramsStr = params ? JSON.stringify(params) : '';
+  return `${endpoint}:${paramsStr}`;
+}
+
+// Function to create a cancellable promise
+export function createCancellablePromise<T>(promise: Promise<T>): CancellablePromise<T> {
+  let isCancelled = false;
+  
+  const wrappedPromise = Promise.resolve(promise).then(
+    value => {
+      if (!isCancelled) return value;
+      throw new Error('Promise cancelled');
+    }
+  ) as CancellablePromise<T>;
+  
+  wrappedPromise.cancel = (reason?: string): void => {
+    isCancelled = true;
+    apiLogger.debug(`Request cancelled${reason ? ': ' + reason : ''}`);
+  };
+  
+  wrappedPromise.isCancelled = (): boolean => isCancelled;
+  
+  return wrappedPromise;
+}
+
+// Define the type for API request parameters
+type ApiParams = Record<string, unknown>;
+
+// Function to find an active request that matches the current one
+export function findActiveRequest<T>(
+  endpoint: string, 
+  params: ApiParams, 
+  method: string
+): { promise: CancellablePromise<T>; id: string } | null {
+  const now = Date.now();
+  const requestId = generateRequestId(endpoint, params, method);
+  
+  // Check if we have a matching request that's recent enough
+  const existingRequest = lastRequests[requestId];
+  if (existingRequest && now - existingRequest.timestamp < REQUEST_DEDUP_INTERVAL) {
+    // Force cast to the expected type - we trust the cached request is of correct type
+        return { 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      promise: existingRequest.promise as any as CancellablePromise<T>,
+      id: requestId
+    };
+  }
+  
+  return null;
+}
+
 // Исправим функцию apiFetch, чтобы она всегда что-то возвращала
 export const apiFetch = <T = unknown>(
   endpoint: string,
@@ -969,143 +1098,4 @@ function processRequestQueue() {
   if (typeof window !== 'undefined') {
     window.__activeRequestCount = activeRequestCount;
   }
-}
-
-/**
- * Check if a request should be processed based on current loading stage
- */
-export function shouldProcessRequest(endpoint: string, bypassLoadingStageCheck = false, stage?: LoadingStage): boolean {
-  // Получаем текущую стадию загрузки из глобального объекта, если стадия не передана в параметрах
-  const currentStage = stage || (typeof window !== 'undefined' ? 
-    (window as WindowWithLoadingStage).__loading_stage__ : undefined) || 
-    LoadingStage.AUTHENTICATION;
-  
-  // Если установлен флаг bypass, сразу разрешаем запрос
-  if (bypassLoadingStageCheck) {
-    return true;
-  }
-  
-  // Специальные условия для определенных эндпоинтов, которые должны быть разрешены на любой стадии
-  
-  // Всегда разрешаем запросы к API авторизации
-  if (endpoint.includes('/auth/')) {
-    return true;
-  }
-  
-  // Всегда разрешаем запросы к публичным эндпоинтам событий
-  if (endpoint.includes('/events') && !endpoint.includes('admin_edits') && !endpoint.includes('user_edits')) {
-    return true;
-  }
-  
-  // Разрешаем запросы к публичным эндпоинтам уведомлений
-  if (endpoint.includes('/notifications/public')) {
-    return true;
-  }
-  
-  // Обработка в зависимости от текущей стадии загрузки
-  switch (currentStage) {
-    // В процессе аутентификации разрешаем только авторизационные запросы и проверки
-    case LoadingStage.AUTHENTICATION:
-      // Дополнительные разрешенные запросы на стадии AUTHENTICATION
-      return endpoint.includes('/auth/') || 
-             endpoint.includes('/me') || 
-             endpoint.includes('/events') ||
-             endpoint.includes('/notifications/public');
-    
-    // После загрузки статического контента, разрешаем загрузку динамического контента
-    case LoadingStage.STATIC_CONTENT:
-      return !endpoint.includes('/admin_edits/') || 
-             endpoint.includes('/me') || 
-             endpoint.includes('/profile') ||
-             endpoint.includes('/events') ||
-             endpoint.includes('/notifications/');
-    
-    // На стадии загрузки динамического контента и загрузки данных разрешаем все запросы
-    case LoadingStage.DYNAMIC_CONTENT:
-    case LoadingStage.DATA_LOADING:
-      return true;
-    
-    // После завершения загрузки разрешаем все запросы
-    case LoadingStage.COMPLETED:
-      return true;
-    
-    // В состоянии ошибки разрешаем только критические запросы и запросы восстановления
-    case LoadingStage.ERROR:
-      return endpoint.includes('/auth/') || 
-             endpoint.includes('/me') || 
-             endpoint.includes('/events') ||
-             endpoint.includes('/notifications/public');
-    
-    // Начальное состояние - разрешаем только базовые запросы
-    case LoadingStage.INITIAL:
-      return endpoint.includes('/auth/') || 
-             endpoint.includes('/me') || 
-             endpoint.includes('/events') ||
-             endpoint.includes('/notifications/public');
-    
-    default:
-      // По умолчанию блокируем запрос, если стадия загрузки неизвестна
-      return false;
-  }
-}
-
-// Adding missing utility functions for request handling
-
-// Function to generate a unique request ID
-export function generateRequestId(endpoint: string, params: Record<string, unknown>, method: string): string {
-  const paramsStr = params ? JSON.stringify(params) : '';
-  return `${method}:${endpoint}:${paramsStr}`;
-}
-
-// Function to generate a cache key for responses
-export function generateCacheKey(endpoint: string, params: Record<string, unknown>): string {
-  const paramsStr = params ? JSON.stringify(params) : '';
-  return `${endpoint}:${paramsStr}`;
-}
-
-// Function to create a cancellable promise
-export function createCancellablePromise<T>(promise: Promise<T>): CancellablePromise<T> {
-  let isCancelled = false;
-  
-  const wrappedPromise = Promise.resolve(promise).then(
-    value => {
-      if (!isCancelled) return value;
-      throw new Error('Promise cancelled');
-    }
-  ) as CancellablePromise<T>;
-  
-  wrappedPromise.cancel = (reason?: string): void => {
-    isCancelled = true;
-    apiLogger.debug(`Request cancelled${reason ? ': ' + reason : ''}`);
-  };
-  
-  wrappedPromise.isCancelled = (): boolean => isCancelled;
-  
-  return wrappedPromise;
-}
-
-// Define the type for API request parameters
-type ApiParams = Record<string, unknown>;
-
-// Function to find an active request that matches the current one
-export function findActiveRequest<T>(
-  endpoint: string, 
-  params: ApiParams, 
-  method: string
-): { promise: CancellablePromise<T>; id: string } | null {
-  const now = Date.now();
-  const requestId = generateRequestId(endpoint, params, method);
-  
-  // Check if we have a matching request that's recent enough
-  const existingRequest = lastRequests[requestId];
-  if (existingRequest && now - existingRequest.timestamp < REQUEST_DEDUP_INTERVAL) {
-    // Force cast to the expected type - we trust the cached request is of correct type
-        return { 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      promise: existingRequest.promise as any as CancellablePromise<T>,
-      id: requestId
-    };
-  }
-  
-  return null;
 }

@@ -195,8 +195,7 @@ export function getStageLevel(stage: LoadingStage): number {
     case LoadingStage.AUTHENTICATION: return 0;
     case LoadingStage.STATIC_CONTENT: return 1;
     case LoadingStage.DYNAMIC_CONTENT: return 2;
-    case LoadingStage.DATA_LOADING: return 3;
-    case LoadingStage.COMPLETED: return 4;
+    case LoadingStage.COMPLETED: return 3;
     default: return -1;
   }
 }
@@ -311,9 +310,6 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
             nextStage = LoadingStage.DYNAMIC_CONTENT;
             break;
           case LoadingStage.DYNAMIC_CONTENT:
-            nextStage = LoadingStage.DATA_LOADING;
-            break;
-          case LoadingStage.DATA_LOADING:
             nextStage = LoadingStage.COMPLETED;
             break;
           default:

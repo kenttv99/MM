@@ -24,6 +24,8 @@ type AuthResponse = {
 interface ApiError extends Error {
   status: number;
   isClientError: boolean;
+  error?: string;
+  body?: any;
 }
 
 export const useAuthForm = ({
@@ -63,56 +65,13 @@ export const useAuthForm = ({
 
       try {
         console.log('AuthForm: Sending login request to endpoint:', endpoint);
+        // Используем обновленный apiFetch для выполнения запроса аутентификации
         const data = await apiFetch<AuthResponse>(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          data: JSON.stringify(formValues),
-          bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки для запросов аутентификации
+          data: formValues,
+          bypassLoadingStageCheck: true // Обходим проверку стадии загрузки для запросов аутентификации
         });
-
-        if ('aborted' in data) {
-          const abortedResponse = data as unknown as ApiAbortedResponse;
-          console.error('AuthForm: Request aborted:', abortedResponse.reason);
-          throw new Error(abortedResponse.reason || "Запрос был прерван");
-        }
-
-        if ('error' in data) {
-          console.error('AuthForm: Error response:', data);
-          // Преобразуем технические сообщения об ошибках в понятные для пользователя
-          const errorResponse = data as unknown as ApiErrorResponse;
-          let userFriendlyError = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при авторизации";
-          let hint = "";
-          
-          if (typeof errorResponse.error === 'string') {
-            // Обработка ошибок аутентификации
-            if (userFriendlyError.includes('Unauthorized') || userFriendlyError.includes('401')) {
-              userFriendlyError = "Неверный логин или пароль";
-              hint = "";
-            } else if (userFriendlyError.includes('password')) {
-              userFriendlyError = "Ошибка с паролем";
-              hint = "Пароль должен содержать не менее 8 символов, включая буквы и цифры";
-            } else if (userFriendlyError.includes('email')) {
-              userFriendlyError = "Ошибка с email";
-              hint = "Пожалуйста, введите корректный email адрес";
-            } else if (userFriendlyError.includes('user') || userFriendlyError.includes('пользователь')) {
-              userFriendlyError = "Пользователь не найден";
-              hint = "Пользователь с таким email уже существует";
-            } else if (userFriendlyError.includes('credentials') || userFriendlyError.includes('неверные учетные данные')) {
-              userFriendlyError = "Неверные учетные данные";
-              hint = "Неверный email или пароль. Проверьте введенные данные";
-            } else if (userFriendlyError.includes('network') || userFriendlyError.includes('сеть')) {
-              userFriendlyError = "Ошибка сети";
-              hint = "Проверьте подключение к интернету и попробуйте снова";
-            } else if (userFriendlyError.includes('server') || userFriendlyError.includes('сервер')) {
-              userFriendlyError = "Ошибка сервера";
-              hint = "Пожалуйста, попробуйте позже";
-            }
-          }
-          
-          setError(userFriendlyError);
-          if (hint) setUserHint(hint);
-          return;
-        }
 
         if (isLogin && data.access_token) {
           const userData = {
@@ -132,9 +91,6 @@ export const useAuthForm = ({
           console.log('AuthForm: User data:', userData);
           console.log('AuthForm: Current loading stage before handleLoginSuccess:', typeof window !== 'undefined' ? (window as any).__loading_stage__ : 'N/A');
           
-          // Call handleLoginSuccess immediately without delay
-          console.log('AuthForm: Calling handleLoginSuccess with token and user data');
-          // Передаем флаг isUnauthorizedResponse - имитируем response 401 для обхода проверки стадий
           try {
             // Принудительно устанавливаем данные в localStorage перед вызовом handleLoginSuccess
             if (typeof window !== 'undefined') {
@@ -179,18 +135,26 @@ export const useAuthForm = ({
             // Вызываем handleLoginSuccess для обработки авторизации
             handleLoginSuccess(data.access_token, userData);
             
+            // Ждем небольшую задержку перед вызовом onSuccess, чтобы дать время контексту обновиться
+            setTimeout(() => {
+              // Проверка состояния после вызова handleLoginSuccess
+              console.log('AuthForm: Logging in complete - authentication should be updated');
+              
+              // Call onSuccess callback to close modal
+              if (onSuccess) {
+                console.log('AuthForm: Calling onSuccess callback');
+                onSuccess();
+                setFormValues(initialValues);
+              }
+            }, 100);
+            
           } catch (loginError) {
             console.error('AuthForm: Error during login success handling:', loginError);
-          }
-          
-          // Проверка состояния после вызова handleLoginSuccess
-          console.log('AuthForm: Logging in complete - authentication should be updated');
-          
-          // Call onSuccess after login is handled
-          if (onSuccess) {
-            console.log('AuthForm: Calling onSuccess callback');
-            onSuccess();
-            setFormValues(initialValues);
+            // Даже при ошибке, пытаемся закрыть модальное окно
+            if (onSuccess) {
+              onSuccess();
+              setFormValues(initialValues);
+            }
           }
         } else {
           setIsSuccess(true);
@@ -208,22 +172,40 @@ export const useAuthForm = ({
         let userFriendlyError = apiError.message;
         let hint = "";
         
-        // Преобразуем технические сообщения об ошибках в понятные для пользователя
-        if (apiError.message.includes('blocked')) {
-          userFriendlyError = "Запрос заблокирован";
-          hint = "Пожалуйста, подождите. Система инициализируется...";
-        } else if (apiError.message.includes('network') || apiError.message.includes('сеть')) {
-          userFriendlyError = "Ошибка сети";
-          hint = "Проверьте подключение к интернету и попробуйте снова";
-        } else if (apiError.message.includes('timeout')) {
-          userFriendlyError = "Превышено время ожидания";
-          hint = "Сервер не отвечает. Пожалуйста, попробуйте позже";
-        } else if (apiError.message.includes('Unauthorized') || apiError.message.includes('401')) {
-          userFriendlyError = "Неверный логин или пароль";
-          hint = "";
+        // Проверяем, есть ли статус и ошибка в ответе
+        if ('status' in apiError && 'error' in apiError) {
+          const status = apiError.status;
+          
+          // Обработка ошибок по статусу ответа
+          if (status === 401) {
+            userFriendlyError = "Неверный логин или пароль";
+          } else if (status === 400) {
+            userFriendlyError = "Ошибка в данных формы";
+            hint = "Проверьте правильность введенных данных";
+          } else if (status >= 500) {
+            userFriendlyError = "Ошибка сервера";
+            hint = "Пожалуйста, попробуйте позже";
+          } else if (typeof apiError.error === 'string') {
+            userFriendlyError = apiError.error;
+          }
         } else {
-          userFriendlyError = "Произошла ошибка";
-          hint = "Пожалуйста, попробуйте еще раз";
+          // Преобразуем технические сообщения об ошибках в понятные для пользователя
+          if (apiError.message.includes('blocked')) {
+            userFriendlyError = "Запрос заблокирован";
+            hint = "Пожалуйста, подождите. Система инициализируется...";
+          } else if (apiError.message.includes('network') || apiError.message.includes('сеть')) {
+            userFriendlyError = "Ошибка сети";
+            hint = "Проверьте подключение к интернету и попробуйте снова";
+          } else if (apiError.message.includes('timeout')) {
+            userFriendlyError = "Превышено время ожидания";
+            hint = "Сервер не отвечает. Пожалуйста, попробуйте позже";
+          } else if (apiError.message.includes('Unauthorized') || apiError.message.includes('401')) {
+            userFriendlyError = "Неверный логин или пароль";
+            hint = "";
+          } else {
+            userFriendlyError = "Произошла ошибка";
+            hint = "Пожалуйста, попробуйте еще раз";
+          }
         }
         
         setError(userFriendlyError);

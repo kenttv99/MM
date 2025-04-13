@@ -61,6 +61,7 @@ All API requests must follow these principles:
 4. **Deduplication**: Prevent duplicate requests within the defined window
 5. **Queue Management**: Properly handle request queuing and priorities
 6. **Error Handling**: Follow the standard error handling pattern for all responses
+7. **Rate Limiting**: Apply appropriate rate limits to prevent excessive API calls
 
 ## 5. Centralized Logging
 
@@ -96,6 +97,7 @@ Follow these performance optimization principles:
 4. **Cleanup**: Properly clean up resources on component unmount
 5. **Request Management**: Cancel outdated requests and use AbortController
 6. **Caching**: Implement intelligent caching with appropriate TTL
+7. **Request Rate Limiting**: Implement client-side rate limiting to prevent excessive API calls
 
 ## 7. Error Handling Strategy
 
@@ -106,6 +108,7 @@ Implement a consistent error handling strategy:
 3. **Recovery**: Implement automatic recovery mechanisms where possible
 4. **Fallbacks**: Provide fallback UI for all error states
 5. **Logging**: Log all errors with appropriate context
+6. **Rate Limit Errors**: Handle rate limit exceeded errors appropriately
 
 ## 8. Testing Requirements
 
@@ -116,6 +119,7 @@ All loading system components must be tested for:
 3. **Edge Cases**: Cover edge cases like rapid state changes
 4. **Performance**: Verify optimizations work as expected
 5. **Integration**: Test integration with API and other systems
+6. **Rate Limiting**: Test that rate limiting prevents excessive requests
 
 ## 9. Backward Compatibility
 
@@ -135,5 +139,17 @@ Follow these organization principles:
 3. **Interfaces**: Define and export interfaces for all public APIs
 4. **Documentation**: Document complex logic and implementation details
 5. **Example Usage**: Provide example usage in documentation
+
+## 11. Rate Limiting Implementation
+
+The rate limiting system follows these principles:
+
+1. **Categorization**: Organize rate limits by logical categories (AUTH, PUBLIC, USER, ADMIN)
+2. **Configuration Separation**: Store rate limit configurations in a dedicated configuration file
+3. **Transparent Tracking**: Track request counts per endpoint with appropriate reset times
+4. **Graceful Handling**: When a rate limit is exceeded, reject the request with a clear error message
+5. **Detailed Logging**: Log rate limit violations with contextual information for debugging
+6. **Bypass Mechanism**: Allow critical operations to bypass rate limits when necessary
+7. **Clear Documentation**: Document rate limits for each endpoint category
 
 These principles ensure a consistent, maintainable, and performant loading system implementation across the application. 

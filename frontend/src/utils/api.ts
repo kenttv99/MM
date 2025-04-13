@@ -5,6 +5,7 @@ import { canChangeStage } from "@/contexts/loading";
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { ApiResponse, FetchOptionsType, CancellablePromise, DEFAULT_RETRIES, DEFAULT_TIMEOUT, DEFAULT_BACKOFF } from "@/types/api";
 import { LogLevel, createLogger, configureModuleLogging, LogContext } from "@/utils/logger";
+import { API_RATE_LIMITS, RateLimitConfig } from "@/config/rateLimits";
 
 // Интерфейс для окна с состоянием загрузки
 interface WindowWithLoadingStage extends Window {
@@ -101,6 +102,95 @@ const logHistory = {
 const LOG_THROTTLE_TIME = 5000; // 5 seconds between similar logs
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const DEBUG_ENDPOINTS: string[] = ['/registration/cancel']; // Endpoints with detailed logging
+
+// Отслеживание использования API для соблюдения лимитов
+interface RateLimitTracker {
+  count: number;
+  resetTime: number;
+}
+
+// Хранилище для отслеживания лимитов запросов
+const rateLimitTrackers: Record<string, RateLimitTracker> = {};
+
+// Функция для проверки ограничений запросов
+function checkRateLimit(endpoint: string): boolean {
+  // Определяем категорию и тип запроса
+  let limitConfig: RateLimitConfig | null = null;
+  
+  // Проверяем авторизационные запросы
+  if (endpoint.includes('/auth/login')) {
+    limitConfig = API_RATE_LIMITS.AUTH.login;
+  } else if (endpoint.includes('/auth/register')) {
+    limitConfig = API_RATE_LIMITS.AUTH.register;
+  } else if (endpoint.includes('/auth/me')) {
+    limitConfig = API_RATE_LIMITS.AUTH.accessMe;
+  } else if (endpoint.includes('/admin/me')) {
+    limitConfig = API_RATE_LIMITS.AUTH.verifyTokenAdmin;
+  }
+  // Публичные запросы 
+  else if (endpoint.includes('/events') && !endpoint.includes('user_edits')) {
+    if (endpoint.match(/\/events\/\d+$/)) {
+      limitConfig = API_RATE_LIMITS.PUBLIC.getEventById;
+    } else {
+      limitConfig = API_RATE_LIMITS.PUBLIC.getEvents;
+    }
+  } 
+  // Пользовательские запросы
+  else if (endpoint.includes('/profile')) {
+    if (endpoint.includes('PUT') || endpoint.includes('POST')) {
+      limitConfig = API_RATE_LIMITS.USER.updateProfile;
+    } else {
+      limitConfig = API_RATE_LIMITS.USER.getProfile;
+    }
+  } else if (endpoint.includes('/user_edits/my-tickets')) {
+    limitConfig = API_RATE_LIMITS.USER.getTickets;
+  } else if (endpoint.includes('/registration/')) {
+    limitConfig = API_RATE_LIMITS.USER.registerForEvent;
+  }
+  // Админские запросы
+  else if (endpoint.includes('/admin_edits/')) {
+    if (endpoint.includes('DELETE')) {
+      limitConfig = API_RATE_LIMITS.ADMIN.deleteEvent;
+    } else if (endpoint.includes('POST')) {
+      limitConfig = API_RATE_LIMITS.ADMIN.addEvent;
+    } else {
+      limitConfig = API_RATE_LIMITS.ADMIN.updateEvent;
+    }
+  }
+  
+  // Если не определены лимиты, пропускаем запрос
+  if (!limitConfig) return true;
+  
+  const now = Date.now();
+  const trackerKey = endpoint.split('?')[0]; // Убираем параметры URL
+  
+  // Если нет записи для этого endpoint или истекло время сброса,
+  // создаем новую запись
+  if (!rateLimitTrackers[trackerKey] || rateLimitTrackers[trackerKey].resetTime < now) {
+    rateLimitTrackers[trackerKey] = {
+      count: 1,
+      resetTime: now + limitConfig.interval
+    };
+    return true;
+  }
+  
+  // Увеличиваем счетчик и проверяем лимит
+  rateLimitTrackers[trackerKey].count++;
+  
+  // Если лимит превышен, блокируем запрос
+  if (rateLimitTrackers[trackerKey].count > limitConfig.limit) {
+    apiLogger.warn('Rate limit exceeded', { 
+      endpoint, 
+      limit: limitConfig.limit,
+      interval: limitConfig.interval,
+      count: rateLimitTrackers[trackerKey].count,
+      description: limitConfig.description || 'No description'
+    });
+    return false;
+  }
+  
+  return true;
+}
 
 // Utility to log only if not repeated recently
 const logIfNotRepeated = (key: string, map: Map<string, number>, threshold: number, 
@@ -432,35 +522,46 @@ export const getApiPerformanceMetrics = () => {
   return undefined;
 };
 
+// Создаем универсальную трансформацию данных
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const defaultTransform = <T>(data: any): T => data as T;
+
+// Определение интерфейса для ошибок API если его нет
+interface ApiErrorData {
+  error: string;
+  status: number;
+}
+
+export interface APIOptions {
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  data?: any;
+  params?: Record<string, string | number | boolean | null | undefined>;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+  bypassLoadingStageCheck?: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  transform?: (data: any) => any;
+}
+
 // Исправим функцию apiFetch, чтобы она всегда что-то возвращала
 export const apiFetch = <T = unknown>(
   endpoint: string,
-  params: Record<string, unknown> = {},
-  options: FetchOptionsType = {}
+  options: APIOptions = {}
 ): CancellablePromise<T> => {
   const {
     method = 'GET',
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     headers = {},
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    body = undefined,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    data = undefined,
+    params = {},
     signal = undefined,
-    cache = true,
-    deduplicate = true,
     bypassLoadingStageCheck = false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transform = (data: any) => data as T,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    retries = DEFAULT_RETRIES,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    timeout = DEFAULT_TIMEOUT,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    backoff = DEFAULT_BACKOFF,
+    transform = defaultTransform<T>
   } = options;
 
   // Create a unique request ID for tracking this request
-  const requestId = generateRequestId(endpoint, params, method);
+  const requestId = generateRequestId(endpoint, { ...params, ...data }, method);
   const logContext: ApiLogContext = {
     endpoint,
     method,
@@ -468,157 +569,292 @@ export const apiFetch = <T = unknown>(
     loadingStage: currentLoadingStage
   };
   
-  // Start timing this request
-  const metricId = apiLogger.startMetric('apiFetch', logContext);
+  // Create a controller for request cancellation
+  const controller = new AbortController();
+  const localSignal = controller.signal;
+  
+  // Prepare the promise
+  const promise = new Promise<T>(async (resolve, reject) => {
+    try {
+      // Start timing this request
+      const metricId = apiLogger.startMetric('apiFetch', logContext);
+      const startTime = Date.now();
+      
+      // Pre-request checks
+      // Check if we should process this request based on loading stage
+      if (!shouldProcessRequest(endpoint, bypassLoadingStageCheck)) {
+        apiLogger.warn('Request blocked due to loading stage', {
+          ...logContext,
+          bypassCheck: bypassLoadingStageCheck,
+          blocked: true
+        });
+        
+        const error = new Error(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
+        return reject(error);
+      }
 
-  // Pre-request checks
-  // Check if we should process this request based on loading stage
-  if (!shouldProcessRequest(endpoint, bypassLoadingStageCheck)) {
-    apiLogger.warn('Request blocked due to loading stage', {
-      ...logContext,
-      bypassCheck: bypassLoadingStageCheck,
-      blocked: true
-    });
-    
-    const error = new Error(`Request to ${endpoint} blocked due to current loading stage: ${currentLoadingStage}`);
-    return createCancellablePromise(Promise.reject(error));
-  }
-
-  // Check for cached response
-  if (method === 'GET' && cache) {
-    const cacheKey = generateCacheKey(endpoint, params);
-    const cachedResponse = responseCache[cacheKey];
-    
-    if (cachedResponse) {
-      apiLogger.debug('Returning cached response', {
-        ...logContext,
-        cacheHit: true,
-        cacheAge: Date.now() - cachedResponse.timestamp
-      });
-      
-      // Complete the metric for cached responses
-      apiLogger.endMetric(metricId, { 
-        cacheHit: true, 
-        elapsedTime: 0
-      });
-      
-      return createCancellablePromise(Promise.resolve(cachedResponse.data as T));
-    }
-  }
-
-  // Check for duplicate request
-  if (deduplicate && method === 'GET') {
-    const existingRequest = findActiveRequest<T>(endpoint, params, method);
-    
-    if (existingRequest) {
-      apiLogger.debug('Reusing existing request', {
-        ...logContext,
-        duplicate: true,
-        originalRequestId: existingRequest.id
-      });
-      
-      // Complete the metric for duplicate requests
-      apiLogger.endMetric(metricId, { 
-        duplicate: true, 
-        elapsedTime: 0
-      });
-      
-      return existingRequest.promise;
-    }
-  }
-
-  // Create the actual fetch request
-  // ... existing code ...
-
-  // Handle the response
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const handleResponse = async (response: Response): Promise<T> => {
-    const endTime = Date.now();
-    const startTime = Date.now() - 1; // Заглушка, на самом деле startTime должно быть определено ранее
-    const statusCode = response.status;
-    
-    // Update log context with status info
-    logContext.statusCode = statusCode;
-    
-    // Error handling
-    if (!response.ok) {
-      // Log error response
-      apiLogger.error(`Error response: ${statusCode} ${response.statusText}`, {
-        ...logContext,
-        statusText: response.statusText
-      });
-      
-      // Complete performance metric
-      apiLogger.endMetric(metricId, { 
-        success: false, 
-        statusCode,
-        elapsedTime: endTime - startTime
-      });
-      
-      // Handle 401 Unauthorized error specifically
-      if (statusCode === 401) {
-        apiLogger.warn('Received 401 Unauthorized response, dispatching auth-unauthorized event', {
+      // Проверяем лимиты запросов
+      if (!bypassLoadingStageCheck && !checkRateLimit(`${method}:${endpoint}`)) {
+        apiLogger.warn('Request blocked due to rate limit', {
+          ...logContext,
           endpoint,
           method
         });
         
-        if (typeof window !== 'undefined') {
-          // Dispatch auth-unauthorized event to trigger authentication reset
-          window.dispatchEvent(new CustomEvent('auth-unauthorized', {
-            detail: { status: 401, endpoint, method }
-          }));
+        const error = new Error(`Request to ${endpoint} blocked due to rate limit`);
+        return reject(error);
+      }
+
+      // Check for cached response for GET requests
+      if (method === 'GET') {
+        const cacheKey = generateCacheKey(endpoint, params);
+        const cachedResponse = responseCache[cacheKey];
+        
+        if (cachedResponse) {
+          apiLogger.debug('Returning cached response', {
+            ...logContext,
+            cacheHit: true,
+            cacheAge: Date.now() - cachedResponse.timestamp
+          });
+          
+          // Complete the metric for cached responses
+          apiLogger.endMetric(metricId, { 
+            cacheHit: true, 
+            elapsedTime: 0
+          });
+          
+          return resolve(cachedResponse.data as T);
+        }
+      }
+
+      // Check for duplicate request for GET requests
+      if (method === 'GET') {
+        const existingRequest = findActiveRequest<T>(endpoint, { ...params }, method);
+        
+        if (existingRequest) {
+          apiLogger.debug('Reusing existing request', {
+            ...logContext,
+            duplicate: true,
+            originalRequestId: existingRequest.id
+          });
+          
+          // Complete the metric for duplicate requests
+          apiLogger.endMetric(metricId, { 
+            duplicate: true, 
+            elapsedTime: 0
+          });
+          
+          try {
+            const result = await existingRequest.promise;
+            return resolve(result);
+          } catch (error) {
+            return reject(error);
+          }
         }
       }
       
-      // ... existing error handling ...
-    }
-
-    try {
-      // Process successful response 
-      const rawData = await response.json();
-      const data = transform(rawData);
-      
-      // Cache the response if needed
-      if (method === 'GET' && cache) {
-        const cacheKey = generateCacheKey(endpoint, params);
-        responseCache[cacheKey] = {
-          data,
-          timestamp: Date.now()
-        };
+      // Increment active request counter
+      activeRequestCount++;
+      if (typeof window !== 'undefined') {
+        window.__activeRequestCount = activeRequestCount;
       }
       
-      // Complete performance metric
-      apiLogger.endMetric(metricId, { 
-        success: true, 
-        statusCode,
-        elapsedTime: endTime - startTime,
-        dataSize: JSON.stringify(data).length
+      // Prepare request URL with query parameters for GET requests
+      let url = endpoint;
+      if (method === 'GET' && Object.keys(params).length > 0) {
+        const queryParams = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            queryParams.append(key, String(value));
+          }
+        });
+        url = `${endpoint}?${queryParams.toString()}`;
+      }
+      
+      // Prepare headers
+      const requestHeaders: Record<string, string> = {
+        'Content-Type': 'application/json',
+        ...headers
+      };
+      
+      // Add Authorization header if token exists
+      if (typeof window !== 'undefined') {
+        const token = localStorage.getItem('token');
+        if (token) {
+          requestHeaders['Authorization'] = `Bearer ${token}`;
+        }
+      }
+      
+      // Prepare request options
+      const fetchOptions: RequestInit = {
+        method,
+        headers: requestHeaders,
+        signal: signal || localSignal
+      };
+      
+      // Add body for non-GET requests
+      if (method !== 'GET' && data !== undefined) {
+        fetchOptions.body = JSON.stringify(data);
+      }
+      
+      // Log request
+      apiLogger.debug(`Sending ${method} request to ${url}`, {
+        ...logContext,
+        params: method === 'GET' ? params : undefined,
+        data: method !== 'GET' ? data : undefined
       });
       
-      return data;
+      // Execute the request
+      const response = await fetch(url, fetchOptions);
+      const endTime = Date.now();
+      
+      // Update log context with status info
+      logContext.statusCode = response.status;
+      
+      // Handle response based on status
+      if (!response.ok) {
+        // Log error response
+        apiLogger.error(`Error response: ${response.status} ${response.statusText}`, {
+          ...logContext,
+          statusText: response.statusText
+        });
+        
+        // Complete performance metric
+        apiLogger.endMetric(metricId, { 
+          success: false, 
+          statusCode: response.status,
+          elapsedTime: endTime - startTime
+        });
+        
+        // Handle 401 Unauthorized error specifically
+        if (response.status === 401) {
+          apiLogger.warn('Received 401 Unauthorized response, dispatching auth-unauthorized event', {
+            endpoint,
+            method
+          });
+          
+          if (typeof window !== 'undefined') {
+            // Dispatch auth-unauthorized event to trigger authentication reset
+            window.dispatchEvent(new CustomEvent('auth-unauthorized', {
+              detail: { status: 401, endpoint, method }
+            }));
+          }
+        }
+        
+        // Create structured error
+        let errorData: ApiErrorData;
+        try {
+          // Try to parse error response
+          errorData = await response.json();
+        } catch {
+          // If parsing fails, create default error
+          errorData = {
+            error: response.statusText || 'Unknown error',
+            status: response.status
+          };
+        }
+        
+        // Decrement active request counter
+        activeRequestCount--;
+        if (typeof window !== 'undefined') {
+          window.__activeRequestCount = activeRequestCount;
+        }
+        
+        return reject(errorData);
+      }
+
+      try {
+        // Process successful response 
+        const rawData = await response.json();
+        
+        // Apply transform if provided
+        const data = transform(rawData);
+        
+        // Cache the response for GET requests
+        if (method === 'GET') {
+          const cacheKey = generateCacheKey(endpoint, params);
+          responseCache[cacheKey] = {
+            data,
+            timestamp: Date.now()
+          };
+        }
+        
+        // Complete performance metric
+        apiLogger.endMetric(metricId, { 
+          success: true, 
+          statusCode: response.status,
+          elapsedTime: endTime - startTime,
+          dataSize: JSON.stringify(data).length
+        });
+        
+        // Decrement active request counter
+        activeRequestCount--;
+        if (typeof window !== 'undefined') {
+          window.__activeRequestCount = activeRequestCount;
+        }
+        
+        // Process request queue
+        processRequestQueue();
+        
+        return resolve(data);
+      } catch (error) {
+        // Log JSON parsing errors
+        apiLogger.error('Failed to parse response', {
+          ...logContext,
+          error: error instanceof Error ? error.message : String(error)
+        });
+        
+        // Complete performance metric
+        apiLogger.endMetric(metricId, { 
+          success: false, 
+          statusCode: response.status,
+          parseError: true,
+          elapsedTime: endTime - startTime
+        });
+        
+        // Decrement active request counter
+        activeRequestCount--;
+        if (typeof window !== 'undefined') {
+          window.__activeRequestCount = activeRequestCount;
+        }
+        
+        return reject(error);
+      }
     } catch (error) {
-      // Log JSON parsing errors
-      apiLogger.error('Failed to parse response', {
+      // Handle network errors or other exceptions
+      apiLogger.error('Request failed', {
         ...logContext,
         error: error instanceof Error ? error.message : String(error)
       });
       
-      // Complete performance metric
-      apiLogger.endMetric(metricId, { 
-        success: false, 
-        statusCode,
-        parseError: true,
-        elapsedTime: endTime - startTime
-      });
+      // Decrement active request counter
+      activeRequestCount--;
+      if (typeof window !== 'undefined') {
+        window.__activeRequestCount = activeRequestCount;
+      }
       
-      throw error;
+      return reject(error);
+    }
+  });
+
+  // Create cancellable promise
+  let isCancelled = false;
+  const cancellablePromise = promise as CancellablePromise<T>;
+  
+  cancellablePromise.cancel = (reason = 'Request cancelled by user') => {
+    if (!isCancelled) {
+      isCancelled = true;
+      controller.abort();
+      apiLogger.debug(`Request cancelled: ${reason}`, {
+        ...logContext,
+        reason
+      });
     }
   };
-
-  // ... rest of existing code ...
-
-  // В конце функции добавим возвращаемое значение
-  return createCancellablePromise(Promise.resolve({} as T));
+  
+  cancellablePromise.isCancelled = () => isCancelled;
+  
+  return cancellablePromise;
 };
 
 /**
@@ -806,16 +1042,6 @@ export function shouldProcessRequest(endpoint: string, bypassLoadingStageCheck =
       });
       return false;
   }
-}
-
-export interface APIOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  data?: any;
-  params?: Record<string, string | number | boolean | null | undefined>;
-  headers?: Record<string, string>;
-  signal?: AbortSignal;
-  bypassLoadingStageCheck?: boolean;
 }
 
 // Adding missing utility functions for request handling

@@ -327,93 +327,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user]);
 
   const handleLoginSuccess = useCallback((token: string, userData: UserData) => {
-    authLogger.info('Login success, updating state with token and user data');
+    authLogger.info('Handling login success with token and user data');
     
-    // Если уже авторизован и токен тот же, то возможно это повторный вызов
-    if (isAuthenticated && tokenRef.current === token) {
-      authLogger.info('Already authenticated with same token, skipping update');
-      return;
+    // Устанавливаем токен в localStorage
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('token', token);
+      localStorage.setItem('userData', JSON.stringify(userData));
     }
     
-    authLogger.info('User data avatar:', userData.avatar_url);
-    
-    // Update authentication state
-    setIsAuthenticated(true);
+    // Обновляем локальное состояние
     setUser(userData);
+    setIsAuthenticated(true);
     setIsAuthCheckedState(true);
-    
-    // Store token and user data in localStorage
-    localStorage.setItem('token', token);
-    localStorage.setItem('userData', JSON.stringify(userData));
+    hasInitialized.current = true;
     tokenRef.current = token;
     
-    // Force a re-render by updating a ref
-    hasInitialized.current = true;
-    
-    // Принудительно устанавливаем глобальное состояние загрузки
+    // Оповещаем о изменении состояния авторизации
     if (typeof window !== 'undefined') {
-      const win = window as WindowWithLoadingStage;
-      
-      // Проверяем текущую стадию - если уже STATIC_CONTENT, нет смысла менять
-      if (win.__loading_stage__ !== LoadingStage.STATIC_CONTENT) {
-        authLogger.info('Setting window.__loading_stage__ to STATIC_CONTENT');
-        win.__loading_stage__ = LoadingStage.STATIC_CONTENT;
-      }
-      
-      // Включаем режим отладки только если он еще не включен
-      if (!(window as any).DEBUG_LOADING_CONTEXT) {
-        authLogger.info('Enabling DEBUG_LOADING_CONTEXT for smooth transition');
-        (window as any).DEBUG_LOADING_CONTEXT = true;
-        
-        // Устанавливаем таймер для отключения режима отладки
-        setTimeout(() => {
-          authLogger.info('Disabling DEBUG_LOADING_CONTEXT');
-          (window as any).DEBUG_LOADING_CONTEXT = false;
-        }, 2000);
-      }
-      
-      // Сбрасываем историю только если она еще не была сброшена
-      if (!(window as any).__reset_stage_history_sent__) {
-        (window as any).__reset_stage_history_sent__ = true;
-        
-        // Сбрасываем историю переходов стадий, чтобы избежать проблем с регрессией
-        window.dispatchEvent(new CustomEvent('reset-stage-history', {
-          detail: { reason: 'login_success' }
-        }));
-        
-        // Сбрасываем флаг через 2 секунды
-        setTimeout(() => {
-          (window as any).__reset_stage_history_sent__ = false;
-        }, 2000);
-      }
-    }
-    
-    // Set loading stage to STATIC_CONTENT, но только если текущая стадия не STATIC_CONTENT
-    // Устанавливаем флаг bypassLoadingStageCheck=true для гарантии успешного перехода
-    authLogger.info('Setting stage to STATIC_CONTENT after successful login');
-    setStage(LoadingStage.STATIC_CONTENT);
-    
-    // Dispatch custom event to notify components about auth state change
-    // Но только если оно еще не было отправлено (предотвращаем дублирование)
-    if (!(window as any).__auth_event_sent__) {
-      (window as any).__auth_event_sent__ = true;
-      
-      const event = new CustomEvent('authStateChanged', {
+      authLogger.info('Dispatching auth state changed event');
+      window.dispatchEvent(new CustomEvent('authStateChanged', {
         detail: {
           isAuth: true,
           userData,
           token
         }
-      });
-      window.dispatchEvent(event);
-      
-      // Сбрасываем флаг через 2 секунды
-      setTimeout(() => {
-        (window as any).__auth_event_sent__ = false;
-      }, 2000);
+      }));
     }
     
-    authLogger.info('Authentication state updated successfully');
+    // Если хотим управлять стадией загрузки, устанавливаем её здесь
+    authLogger.info('Transitioning to STATIC_CONTENT stage after login success');
+    setStage(LoadingStage.STATIC_CONTENT);
+    
+    // Дополнительная проверка через задержку
+    setTimeout(() => {
+      // Проверяем текущее состояние
+      if (!isAuthenticated) {
+        authLogger.info('Re-syncing auth state after timeout');
+        setIsAuthenticated(true);
+        // Оповещаем повторно, если состояние не обновилось
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('authStateChanged', {
+            detail: {
+              isAuth: true,
+              userData,
+              token
+            }
+          }));
+        }
+      }
+    }, 300);
+    
+    return true;
   }, [setStage, isAuthenticated]);
 
   const logout = useCallback(async () => {
@@ -431,6 +395,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       // First, notify that we're starting logout
       window.dispatchEvent(new CustomEvent('auth-logout-start'));
+      
+      // Если есть endpoint для выхода, отправляем запрос на сервер
+      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      
+      if (token) {
+        try {
+          // Попытка отправить запрос на выход (если есть такой endpoint)
+          await apiFetch('/auth/logout', {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            bypassLoadingStageCheck: true
+          }).catch(err => {
+            // Игнорируем ошибки при выходе
+            authLogger.warn('Error during API logout, proceeding with client-side logout', err);
+          });
+        } catch (e) {
+          // Игнорируем ошибки при выходе
+          authLogger.warn('Exception during API logout, proceeding with client-side logout', e);
+        }
+      }
       
       // Clear localStorage
       if (typeof window !== 'undefined') {
@@ -562,46 +546,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (authCheckFailsafeRef.current) {
         clearTimeout(authCheckFailsafeRef.current);
         authCheckFailsafeRef.current = null;
-      }
-      
-      if ('aborted' in response) {
-        const abortedResponse = response as unknown as ApiAbortedResponse;
-        authLogger.info('Request aborted - explicitly moving to STATIC_CONTENT');
-        setStage(LoadingStage.STATIC_CONTENT);
-        throw new Error(abortedResponse.reason || "Request was aborted");
-      }
-      
-      if ('error' in response) {
-        const errorResponse = response as unknown as ApiErrorResponse;
-        authLogger.error('API error:', errorResponse.error);
-        
-        // Check for 401 Unauthorized error specifically
-        if (errorResponse.status === 401) {
-          authLogger.info('Received 401 Unauthorized, resetting authentication');
-          if (isMounted.current) {
-            setIsAuthenticated(false);
-            setUser(null);
-            
-            // Clear stored tokens and data
-            if (typeof window !== 'undefined') {
-              localStorage.removeItem('token');
-              localStorage.removeItem('userData');
-            }
-            
-            tokenRef.current = null;
-            setIsAuthCheckedState(true);
-            setDynamicLoading(false);
-            
-            // Allow regression to AUTHENTICATION by passing isUnauthorizedResponse=true
-            authLogger.info('Setting stage to AUTHENTICATION with isUnauthorizedResponse=true');
-            setStage(LoadingStage.AUTHENTICATION, true);
-          }
-          return false;
-        }
-        
-        authLogger.info('API error - explicitly moving to STATIC_CONTENT');
-        setStage(LoadingStage.STATIC_CONTENT);
-        throw new Error(typeof errorResponse.error === 'string' ? errorResponse.error : 'API Error');
       }
       
       authLogger.info('Authentication verified successfully');

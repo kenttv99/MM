@@ -406,6 +406,28 @@ const Header: React.FC = () => {
           headerLoadingTimeoutRef.current = null;
         }
         
+        // Проверяем состояние локального хранилища
+        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+        const storedUserData = typeof window !== 'undefined' ? localStorage.getItem('userData') : null;
+        
+        // Проверяем, что у нас есть токен и данные пользователя в localStorage
+        if (!token || !storedUserData) {
+          logInfo('Авторизация: данные не синхронизированы, сохраняем токен и данные пользователя', {
+            hasToken: !!token,
+            hasUserData: !!storedUserData
+          });
+          
+          // Сохраняем данные в localStorage, если их там нет
+          if (typeof window !== 'undefined') {
+            if (!token && event.detail.token) {
+              localStorage.setItem('token', event.detail.token);
+            }
+            if (!storedUserData && event.detail.userData) {
+              localStorage.setItem('userData', JSON.stringify(event.detail.userData));
+            }
+          }
+        }
+        
         // Для дополнительной уверенности вызываем принудительное обновление через небольшую задержку
         setTimeout(() => {
           forceUpdate({});

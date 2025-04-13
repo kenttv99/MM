@@ -23,7 +23,12 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     initialValues: { email: "", password: "" },
     endpoint,
     isLogin: true,
-    onSuccess: () => onClose(),
+    onSuccess: () => {
+      setTimeout(() => {
+        console.log('Login: Closing modal after successful login');
+        onClose();
+      }, 500); // Увеличиваем задержку для гарантии обновления состояния
+    },
   });
 
   if (!isOpen) return null;

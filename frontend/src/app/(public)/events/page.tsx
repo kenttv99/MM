@@ -11,8 +11,9 @@ import FormattedDescription from "@/components/FormattedDescription";
 import { EventData } from "@/types/events";
 import { useInView } from "react-intersection-observer";
 import { createLogger, LogLevel, configureModuleLogging } from '@/utils/logger';
-// Импортируем все необходимые хуки из системы загрузки в едином импорте
-import { useLoading, useLoadingError, LoadingStage } from '@/contexts/loading';
+// Импортируем необходимые хуки из соответствующих контекстов
+import { useLoading, LoadingStage } from '@/contexts/LoadingContextLegacy';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 // Импортируем функцию fetchEvents из eventService
 import { fetchEvents as fetchEventsService } from '@/utils/eventService';
 // Импорты для фильтрации
@@ -404,8 +405,17 @@ const EventsPage = () => {
       setDynamicLoading(true);
     }
     
+    // Доп. логика для обеспечения перехода в COMPLETED
+    const completionTimer = setTimeout(() => {
+      if (isMounted.current && hasInitialData.current && currentStage !== LoadingStage.COMPLETED) {
+        logger.info('Forcing transition to COMPLETED stage', { currentStage });
+        setStage(LoadingStage.COMPLETED);
+      }
+    }, 3000);
+    
     return () => {
       logger.info('Events page unmounting', { mountId });
+      clearTimeout(completionTimer);
     };
   }, [mountId, currentStage, setStage, setDynamicLoading]);
   
@@ -773,6 +783,56 @@ const EventsPage = () => {
     };
   }, [mountId]);
   
+  // Эффект для отслеживания стадии загрузки и контроля корректных переходов
+  useEffect(() => {
+    // Логируем изменение стадии загрузки
+    logger.info('Loading stage changed', { 
+      stage: currentStage,
+      hasInitialData: hasInitialData.current,
+      hasAttemptedFetch: hasAttemptedInitialFetch.current
+    });
+    
+    // Если данные загружены, но стадия загрузки не COMPLETED, устанавливаем COMPLETED
+    if (hasInitialData.current && 
+        !isFetching && 
+        currentStage !== LoadingStage.COMPLETED && 
+        currentStage !== LoadingStage.ERROR) {
+      
+      // Небольшая задержка для предотвращения конфликтов с другими переходами
+      const stageChangeTimer = setTimeout(() => {
+        if (isMounted.current && hasInitialData.current) {
+          logger.info('Setting COMPLETED stage after data loaded', { 
+            previousStage: currentStage 
+          });
+          setStage(LoadingStage.COMPLETED);
+        }
+      }, 500);
+      
+      return () => clearTimeout(stageChangeTimer);
+    }
+    
+    // Если мы находимся в стадии DATA_LOADING или DYNAMIC_CONTENT слишком долго,
+    // принудительно переходим к COMPLETED, если данные уже загружены
+    if ((currentStage === LoadingStage.DATA_LOADING || currentStage === LoadingStage.DYNAMIC_CONTENT) && 
+        hasInitialData.current && 
+        !isFetching) {
+      
+      const forceStageTimer = setTimeout(() => {
+        if (isMounted.current && 
+            (currentStage === LoadingStage.DATA_LOADING || currentStage === LoadingStage.DYNAMIC_CONTENT) && 
+            hasInitialData.current) {
+          
+          logger.info('Forcing COMPLETED stage after timeout', { 
+            stage: currentStage 
+          });
+          setStage(LoadingStage.COMPLETED);
+        }
+      }, 2000);
+      
+      return () => clearTimeout(forceStageTimer);
+    }
+  }, [currentStage, isFetching, setStage]);
+  
   // Рендер состояния ошибки
   if (currentStage === LoadingStage.ERROR) {
     return (
@@ -798,7 +858,10 @@ const EventsPage = () => {
   }
 
   // Фильтр должен отображаться только если мы успешно загрузили данные
-  const showFilter = hasInitialData.current || (data && data.data.length > 0);
+  const showFilter = hasInitialData.current || (data && data.data.length > 0) || currentStage === LoadingStage.COMPLETED;
+
+  // Проверка состояния загрузки
+  const isLoadingCompleted = currentStage === LoadingStage.COMPLETED;
   
   // Рендер страницы с событиями или скелетоном загрузки
   return (

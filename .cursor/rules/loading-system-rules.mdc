@@ -5,5 +5,5 @@ alwaysApply: true
 ---
 In every request, adhere to these docs:
 
-MM\frontend\loading-system-principles.md
+MM\frontend\loading-context-principles.md
 MM\frontend\PROJECT_STRUCTURE.md

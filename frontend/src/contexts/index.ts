@@ -1,15 +1,14 @@
-// Export all context providers and hooks
-export { 
-  AuthProvider,
-  useAuth
-} from './AuthContext';
+// Export all contexts from a central location
+// This makes imports cleaner in components
 
+// Legacy Loading Context
 export {
-  AdminAuthProvider,
-  useAdminAuth
-} from './AdminAuthContext';
+  LoadingProvider as LoadingProviderLegacy,
+  useLoading as useLoadingLegacy,
+  LoadingStage as LoadingStageLegacy
+} from './LoadingContextLegacy';
 
-// Export new modular loading context
+// New modular loading system
 export {
   LoadingProvider,
   useLoading,
@@ -17,8 +16,12 @@ export {
   useLoadingFlags,
   useLoadingProgress,
   useLoadingError,
-  canChangeStage
+  LoadingStage as LoadingStageNew
 } from './loading';
 
-// Export types
-export { LoadingStage } from './loading/types'; 
+// Auth contexts
+export { AuthProvider, useAuth } from './AuthContext';
+export { AdminAuthProvider, useAdminAuth } from './AdminAuthContext';
+
+// Export types для устаревшего кода - оставляем только один экспорт LoadingStage
+// export { LoadingStage } from './loading/types'; 

@@ -11,6 +11,7 @@ import { API_RATE_LIMITS, RateLimitConfig } from "@/config/rateLimits";
 interface WindowWithLoadingStage extends Window {
   __loading_stage__?: LoadingStage;
   __activeRequestCount?: number;
+  __loadingErrorHandler?: (error: string) => void;
 }
 
 // Configure API module logging
@@ -221,21 +222,65 @@ const getRequestStats = () => {
 
 // Инициализируем слушатель изменений стадий загрузки
 export function initializeLoadingStageListener() {
-  if (typeof window !== 'undefined') {
-    // Устанавливаем начальное значение глобальной переменной
-    window.__loading_stage__ = LoadingStage.AUTHENTICATION;
-    // Обновляем локальную переменную
-    currentLoadingStage = LoadingStage.AUTHENTICATION;
+  if (typeof window === 'undefined') return;
+  
+  apiLogger.info('Initializing loading stage listener');
+  
+  // Обработчик для событий изменения стадии загрузки
+  window.addEventListener('loadingStageChange', handleStageChange as EventListener);
+  
+  // Обработчик для событий ошибок загрузки
+  window.addEventListener('loading-error', (event: Event) => {
+    const customEvent = event as CustomEvent;
+    const error = customEvent.detail?.error || 'Unknown error';
     
-    // Добавляем обработчик события изменения стадии загрузки
-    window.addEventListener('loadingStageChange', ((event: CustomEvent) => {
-      if (event.detail && event.detail.stage) {
-        handleStageChange(event);
-      }
-    }) as EventListener);
+    apiLogger.error('Loading error event received', { 
+      error, 
+      source: customEvent.detail?.source || 'unknown'
+    });
     
-    apiLogger.info('Initialized loading stage listener');
-  }
+    // Если окно имеет обработчик ошибок загрузки, вызываем его
+    const windowWithLoadingStage = window as WindowWithLoadingStage;
+    if (windowWithLoadingStage.__loadingErrorHandler) {
+      windowWithLoadingStage.__loadingErrorHandler(error);
+    }
+    
+    // Устанавливаем глобальную стадию загрузки в ERROR
+    if (windowWithLoadingStage.__loading_stage__ !== LoadingStage.ERROR) {
+      windowWithLoadingStage.__loading_stage__ = LoadingStage.ERROR;
+      dispatchStatusChange(LoadingStage.ERROR);
+    }
+  });
+  
+  // Обработчик для событий ошибок авторизации
+  window.addEventListener('auth-error', (event: Event) => {
+    const customEvent = event as CustomEvent;
+    const message = customEvent.detail?.message || 'Authentication error';
+    
+    apiLogger.warn('Auth error event received', { message });
+    
+    // Сбрасываем стадию загрузки на AUTHENTICATION
+    if (window.__loading_stage__ !== LoadingStage.AUTHENTICATION) {
+      window.__loading_stage__ = LoadingStage.AUTHENTICATION;
+      dispatchStatusChange(LoadingStage.AUTHENTICATION, true);
+    }
+  });
+  
+  // Декларируем глобальный обработчик ошибок загрузки - используем undefined вместо null
+  (window as WindowWithLoadingStage).__loadingErrorHandler = undefined;
+}
+
+// Функция для отправки события изменения стадии загрузки
+function dispatchStatusChange(stage: LoadingStage, isUnauthorizedResponse = false) {
+  if (typeof window === 'undefined') return;
+  
+  window.dispatchEvent(new CustomEvent('loadingStageChange', {
+    detail: { 
+      stage, 
+      timestamp: Date.now(), 
+      isUnauthorizedResponse 
+    }
+  }));
 }
 
 // Обрабатываем изменение стадии загрузки
@@ -927,119 +972,79 @@ function processRequestQueue() {
 }
 
 /**
- * Define allowed endpoint patterns for each loading stage
- */
-const ALLOWED_ENDPOINTS = {
-  // Critical endpoints that should always be allowed regardless of stage
-  CRITICAL: [
-    '/auth/me',
-    '/auth/login',
-    '/admin/login'
-  ],
-  
-  // Endpoints allowed in all stages regardless of loading context
-  ALWAYS_ALLOWED: [
-    // Authentication endpoints
-    '/auth/me',
-    '/admin/me',
-    '/auth/',
-    '/login',
-    '/token',
-    '/register',
-    '/password',
-    '/user_edits/login',
-    '/user_edits/register',
-    
-    // Public event endpoints
-    '/public/events',
-    '/events/public',
-    '/v1/public/events',
-    '/user_edits/my-tickets',
-    '/events/',
-    '/registration/'
-  ],
-  
-  // Endpoints allowed only during AUTHENTICATION stage
-  AUTHENTICATION: [],
-  
-  // Additional endpoints allowed during STATIC_CONTENT stage
-  STATIC_CONTENT: [
-    '/static/',
-    '/content/',
-    '/user_edits/my-tickets',
-    // Images and assets are also considered static content
-    '/images/',
-    '/assets/'
-  ],
-  
-  // DYNAMIC_CONTENT and above allow all endpoints
-  DYNAMIC_CONTENT: ['*']
-};
-
-/**
  * Check if a request should be processed based on current loading stage
- * Endpoints in ALLOWED_ENDPOINTS.ALWAYS_ALLOWED are always processed
- * Other endpoints are only processed in the appropriate loading stage
  */
 export function shouldProcessRequest(endpoint: string, bypassLoadingStageCheck = false, stage?: LoadingStage): boolean {
-  // If bypass flag is set, skip all loading stage checks
+  // Получаем текущую стадию загрузки из глобального объекта, если стадия не передана в параметрах
+  const currentStage = stage || (typeof window !== 'undefined' ? 
+    (window as WindowWithLoadingStage).__loading_stage__ : undefined) || 
+    LoadingStage.AUTHENTICATION;
+  
+  // Если установлен флаг bypass, сразу разрешаем запрос
   if (bypassLoadingStageCheck) {
     return true;
   }
   
-  // Get current loading stage from window if not provided
-  let currentStage = stage;
-  if (!currentStage && typeof window !== 'undefined') {
-    currentStage = (window as WindowWithLoadingStage).__loading_stage__;
-  }
+  // Специальные условия для определенных эндпоинтов, которые должны быть разрешены на любой стадии
   
-  // If still no stage, use the module-level currentLoadingStage
-  currentStage = currentStage || currentLoadingStage;
-
-  // Always allow specific endpoints regardless of stage
-  if (ALLOWED_ENDPOINTS.ALWAYS_ALLOWED.some((pattern: string) => endpoint.includes(pattern))) {
-    return true;
-  }
-
-  // Critical endpoints are always allowed
-  if (ALLOWED_ENDPOINTS.CRITICAL.some((pattern: string) => endpoint.includes(pattern))) {
+  // Всегда разрешаем запросы к API авторизации
+  if (endpoint.includes('/auth/')) {
     return true;
   }
   
-  // Authentication endpoints (login, register) should always be allowed regardless of stage
-  if (endpoint.includes('/auth/login') || 
-      endpoint.includes('/admin/login') || 
-      endpoint.includes('/auth/register')) {
-    apiLogger.debug('Allowing authentication endpoint:', {endpoint});
+  // Всегда разрешаем запросы к публичным эндпоинтам событий
+  if (endpoint.includes('/events') && !endpoint.includes('admin_edits') && !endpoint.includes('user_edits')) {
     return true;
   }
   
-  // Process based on current loading stage
+  // Разрешаем запросы к публичным эндпоинтам уведомлений
+  if (endpoint.includes('/notifications/public')) {
+    return true;
+  }
+  
+  // Обработка в зависимости от текущей стадии загрузки
   switch (currentStage) {
+    // В процессе аутентификации разрешаем только авторизационные запросы и проверки
     case LoadingStage.AUTHENTICATION:
-      // During authentication, only allow auth endpoints
-      return endpoint.includes('/auth') || 
-             endpoint.includes('/login') || 
-             endpoint.includes('/token');
-      
+      // Дополнительные разрешенные запросы на стадии AUTHENTICATION
+      return endpoint.includes('/auth/') || 
+             endpoint.includes('/me') || 
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/public');
+    
+    // После загрузки статического контента, разрешаем загрузку динамического контента
     case LoadingStage.STATIC_CONTENT:
-      // During static content loading, allow static content endpoints
-      return endpoint.includes('/static') ||
-             endpoint.includes('/config') ||
-             endpoint.includes('/i18n');
-      
-    case LoadingStage.DATA_LOADING:
-    case LoadingStage.COMPLETED:
+      return !endpoint.includes('/admin_edits/') || 
+             endpoint.includes('/me') || 
+             endpoint.includes('/profile') ||
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/');
+    
+    // На стадии загрузки динамического контента и загрузки данных разрешаем все запросы
     case LoadingStage.DYNAMIC_CONTENT:
-      // In data loading or completed stages, allow all requests
+    case LoadingStage.DATA_LOADING:
       return true;
-      
+    
+    // После завершения загрузки разрешаем все запросы
+    case LoadingStage.COMPLETED:
+      return true;
+    
+    // В состоянии ошибки разрешаем только критические запросы и запросы восстановления
+    case LoadingStage.ERROR:
+      return endpoint.includes('/auth/') || 
+             endpoint.includes('/me') || 
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/public');
+    
+    // Начальное состояние - разрешаем только базовые запросы
+    case LoadingStage.INITIAL:
+      return endpoint.includes('/auth/') || 
+             endpoint.includes('/me') || 
+             endpoint.includes('/events') ||
+             endpoint.includes('/notifications/public');
+    
     default:
-      // Default to blocking in unknown stages
-      apiLogger.warn('Request blocked due to unknown loading stage', { 
-        endpoint, 
-        currentStage
-      });
+      // По умолчанию блокируем запрос, если стадия загрузки неизвестна
       return false;
   }
 }

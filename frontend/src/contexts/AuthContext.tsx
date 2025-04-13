@@ -202,7 +202,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }
             
             // Still verify with server in background
-            verifyWithServer(token);
+            verifyWithServer();
             return;
           } catch (e) {
             authLogger.error('Error parsing stored user data', e);
@@ -211,7 +211,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         
         // Make the auth check request
-        await verifyWithServer(token);
+        await verifyWithServer();
       } catch (error) {
         authLogger.error('Error during authentication check:', error);
         
@@ -236,48 +236,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     // Helper function to verify token with server
-    const verifyWithServer = async (token: string) => {
-      authLogger.info('Verifying authentication with token');
-      const response = await fetch('/auth/me', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        }
-      });
-      
-      if (response.ok) {
-        authLogger.info('Auth check successful');
-        const data = await response.json();
-        if (isMounted.current) {
-          setUser(data);
+    const verifyWithServer = async () => {
+      try {
+        const response = await fetch('/auth/me', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${tokenRef.current}`,
+          },
+        });
+        if (response.ok) {
+          const userData = await response.json();
+          setUser(userData);
           setIsAuthenticated(true);
           setIsAuthCheckedState(true);
           hasInitialized.current = true;
           // Store user data in localStorage for faster retrieval on next load
           if (typeof window !== 'undefined') {
-            localStorage.setItem('userData', JSON.stringify(data));
+            localStorage.setItem('userData', JSON.stringify(userData));
           }
           // Переходим к следующей стадии загрузки и явно логируем переход
           authLogger.info('Transitioning to STATIC_CONTENT stage (success)');
           setStage(LoadingStage.STATIC_CONTENT);
+        } else {
+          authLogger.info('Auth check failed with status', response.status);
+          handleAuthFailure();
         }
-      } else {
-        authLogger.info('Auth check failed with status', response.status);
-        if (isMounted.current) {
-          setUser(null);
-          setIsAuthenticated(false);
-          setIsAuthCheckedState(true);
-          hasInitialized.current = true;
-          // Clear invalid token and user data
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('token');
-            localStorage.removeItem('userData');
-          }
-          // Переходим к следующей стадии загрузки и явно логируем переход
-          authLogger.info('Transitioning to STATIC_CONTENT stage (failed)');
-          setStage(LoadingStage.STATIC_CONTENT);
-        }
+      } catch (error) {
+        authLogger.error('Error during auth verification:', error);
+        handleAuthFailure();
       }
     };
 
@@ -639,6 +625,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return false;
     }
   }, [isAuthenticated, setDynamicLoading, setStage]);
+
+  const handleAuthFailure = () => {
+    localStorage.removeItem('userData');
+    localStorage.removeItem('token');
+    setIsAuthenticated(false);
+    setUser(null);
+    tokenRef.current = null;
+    setIsAuthCheckedState(true);
+    authLogger.info('Authentication failed, cleared user data');
+    // Добавляем переход к STATIC_CONTENT для продолжения загрузки страницы
+    setStage(LoadingStage.STATIC_CONTENT);
+  };
 
   const contextValue = useMemo(() => ({
     isAuth: isAuthenticated,

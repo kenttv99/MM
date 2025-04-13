@@ -39,7 +39,7 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { currentStage, setStage, isAuthChecked, setIsAuthChecked } = useLoadingStage();
   const { isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading } = useLoadingFlags();
   const { progress, setProgress } = useLoadingProgress();
-  const { error, setError } = useLoadingError();
+  const { error, setError, clearError } = useLoadingError();
 
   // Function to detect and fix loading inconsistencies
   const detectAndFixLoadingInconsistency = useCallback((): boolean => {
@@ -82,6 +82,9 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     // If in error stage but no error message, set stage back to authentication
     if (currentStage === LoadingStage.ERROR && !error) {
       loadingLogger.warn('In ERROR stage but no error message set');
+      // Очищаем ошибку перед попыткой смены стадии
+      clearError();
+      // Пытаемся восстановить систему после ошибки
       setStage(LoadingStage.AUTHENTICATION);
       inconsistencyDetected = true;
     }
@@ -95,8 +98,36 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     setStaticLoading,
     setDynamicLoading,
     resetLoading,
-    setStage
+    setStage,
+    clearError
   ]);
+  
+  // Обработчик для восстановления после ошибки
+  const recoverFromError = useCallback(() => {
+    if (currentStage === LoadingStage.ERROR) {
+      // Полный сброс системы
+      loadingLogger.info('Attempting recovery from ERROR state');
+      clearError();
+      resetLoading();
+      setStage(LoadingStage.AUTHENTICATION);
+      return true;
+    }
+    return false;
+  }, [currentStage, clearError, resetLoading, setStage]);
+
+  // Эффект для автоматического восстановления после ошибки через 15 секунд
+  useEffect(() => {
+    if (currentStage === LoadingStage.ERROR) {
+      const autoRecoveryTimer = setTimeout(() => {
+        if (currentStage === LoadingStage.ERROR) {
+          loadingLogger.info('Auto-recovery from ERROR state triggered');
+          recoverFromError();
+        }
+      }, 15000); // 15 секунд на автоматическое восстановление
+      
+      return () => clearTimeout(autoRecoveryTimer);
+    }
+  }, [currentStage, recoverFromError]);
   
   // Periodically check for and fix loading inconsistencies
   useEffect(() => {
@@ -131,7 +162,8 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     // Additional functionality
     isAuthChecked,
     setIsAuthChecked,
-    detectAndFixLoadingInconsistency
+    detectAndFixLoadingInconsistency,
+    recoverFromError
   };
   
   return (

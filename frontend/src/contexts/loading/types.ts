@@ -94,4 +94,5 @@ export interface LoadingContextType {
   isAuthChecked: boolean;
   setIsAuthChecked: (checked: boolean) => void;
   detectAndFixLoadingInconsistency: () => boolean;
+  recoverFromError: () => boolean;
 } 

@@ -3,9 +3,18 @@
 import React from "react";
 import { motion } from "framer-motion";
 
-const ErrorPlaceholder: React.FC = () => {
+interface ErrorPlaceholderProps {
+  error?: Error | null;
+  onRetry?: () => void;
+}
+
+const ErrorPlaceholder: React.FC<ErrorPlaceholderProps> = ({ error, onRetry }) => {
   const handleRefresh = () => {
-    window.location.reload();
+    if (onRetry) {
+      onRetry();
+    } else {
+      window.location.reload();
+    }
   };
 
   return (
@@ -26,7 +35,7 @@ const ErrorPlaceholder: React.FC = () => {
           className="text-gray-600 mb-6 overflow-wrap-break-word"
           style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}
         >
-          Произошла ошибка при загрузке страницы. Попробуйте обновить страницу или свяжитесь с поддержкой, если проблема сохраняется.
+          {error?.message || "Произошла ошибка при загрузке страницы. Попробуйте обновить страницу или свяжитесь с поддержкой, если проблема сохраняется."}
         </p>
         <motion.button
           whileHover={{ scale: 1.05 }}
@@ -34,7 +43,7 @@ const ErrorPlaceholder: React.FC = () => {
           onClick={handleRefresh}
           className="px-6 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-all duration-300 min-w-[120px] min-h-[44px]"
         >
-          Обновить
+          {onRetry ? "Повторить" : "Обновить"}
         </motion.button>
       </motion.div>
     </div>

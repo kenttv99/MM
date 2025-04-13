@@ -1,5 +1,45 @@
 // frontend/src/utils/eventService.ts
 import { EventFormData, EventResponse, EventData } from '@/types/events';
+import { createLogger } from '@/utils/logger';
+// import { API_BASE_URL } from '@/config/constants';
+// import { EventFilter } from '@/types/events';
+
+// Определяем интерфейс EventFilter
+export interface EventFilter {
+  startDate?: string;
+  endDate?: string;
+}
+
+// Интерфейс для общих API-ответов
+export interface ApiResponse<T = unknown> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+  aborted?: boolean;
+}
+
+// Интерфейс для пагинированного ответа с событиями
+export interface PaginatedEventsResponse {
+  events: EventData[];
+  totalPages: number;
+  currentPage: number;
+  hasMore: boolean;
+}
+
+// Интерфейс для ответа с событиями
+export interface EventsResponse {
+  success: boolean;
+  data?: Array<EventData>;
+  error?: string;
+  page?: number;
+  totalPages?: number;
+  hasMore?: boolean;
+  aborted?: boolean;
+}
+
+// Создаем логгер для сервиса
+const logger = createLogger('eventService');
 
 export const prepareEventFormData = (eventData: EventFormData): FormData => {
   const formData = new FormData();
@@ -742,149 +782,161 @@ export const updateEvent = async (
     const updateUrl = `/admin_edits/${eventId}/`;
     console.log(`eventService: Making PUT request to ${updateUrl}`);
     
-    const response = await fetch(updateUrl, {
-      method: "PUT", // This method is correct for updating events
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        // Not setting Content-Type for FormData
-      },
-      credentials: 'same-origin',
-      body: preparedData
-    });
+    // Устанавливаем таймаут для запроса
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort('Request timeout');
+    }, 15000); // 15 секунд
 
-    // Check for token refresh headers
-    handleTokenRefresh(response);
-    
-    console.log(`eventService: Server response status: ${response.status}`);
+    try {
+      // Выполняем запрос с таймаутом
+      const response = await fetch(updateUrl, {
+        method: "PUT", // This method is correct for updating events
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          // Not setting Content-Type for FormData
+        },
+        credentials: 'same-origin',
+        body: preparedData
+      });
 
-    // Handle non-successful HTTP response
-    if (response.status === 401) {
-      console.log("eventService: Authentication error 401 in updateEvent, clearing session");
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
-      return {
-        success: false,
-        message: "Ошибка аутентификации. Пожалуйста, войдите снова.",
-      };
-    }
-    
-    if (response.status === 403) {
-      console.log("eventService: Authorization error 403 in updateEvent, NOT clearing session");
+      // Check for token refresh headers
+      handleTokenRefresh(response);
       
-      // Try to get error text
-      const errorText = await response.text();
-      console.log("eventService: Error response body:", errorText);
-      
-      return {
-        success: false,
-        message: "У вас недостаточно прав для выполнения этой операции.",
-      };
-    }
+      console.log(`eventService: Server response status: ${response.status}`);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`eventService: Error updating event [${response.status}]:`, errorText);
-      try {
-        const errorJson = JSON.parse(errorText);
+      // Handle non-successful HTTP response
+      if (response.status === 401) {
+        console.log("eventService: Authentication error 401 in updateEvent, clearing session");
+        localStorage.removeItem("admin_token");
+        localStorage.removeItem("admin_data");
         return {
           success: false,
-          message: errorJson.detail || `Ошибка при обновлении мероприятия: ${response.statusText}`,
-        };
-      } catch {
-        return {
-          success: false,
-          message: `Ошибка при обновлении мероприятия: ${response.statusText}. ${errorText}`,
+          message: "Ошибка аутентификации. Пожалуйста, войдите снова.",
         };
       }
-    }
+      
+      if (response.status === 403) {
+        console.log("eventService: Authorization error 403 in updateEvent, NOT clearing session");
+        
+        // Try to get error text
+        const errorText = await response.text();
+        console.log("eventService: Error response body:", errorText);
+        
+        return {
+          success: false,
+          message: "У вас недостаточно прав для выполнения этой операции.",
+        };
+      }
 
-    // Get the raw text first to inspect it
-    const responseText = await response.text();
-    console.log(`eventService: Raw response from server: ${responseText}`);
-    
-    // Log character codes for specific problematic sequences that might be in the response
-    if (responseText.includes("kirtan-mel")) {
-      console.log("eventService: Response contains 'kirtan-mel', character codes:");
-      const startIndex = responseText.indexOf("kirtan-mel");
-      const endIndex = startIndex + "kirtan-mel".length + 5; // Include a few characters after
-      const slugPart = responseText.substring(startIndex, endIndex);
-      console.log(`  Extracted part: "${slugPart}"`);
-      console.log(`  Character codes:`, slugPart.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
-    }
-    
-    // Parse the successful response
-    let result;
-    try {
-      result = JSON.parse(responseText);
-      console.log(`eventService: Server response for event update:`, result);
-    } catch (e) {
-      console.error("eventService: Error parsing JSON response:", e);
-      return {
-        success: false,
-        message: "Ошибка обработки ответа от сервера"
-      };
-    }
-    
-    // Check if server returned URL with a non-ASCII character
-    if (result && result.url_slug) {
-      const serverSlug = result.url_slug as string;
-      console.log(`eventService: Server returned URL slug: "${serverSlug}"`);
-      
-      // Log ASCII codes for each character to detect invisible characters
-      console.log("eventService: ASCII codes for server slug:", 
-        serverSlug.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
-      
-      // Force ASCII-only characters in the server response
-      const cleanServerSlug = serverSlug.replace(/[^\x00-\x7F]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-+|-+$/g, '');
-      
-      if (cleanServerSlug !== serverSlug) {
-        console.warn(`eventService: Server returned slug with non-ASCII characters: "${serverSlug}" -> "${cleanServerSlug}"`);
-        console.log(`eventService: Character difference at position:`, 
-          [...serverSlug].findIndex((char, i) => i >= cleanServerSlug.length || char !== cleanServerSlug[i]));
-        
-        // If the server returned a different slug, make a dedicated PATCH request to fix it
-        console.log(`eventService: Server returned incorrect slug, attempting to fix...`);
-        const fixResult = await fixUrlSlug(eventId, cleanServerSlug);
-        
-        if (fixResult) {
-          console.log(`eventService: Successfully fixed URL slug in database`);
-          // Update the result with the fixed slug
-          result.url_slug = cleanServerSlug;
-        } else {
-          console.warn(`eventService: Failed to fix URL slug, but continuing with clean version in UI`);
-          // We'll still return the clean version in the UI
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`eventService: Error updating event [${response.status}]:`, errorText);
+        try {
+          const errorJson = JSON.parse(errorText);
+          return {
+            success: false,
+            message: errorJson.detail || `Ошибка при обновлении мероприятия: ${response.statusText}`,
+          };
+        } catch {
+          return {
+            success: false,
+            message: `Ошибка при обновлении мероприятия: ${response.statusText}. ${errorText}`,
+          };
         }
       }
+
+      // Get the raw text first to inspect it
+      const responseText = await response.text();
+      console.log(`eventService: Raw response from server: ${responseText}`);
       
-      // Create the display slug with year and ID for UI
-      let fullSlug = cleanServerSlug;
-      if (formData.start_date && formData.id) {
-        const year = new Date(formData.start_date).getFullYear();
-        fullSlug = `${cleanServerSlug}-${year}-${formData.id}`;
-        console.log(`eventService: Generated display slug: ${fullSlug}`);
+      // Log character codes for specific problematic sequences that might be in the response
+      if (responseText.includes("kirtan-mel")) {
+        console.log("eventService: Response contains 'kirtan-mel', character codes:");
+        const startIndex = responseText.indexOf("kirtan-mel");
+        const endIndex = startIndex + "kirtan-mel".length + 5; // Include a few characters after
+        const slugPart = responseText.substring(startIndex, endIndex);
+        console.log(`  Extracted part: "${slugPart}"`);
+        console.log(`  Character codes:`, slugPart.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
       }
       
-      // Return the clean version
+      // Parse the successful response
+      let result;
+      try {
+        result = JSON.parse(responseText);
+        console.log(`eventService: Server response for event update:`, result);
+      } catch (e) {
+        console.error("eventService: Error parsing JSON response:", e);
+        return {
+          success: false,
+          message: "Ошибка обработки ответа от сервера"
+        };
+      }
+      
+      // Check if server returned URL with a non-ASCII character
+      if (result && result.url_slug) {
+        const serverSlug = result.url_slug as string;
+        console.log(`eventService: Server returned URL slug: "${serverSlug}"`);
+        
+        // Log ASCII codes for each character to detect invisible characters
+        console.log("eventService: ASCII codes for server slug:", 
+          serverSlug.split('').map((c: string) => c + ` (${c.charCodeAt(0)})`).join(', '));
+        
+        // Force ASCII-only characters in the server response
+        const cleanServerSlug = serverSlug.replace(/[^\x00-\x7F]/g, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9-]/g, '-')
+          .replace(/-+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        
+        if (cleanServerSlug !== serverSlug) {
+          console.warn(`eventService: Server returned slug with non-ASCII characters: "${serverSlug}" -> "${cleanServerSlug}"`);
+          console.log(`eventService: Character difference at position:`, 
+            [...serverSlug].findIndex((char, i) => i >= cleanServerSlug.length || char !== cleanServerSlug[i]));
+          
+          // If the server returned a different slug, make a dedicated PATCH request to fix it
+          console.log(`eventService: Server returned incorrect slug, attempting to fix...`);
+          const fixResult = await fixUrlSlug(eventId, cleanServerSlug);
+          
+          if (fixResult) {
+            console.log(`eventService: Successfully fixed URL slug in database`);
+            // Update the result with the fixed slug
+            result.url_slug = cleanServerSlug;
+          } else {
+            console.warn(`eventService: Failed to fix URL slug, but continuing with clean version in UI`);
+            // We'll still return the clean version in the UI
+          }
+        }
+        
+        // Create the display slug with year and ID for UI
+        let fullSlug = cleanServerSlug;
+        if (formData.start_date && formData.id) {
+          const year = new Date(formData.start_date).getFullYear();
+          fullSlug = `${cleanServerSlug}-${year}-${formData.id}`;
+          console.log(`eventService: Generated display slug: ${fullSlug}`);
+        }
+        
+        // Return the clean version
+        return {
+          success: true,
+          message: "Мероприятие успешно обновлено",
+          event: {
+            ...result,
+            url_slug: cleanServerSlug,
+            full_slug: fullSlug
+          },
+        };
+      }
+
       return {
         success: true,
         message: "Мероприятие успешно обновлено",
-        event: {
-          ...result,
-          url_slug: cleanServerSlug,
-          full_slug: fullSlug
-        },
+        event: result,
       };
+    } finally {
+      // Всегда очищаем таймаут
+      clearTimeout(timeoutId);
     }
-
-    return {
-      success: true,
-      message: "Мероприятие успешно обновлено",
-      event: result,
-    };
   } catch (error) {
     const err = error as Error;
     console.error("eventService: Error updating event:", err);
@@ -1222,4 +1274,377 @@ export const checkSlugAvailability = async (slug: string): Promise<{
   return {
     available: true
   };
+};
+
+/**
+ * Получение списка событий с поддержкой пагинации и фильтрации
+ * 
+ * @param page - Номер страницы для пагинации (начиная с 1)
+ * @param filters - Опциональные фильтры для запроса (даты начала и конца)
+ * @param signal - Сигнал для отмены запроса
+ * @returns Объект с результатами запроса, данными и статусами
+ */
+export async function fetchEvents(
+  page: number = 1,
+  filters?: EventFilter,
+  signal?: AbortSignal
+): Promise<EventsResponse> {
+  // Создаем ID для отслеживания запроса в логах
+  const requestId = Math.random().toString(36).substring(2, 10);
+  
+  logger.info('Fetching events list', { 
+    requestId, 
+    page, 
+    filters: filters ? JSON.stringify(filters) : 'none',
+    hasSignal: !!signal
+  });
+
+  try {
+    // Формируем URL с параметрами
+    const params = new URLSearchParams();
+    params.append('page', page.toString());
+    params.append('limit', '6'); // Стандартный лимит для страницы
+    
+    // Добавляем параметры фильтрации, если они есть
+    if (filters) {
+      if (filters.startDate) {
+        params.append('start_date', filters.startDate);
+        logger.debug('Adding start_date filter', { value: filters.startDate });
+      }
+      
+      if (filters.endDate) {
+        params.append('end_date', filters.endDate);
+        logger.debug('Adding end_date filter', { value: filters.endDate });
+      }
+    }
+    
+    // Формируем URL для запроса
+    const url = `/v1/public/events?${params.toString()}`;
+    logger.info('Making API request', { requestId, url });
+    
+    // Устанавливаем таймаут для запроса
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort('Request timeout');
+    }, 15000); // 15 секунд
+    
+    // Получаем наш сигнал отмены
+    const internalSignal = controller.signal;
+    
+    try {
+      // Выполняем запрос с внешним или внутренним сигналом
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        signal: signal || internalSignal
+      });
+      
+      // Очищаем таймаут после получения ответа
+      clearTimeout(timeoutId);
+      
+      // Обработка прерванного запроса
+      if ((signal && signal.aborted) || internalSignal.aborted) {
+        logger.info('Request aborted', { requestId });
+        return {
+          success: false,
+          error: 'Запрос был отменен',
+          aborted: true
+        };
+      }
+      
+      // Проверяем статус ответа
+      if (!response.ok) {
+        let errorMessage: string;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || `Ошибка сервера: ${response.status}`;
+        } catch {
+          errorMessage = `Ошибка HTTP ${response.status}: ${response.statusText}`;
+        }
+        
+        logger.error('API request failed', { 
+          requestId, 
+          status: response.status, 
+          error: errorMessage 
+        });
+        
+        // Генерируем событие для обработки ошибок авторизации
+        if (response.status === 401) {
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('auth-error', { 
+              detail: { message: errorMessage } 
+            }));
+          }
+        }
+        
+        return {
+          success: false,
+          error: errorMessage
+        };
+      }
+      
+      // Парсим JSON-ответ
+      const responseData = await response.json();
+      
+      // Приводим ответ к единому формату
+      let events: EventData[] = [];
+      let totalPages = 1;
+      let currentPage = page;
+      let hasMore = false;
+      
+      // Проверяем, какой формат ответа мы получили
+      if (Array.isArray(responseData)) {
+        // Массив событий напрямую
+        events = responseData;
+        
+        // Определяем, есть ли еще страницы, основываясь на количестве полученных событий
+        // Если получено полное количество событий на странице (6), вероятно есть еще
+        hasMore = events.length === 6;
+        totalPages = hasMore ? currentPage + 1 : currentPage;
+      } else if (responseData && typeof responseData === 'object') {
+        // Проверяем наличие пагинации в ответе
+        if ('data' in responseData && Array.isArray(responseData.data)) {
+          events = responseData.data;
+        }
+        
+        if ('page' in responseData && typeof responseData.page === 'number') {
+          currentPage = responseData.page;
+        }
+        
+        if ('totalPages' in responseData && typeof responseData.totalPages === 'number') {
+          totalPages = responseData.totalPages;
+        }
+        
+        if ('hasMore' in responseData && typeof responseData.hasMore === 'boolean') {
+          hasMore = responseData.hasMore;
+        } else {
+          // Вычисляем hasMore на основе текущей страницы и общего количества страниц
+          hasMore = currentPage < totalPages;
+        }
+      }
+      
+      logger.info('Events fetch successful', { 
+        requestId, 
+        count: events.length,
+        currentPage,
+        totalPages,
+        hasMore
+      });
+      
+      return {
+        success: true,
+        data: events,
+        page: currentPage,
+        totalPages,
+        hasMore
+      };
+    } finally {
+      // Всегда очищаем таймаут
+      clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    // Проверяем, был ли запрос отменен
+    if (error instanceof Error && error.name === 'AbortError') {
+      logger.info('Request aborted', { requestId });
+      return {
+        success: false,
+        error: 'Запрос был отменен',
+        aborted: true
+      };
+    }
+    
+    // Логируем другие ошибки
+    logger.error('Error fetching events', {
+      requestId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    // Генерируем событие ошибки загрузки для интеграции с системой загрузки
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('loading-error', { 
+        detail: { 
+          error: error instanceof Error ? error.message : String(error),
+          source: 'eventService.fetchEvents'
+        } 
+      }));
+    }
+    
+    // Возвращаем объект с ошибкой
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+/**
+ * Получение детальной информации о событии по slug
+ * 
+ * @param slug - URL slug или ID события
+ * @param signal - Сигнал для отмены запроса
+ * @returns Объект с информацией о событии или ошибкой
+ */
+export const fetchEventBySlug = async (
+  slug: string,
+  signal?: AbortSignal
+): Promise<{
+  success: boolean;
+  data?: EventData;
+  error?: string;
+}> => {
+  const requestId = Math.random().toString(36).substring(2, 10);
+  
+  logger.info('Fetching event details', { 
+    requestId, 
+    slug,
+    hasSignal: !!signal
+  });
+  
+  try {
+    // Формируем URL для запроса
+    const url = `/v1/public/events/${encodeURIComponent(slug)}`;
+    
+    // Устанавливаем таймаут для запроса
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort('Request timeout');
+    }, 15000); // 15 секунд
+    
+    // Получаем наш сигнал отмены
+    const internalSignal = controller.signal;
+    
+    try {
+      // Выполняем запрос с внешним или внутренним сигналом
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Cache-Control': 'no-cache'
+        },
+        signal: signal || internalSignal
+      });
+      
+      // Очищаем таймаут после получения ответа
+      clearTimeout(timeoutId);
+      
+      // Обработка прерванного запроса
+      if ((signal && signal.aborted) || internalSignal.aborted) {
+        logger.info('Request aborted', { requestId });
+        return {
+          success: false,
+          error: 'Запрос был отменен'
+        };
+      }
+      
+      // Проверяем статус ответа
+      if (!response.ok) {
+        // Если событие не найдено, возвращаем специфичную ошибку
+        if (response.status === 404) {
+          logger.warn('Event not found', { requestId, slug });
+          
+          // Генерируем событие для обработки в системе загрузки
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('loading-error', { 
+              detail: { 
+                error: 'Событие не найдено',
+                source: 'eventService.fetchEventBySlug',
+                status: 404
+              } 
+            }));
+          }
+          
+          return {
+            success: false,
+            error: 'Событие не найдено'
+          };
+        }
+        
+        // Пытаемся получить детальную информацию об ошибке из ответа
+        let errorMessage: string;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.detail || `Ошибка сервера: ${response.status}`;
+        } catch {
+          errorMessage = `Ошибка HTTP ${response.status}: ${response.statusText}`;
+        }
+        
+        logger.error('API request failed', { 
+          requestId, 
+          status: response.status, 
+          error: errorMessage 
+        });
+        
+        // Генерируем событие для обработки в системе загрузки
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('loading-error', { 
+            detail: { 
+              error: errorMessage,
+              source: 'eventService.fetchEventBySlug',
+              status: response.status
+            } 
+          }));
+        }
+        
+        return {
+          success: false,
+          error: errorMessage
+        };
+      }
+      
+      // Парсим JSON-ответ
+      const eventData = await response.json();
+      
+      logger.info('Event fetch successful', { 
+        requestId, 
+        eventId: eventData.id,
+        title: eventData.title?.substring(0, 30)
+      });
+      
+      return {
+        success: true,
+        data: eventData
+      };
+    } finally {
+      // Всегда очищаем таймаут
+      clearTimeout(timeoutId);
+    }
+  } catch (error) {
+    // Проверяем, был ли запрос отменен
+    if (error instanceof Error && error.name === 'AbortError') {
+      logger.info('Request aborted', { requestId });
+      return {
+        success: false,
+        error: 'Запрос был отменен'
+      };
+    }
+    
+    // Логируем другие ошибки
+    logger.error('Error fetching event', {
+      requestId,
+      slug,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
+    // Генерируем событие ошибки загрузки для интеграции с системой загрузки
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('loading-error', { 
+        detail: { 
+          error: error instanceof Error ? error.message : String(error),
+          source: 'eventService.fetchEventBySlug'
+        } 
+      }));
+    }
+    
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Произошла ошибка при загрузке события'
+    };
+  }
 };

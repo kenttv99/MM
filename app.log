@@ -1940,3 +1940,15 @@ DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "notification_templates"
 2025-04-13 00:39:41,616 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-13 00:39:53,832 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-13 00:40:39,513 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:09:43,749 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-13 14:17:44,630 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:18:09,317 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:18:18,310 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:20:36,022 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:33:08,714 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:33:25,789 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:37:01,553 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:39:38,522 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:44:11,075 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:44:42,574 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-13 14:52:33,027 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

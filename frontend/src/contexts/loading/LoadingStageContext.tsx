@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { createLogger } from "@/utils/logger";
 import { LoadingStage, LoadingStageContextType, StageChangeResult, StageHistoryEntry } from '@/contexts/loading/types';
 
@@ -24,6 +24,11 @@ interface WindowWithDebug extends Window {
   DEBUG_LOADING_CONTEXT?: boolean;
 }
 
+// Интерфейс для окна с состоянием загрузки
+interface WindowWithLoadingStage extends Window {
+  __loading_stage__?: LoadingStage;
+}
+
 // Helper function to check stage transitions
 export function canChangeStage(
   currentStage: LoadingStage, 
@@ -35,6 +40,15 @@ export function canChangeStage(
   if (typeof window !== 'undefined' && (window as WindowWithDebug).DEBUG_LOADING_CONTEXT) {
     stageLogger.info('Debug mode enabled, allowing stage transition', { from: currentStage, to: newStage });
     return { allowed: true };
+  }
+  
+  // Особый случай: Разрешаем переход из ERROR в начальную стадию AUTHENTICATION при сбросе ошибки
+  if (currentStage === LoadingStage.ERROR && newStage === LoadingStage.AUTHENTICATION) {
+    stageLogger.info('Allowing exit from ERROR state to AUTHENTICATION for recovery', { 
+      from: currentStage, 
+      to: newStage
+    });
+    return { allowed: true, reason: 'Error state recovery' };
   }
   
   // Особая обработка для входа - всегда разрешаем переход на STATIC_CONTENT при авторизации
@@ -202,137 +216,203 @@ export function dispatchStageChangeEvent(stage: LoadingStage) {
 // Create context
 const LoadingStageContext = createContext<LoadingStageContextType | undefined>(undefined);
 
+// Максимальный размер истории переходов
+const MAX_HISTORY_SIZE = 30;
+// Интервал автоматического прогресса (в миллисекундах)
+const AUTO_PROGRESS_INTERVAL = 5000;
+
 // Provider component
 export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentStage, setCurrentStage] = useState<LoadingStage>(LoadingStage.INITIAL);
+  const [currentStage, setCurrentStageState] = useState<LoadingStage>(LoadingStage.INITIAL);
+  const [stageHistory, setStageHistory] = useState<StageHistoryEntry[]>([
+    { stage: LoadingStage.INITIAL, timestamp: Date.now() }
+  ]);
   const [isAuthChecked, setIsAuthChecked] = useState<boolean>(false);
-  const [stageHistory, setStageHistory] = useState<StageHistoryEntry[]>([]);
-  const stageTransitionTimerId = useRef<NodeJS.Timeout | null>(null);
-  const initialSetupDoneRef = useRef<boolean>(false);
+  const autoProgressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const stageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isMounted = useIsMounted();
   
-  // Разрешить изменение стадии только если переход допустим
-  const setStage = useCallback((newStage: LoadingStage) => {
-    stageLogger.info(`Attempting transition to ${newStage}`, { from: currentStage });
-    
-    // Проверяем, можно ли перейти в новую стадию
-    const result = canChangeStage(currentStage, newStage, stageHistory);
-    
-    if (!result.allowed) {
-      stageLogger.warn('Stage transition rejected', { 
-        from: currentStage, 
-        to: newStage, 
-        reason: result.reason 
-      });
-      return;
-    }
-    
-    stageLogger.info(`Changing loading stage`, { 
-      from: currentStage, 
-      to: newStage
-    });
-    
-    // Обновляем текущую стадию
-    setCurrentStage(newStage);
-    
-    // Add to history
-    const now = Date.now();
-    setStageHistory(prev => {
-      const updated = [...prev, { stage: newStage, timestamp: now }];
-      // Keep last 10 entries
-      return updated.length > 10 ? updated.slice(-10) : updated;
-    });
-    
-    // Dispatch event
-    dispatchStageChangeEvent(newStage);
-    
-    // Clear existing auto-progress timer if it exists
-    if (stageTransitionTimerId.current) {
-      clearTimeout(stageTransitionTimerId.current);
-      stageTransitionTimerId.current = null;
-    }
-    
-    // Убираем логику автоматического перехода между стадиями по таймауту
-    // Стадии должны меняться только при явном вызове setStage из кода приложения
-  }, [currentStage, stageHistory]);
-  
-  // Добавляем обработчик события для сброса истории состояний
+  // Очистка таймеров при размонтировании
   useEffect(() => {
-    const handleResetStageHistory = (event: CustomEvent) => {
-      stageLogger.info('Resetting stage history', event.detail);
-      
-      // Проверяем, если история уже очищена и содержит только текущее состояние,
-      // то нет необходимости делать новый setState (предотвращает лишние перерисовки)
-      if (stageHistory.length === 1 && stageHistory[0].stage === currentStage) {
-        stageLogger.info('Stage history already clean, skipping update');
-        return;
-      }
-      
-      // Сбрасываем историю переходов, оставляя только текущее состояние
-      const now = Date.now();
-      setStageHistory([{ stage: currentStage, timestamp: now }]);
-    };
-    
-    window.addEventListener('reset-stage-history', handleResetStageHistory as EventListener);
-    
     return () => {
-      window.removeEventListener('reset-stage-history', handleResetStageHistory as EventListener);
+      if (autoProgressTimerRef.current) {
+        clearTimeout(autoProgressTimerRef.current);
+        autoProgressTimerRef.current = null;
+      }
+      if (stageTimeoutRef.current) {
+        clearTimeout(stageTimeoutRef.current);
+        stageTimeoutRef.current = null;
+      }
     };
-  }, [currentStage, stageHistory]); // Добавляем stageHistory как зависимость
+  }, []);
   
-  // Добавляем обработчик события auth-check-complete
+  // Логируем изменения стадии в глобальный объект window для отладки
   useEffect(() => {
-    const handleAuthCheckComplete = (event: CustomEvent) => {
-      stageLogger.info('Received auth-check-complete event', event.detail);
+    if (typeof window !== 'undefined') {
+      (window as WindowWithLoadingStage).__loading_stage__ = currentStage;
+    }
+  }, [currentStage]);
+  
+  // Метод установки новой стадии загрузки с валидацией перехода
+  const setStage = useCallback((stage: LoadingStage, isUnauthorizedResponse: boolean = false) => {
+    if (!isMounted.current) return;
+    
+    setCurrentStageState(prevStage => {
+      // Проверяем возможность перехода из текущей стадии в новую
+      const result = canChangeStage(
+        prevStage, 
+        stage, 
+        stageHistory,
+        isUnauthorizedResponse
+      );
       
-      // Если мы все еще находимся на стадии AUTHENTICATION, переходим к STATIC_CONTENT
-      if (currentStage === LoadingStage.AUTHENTICATION || currentStage === LoadingStage.INITIAL) {
-        stageLogger.info('Moving to STATIC_CONTENT after auth check complete');
-        setStage(LoadingStage.STATIC_CONTENT);
+      if (!result.allowed) {
+        stageLogger.warn(`Stage transition not allowed: ${prevStage} -> ${stage}`, { 
+          reason: result.reason,
+          history: stageHistory.slice(-5)
+        });
+        return prevStage;
+      }
+      
+      // Логируем переход стадии
+      stageLogger.info(`Changing loading stage: ${prevStage} -> ${stage}`);
+      
+      // Обновляем историю переходов, сохраняя последние MAX_HISTORY_SIZE записей
+      setStageHistory(prev => {
+        const newHistory = [
+          ...prev,
+          { stage, timestamp: Date.now() }
+        ];
+        return newHistory.slice(-MAX_HISTORY_SIZE);
+      });
+      
+      // Отправляем событие изменения стадии
+      dispatchStageChangeEvent(stage);
+      
+      // Сбрасываем существующий таймер автоматического прогресса
+      if (autoProgressTimerRef.current) {
+        clearTimeout(autoProgressTimerRef.current);
+        autoProgressTimerRef.current = null;
+      }
+      
+      // Устанавливаем таймер для автоматического перехода к следующей стадии
+      // только если мы в промежуточной стадии
+      if (stage !== LoadingStage.COMPLETED && 
+          stage !== LoadingStage.ERROR && 
+          stage !== LoadingStage.INITIAL) {
+        
+        // Определяем следующую стадию для автоматического перехода
+        let nextStage: LoadingStage;
+        switch (stage) {
+          case LoadingStage.AUTHENTICATION:
+            nextStage = LoadingStage.STATIC_CONTENT;
+            break;
+          case LoadingStage.STATIC_CONTENT:
+            nextStage = LoadingStage.DYNAMIC_CONTENT;
+            break;
+          case LoadingStage.DYNAMIC_CONTENT:
+            nextStage = LoadingStage.DATA_LOADING;
+            break;
+          case LoadingStage.DATA_LOADING:
+            nextStage = LoadingStage.COMPLETED;
+            break;
+          default:
+            return stage;
+        }
+        
+        autoProgressTimerRef.current = setTimeout(() => {
+          if (isMounted.current) {
+            stageLogger.info(`Auto-advancing stage: ${stage} -> ${nextStage} (timeout)`);
+            setCurrentStageState(nextStage);
+            
+            // Обновляем историю переходов
+            setStageHistory(prev => {
+              const newHistory = [
+                ...prev,
+                { stage: nextStage, timestamp: Date.now() }
+              ];
+              return newHistory.slice(-MAX_HISTORY_SIZE);
+            });
+            
+            // Отправляем событие изменения стадии
+            dispatchStageChangeEvent(nextStage);
+          }
+        }, AUTO_PROGRESS_INTERVAL);
+      }
+      
+      return stage;
+    });
+  }, [stageHistory, isMounted]);
+  
+  // Обработчик завершения проверки аутентификации
+  useEffect(() => {
+    // Обработчик события завершения проверки аутентификации
+    const handleAuthCheckComplete = (event: CustomEvent) => {
+      const { isAuthenticated } = event.detail || {};
+      
+      if (!isMounted.current) return;
+      
+      stageLogger.info('Auth check completed', { isAuthenticated });
+      
+      // Устанавливаем флаг завершения проверки аутентификации
+      setIsAuthChecked(true);
+      
+      // Если аутентификация успешна, переходим к STATIC_CONTENT
+      if (isAuthenticated) {
+        // Используем короткую задержку для предотвращения слишком быстрых переходов
+        if (stageTimeoutRef.current) {
+          clearTimeout(stageTimeoutRef.current);
+        }
+        
+        stageTimeoutRef.current = setTimeout(() => {
+          if (isMounted.current) {
+            setStage(LoadingStage.STATIC_CONTENT);
+          }
+        }, 50);
       }
     };
     
+    // Добавляем глобальный слушатель события
     window.addEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
     
     return () => {
       window.removeEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
-    };
-  }, [currentStage, setStage]);
-  
-  // Заменяем эффект инициализации на безопасную версию с использованием ref
-  useEffect(() => {
-    if (!initialSetupDoneRef.current) {
-      initialSetupDoneRef.current = true;
-      stageLogger.info('Performing one-time initial stage setup');
       
-      // Устанавливаем начальную стадию AUTHENTICATION напрямую
-      // минуя цикл через INITIAL
-      const now = Date.now();
-      setCurrentStage(LoadingStage.AUTHENTICATION);
-      setStageHistory([{ stage: LoadingStage.AUTHENTICATION, timestamp: now }]);
-      
-      // Диспатчим событие изменения стадии
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('loadingStageChange', {
-          detail: { stage: LoadingStage.AUTHENTICATION }
-        }));
+      if (stageTimeoutRef.current) {
+        clearTimeout(stageTimeoutRef.current);
+        stageTimeoutRef.current = null;
       }
-    }
+    };
+  }, [isMounted, setStage]);
+  
+  // Обработчик ошибок загрузки
+  useEffect(() => {
+    const handleLoadingError = (event: CustomEvent) => {
+      const { error } = event.detail || {};
+      
+      if (!isMounted.current) return;
+      
+      stageLogger.error('Loading error detected', { error });
+      
+      // При ошибке переходим в состояние ERROR
+      setStage(LoadingStage.ERROR);
+    };
+    
+    window.addEventListener('loading-error', handleLoadingError as EventListener);
     
     return () => {
-      if (stageTransitionTimerId.current) {
-        clearTimeout(stageTransitionTimerId.current);
-      }
+      window.removeEventListener('loading-error', handleLoadingError as EventListener);
     };
-  }, []); // Пустой массив зависимостей означает, что эффект выполнится только при монтировании
+  }, [isMounted, setStage]);
   
-  // Context value
-  const contextValue: LoadingStageContextType = {
+  // Формируем значение контекста
+  const contextValue = useMemo(() => ({
     currentStage,
     setStage,
     stageHistory,
-    isAuthChecked, 
+    isAuthChecked,
     setIsAuthChecked
-  };
+  }), [currentStage, setStage, stageHistory, isAuthChecked]);
   
   return (
     <LoadingStageContext.Provider value={contextValue}>

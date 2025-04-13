@@ -14,6 +14,7 @@ export interface EventData {
   description?: string;
   start_date: string;
   end_date?: string;
+  date?: string;
   location?: string;
   image_url?: string;
   price: number;
@@ -23,8 +24,9 @@ export interface EventData {
   status: "draft" | "registration_open" | "registration_closed" | "completed";
   ticket_type?: TicketType;
   registrations_count?: number;
-  notificationSent?: boolean; // Добавлено новое поле для отслеживания отправки уведомлений
+  notificationSent?: boolean;
   url_slug?: string;
+  image?: string;
 }
 
 export interface EventResponse {

@@ -1,7 +1,7 @@
 // frontend/src/app/(auth)/profile/page.tsx
 "use client";
 
-import React, { useEffect, useState, useCallback, useRef, Suspense, lazy } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
@@ -14,27 +14,19 @@ import ChangePasswordForm from "@/components/ChangePasswordForm";
 import { motion } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
 import { apiFetch } from "@/utils/api";
-
-// Ленивая загрузка компонента без дополнительной задержки
-const LazyTicketsContainer = lazy(() => import("@/components/UserEventTickets").then(module => {
-  // Оборачиваем компонент билетов в контейнер
-  return {
-    default: () => (
-      <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
-        <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-        <module.default />
-      </div>
-    )
-  };
-}));
+import UserEventTickets, { UserEventTicketsRef } from "@/components/UserEventTickets";
 
 const ProfilePage: React.FC = () => {
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
   const { setStage, detectAndFixLoadingInconsistency } = useLoading();
   const router = useRouter();
   
-  // Флаг для отслеживания, готов ли профиль к отображению билетов
-  const [isProfileReady, setIsProfileReady] = useState(false);
+  // Создаем ref для доступа к методам UserEventTickets
+  const ticketsRef = useRef<UserEventTicketsRef>(null);
+  // Создаем ref для обновления билетов
+  const needsTicketsRefresh = useRef<boolean>(false);
+  // Счетчик для принудительного обновления
+  const forceUpdateTrigger = 0;
   
   const [formState, setFormState] = useState<FormState>({
     fio: "",
@@ -55,15 +47,6 @@ const ProfilePage: React.FC = () => {
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
   
-  // Активируем отображение билетов только после загрузки профиля
-  useEffect(() => {
-    if (userData && hasFetched.current) {
-      // Немедленно монтируем компонент билетов без задержки
-      setIsProfileReady(true);
-      console.log('ProfilePage: Profile ready, showing tickets container');
-    }
-  }, [userData]);
-
   const validateForm = useCallback((state: FormState = formState) => {
     const errors: ValidationErrors = {};
     if (!state.fio) errors.fio = "ФИО обязательно";
@@ -749,15 +732,19 @@ const ProfilePage: React.FC = () => {
           {fetchError && <ErrorDisplay error={fetchError} className="mt-4" />}
           {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
         </div>
-        {isProfileReady && (
-          <Suspense fallback={
-            <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
-              <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-            </div>
-          }>
-            <LazyTicketsContainer />
-          </Suspense>
+        
+        {/* Заменяем Suspense на простое условное отображение */}
+        {isAuth && (
+          <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
+            <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
+            <UserEventTickets 
+              ref={ticketsRef} 
+              needsRefresh={needsTicketsRefresh}
+              forceUpdateTrigger={forceUpdateTrigger}
+            />
+          </div>
         )}
+        
         {isChangePasswordOpen && <ChangePasswordForm
           isOpen={isChangePasswordOpen}
           onClose={() => setIsChangePasswordOpen(false)}

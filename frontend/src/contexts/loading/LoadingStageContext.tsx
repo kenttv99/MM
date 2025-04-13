@@ -207,26 +207,31 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [currentStage, setCurrentStage] = useState<LoadingStage>(LoadingStage.INITIAL);
   const [isAuthChecked, setIsAuthChecked] = useState<boolean>(false);
   const [stageHistory, setStageHistory] = useState<StageHistoryEntry[]>([]);
-  const isMounted = useIsMounted();
   const stageTransitionTimerId = useRef<NodeJS.Timeout | null>(null);
   const initialSetupDoneRef = useRef<boolean>(false);
   
-  // Set stage with validation
-  const setStage = useCallback((newStage: LoadingStage, isUnauthorizedResponse: boolean = false) => {
-    const result = canChangeStage(currentStage, newStage, stageHistory, isUnauthorizedResponse);
+  // Разрешить изменение стадии только если переход допустим
+  const setStage = useCallback((newStage: LoadingStage) => {
+    stageLogger.info(`Attempting transition to ${newStage}`, { from: currentStage });
+    
+    // Проверяем, можно ли перейти в новую стадию
+    const result = canChangeStage(currentStage, newStage, stageHistory);
     
     if (!result.allowed) {
-      stageLogger.warn(`Stage change not allowed: ${result.reason}`, { 
-        currentStage, 
-        attemptedStage: newStage,
-        history: stageHistory.slice(-3) 
+      stageLogger.warn('Stage transition rejected', { 
+        from: currentStage, 
+        to: newStage, 
+        reason: result.reason 
       });
       return;
     }
     
-    stageLogger.info('Changing loading stage', { from: currentStage, to: newStage });
+    stageLogger.info(`Changing loading stage`, { 
+      from: currentStage, 
+      to: newStage
+    });
     
-    // Update stage
+    // Обновляем текущую стадию
     setCurrentStage(newStage);
     
     // Add to history
@@ -248,7 +253,7 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
     
     // Убираем логику автоматического перехода между стадиями по таймауту
     // Стадии должны меняться только при явном вызове setStage из кода приложения
-  }, [currentStage, stageHistory, isMounted]);
+  }, [currentStage, stageHistory]);
   
   // Добавляем обработчик события для сброса истории состояний
   useEffect(() => {

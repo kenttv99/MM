@@ -240,53 +240,14 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Dispatch event
     dispatchStageChangeEvent(newStage);
     
-    // Clear existing auto-progress timer
+    // Clear existing auto-progress timer if it exists
     if (stageTransitionTimerId.current) {
       clearTimeout(stageTransitionTimerId.current);
       stageTransitionTimerId.current = null;
     }
     
-    // Set auto-progress timer for certain stages
-    if (newStage !== LoadingStage.COMPLETED && 
-        newStage !== LoadingStage.ERROR) {
-      stageTransitionTimerId.current = setTimeout(() => {
-        if (!isMounted.current) return;
-        
-        stageLogger.warn('Auto-progressing stage due to timeout', { 
-          from: newStage 
-        });
-        
-        // Progress to next stage after timeout
-        switch (newStage) {
-          case LoadingStage.AUTHENTICATION:
-            if (currentStage !== LoadingStage.STATIC_CONTENT) {
-              setStage(LoadingStage.STATIC_CONTENT);
-            }
-            break;
-          case LoadingStage.STATIC_CONTENT:
-            if (currentStage !== LoadingStage.DYNAMIC_CONTENT) {
-              setStage(LoadingStage.DYNAMIC_CONTENT);
-            }
-            break;
-          case LoadingStage.DYNAMIC_CONTENT:
-            if (currentStage !== LoadingStage.DATA_LOADING) {
-              setStage(LoadingStage.DATA_LOADING);
-            }
-            break;
-          case LoadingStage.DATA_LOADING:
-            if (currentStage !== LoadingStage.COMPLETED) {
-              setStage(LoadingStage.COMPLETED);
-            }
-            break;
-          case LoadingStage.INITIAL:
-            // Разорвать потенциальный цикл - проверяем, чтобы не переходить снова к INITIAL
-            if (currentStage !== LoadingStage.INITIAL && currentStage !== LoadingStage.AUTHENTICATION) {
-              setStage(LoadingStage.AUTHENTICATION);
-            }
-            break;
-        }
-      }, 5000); // 5 second timeout for auto-progression
-    }
+    // Убираем логику автоматического перехода между стадиями по таймауту
+    // Стадии должны меняться только при явном вызове setStage из кода приложения
   }, [currentStage, stageHistory, isMounted]);
   
   // Добавляем обработчик события для сброса истории состояний
@@ -312,6 +273,25 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
       window.removeEventListener('reset-stage-history', handleResetStageHistory as EventListener);
     };
   }, [currentStage, stageHistory]); // Добавляем stageHistory как зависимость
+  
+  // Добавляем обработчик события auth-check-complete
+  useEffect(() => {
+    const handleAuthCheckComplete = (event: CustomEvent) => {
+      stageLogger.info('Received auth-check-complete event', event.detail);
+      
+      // Если мы все еще находимся на стадии AUTHENTICATION, переходим к STATIC_CONTENT
+      if (currentStage === LoadingStage.AUTHENTICATION || currentStage === LoadingStage.INITIAL) {
+        stageLogger.info('Moving to STATIC_CONTENT after auth check complete');
+        setStage(LoadingStage.STATIC_CONTENT);
+      }
+    };
+    
+    window.addEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
+    
+    return () => {
+      window.removeEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
+    };
+  }, [currentStage, setStage]);
   
   // Заменяем эффект инициализации на безопасную версию с использованием ref
   useEffect(() => {

@@ -5,7 +5,6 @@ import { createContext, useContext, useState, useEffect, useRef, useCallback, us
 import { apiFetch } from "@/utils/api";
 import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
 import { createLogger } from "@/utils/logger";
-import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Create a namespace-specific logger
 const authLogger = createLogger('AuthContext');
@@ -140,6 +139,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setStage(LoadingStage.STATIC_CONTENT);
             } else {
               authLogger.info('Already in STATIC_CONTENT stage, skipping transition');
+            }
+            
+            // Явно диспатчим событие об отсутствии аутентификации, чтобы система загрузки могла продолжить
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('auth-check-complete', {
+                detail: { 
+                  isAuthenticated: false,
+                  hasToken: false
+                }
+              }));
             }
           }
           return;
@@ -288,6 +297,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     };
   }, [setDynamicLoading, setStage]);
+
+  // Добавляем эффект для отслеживания неопределенного состояния аутентификации
+  useEffect(() => {
+    // Если проверка аутентификации уже завершена, ничего не делаем
+    if (isAuthChecked) return;
+    
+    // Если начальная проверка аутентификации "зависла", создаем таймер для автоматического перехода
+    const authCheckTimeout = setTimeout(() => {
+      if (!isAuthChecked) {
+        authLogger.warn('Authentication check timeout reached, forcing progress to STATIC_CONTENT');
+        setIsAuthCheckedState(true);
+        
+        // Переходим к следующей стадии загрузки принудительно
+        setStage(LoadingStage.STATIC_CONTENT);
+        
+        // Явно диспатчим событие о завершении проверки аутентификации
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth-check-complete', {
+            detail: { 
+              isAuthenticated: false,
+              isTimeout: true
+            }
+          }));
+        }
+      }
+    }, 3000); // 3 секунды - разумный таймаут для проверки аутентификации
+    
+    return () => clearTimeout(authCheckTimeout);
+  }, [isAuthChecked, setStage]);
 
   const updateUserData = useCallback((data: UserData, resetLoading = true) => {
     if (!isMounted.current) return;

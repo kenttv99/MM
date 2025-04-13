@@ -4,7 +4,6 @@
 import { useState, ChangeEvent, FormEvent, useCallback, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/utils/api";
-import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 import { UseAuthFormProps } from "@/types/index";
 
 type AuthFormValues = Record<string, string>;
@@ -25,7 +24,7 @@ interface ApiError extends Error {
   status: number;
   isClientError: boolean;
   error?: string;
-  body?: any;
+  body?: unknown;
 }
 
 export const useAuthForm = ({
@@ -89,7 +88,7 @@ export const useAuthForm = ({
           
           console.log('AuthForm: Login successful, token received:', data.access_token.substring(0, 10) + '...');
           console.log('AuthForm: User data:', userData);
-          console.log('AuthForm: Current loading stage before handleLoginSuccess:', typeof window !== 'undefined' ? (window as any).__loading_stage__ : 'N/A');
+          console.log('AuthForm: Current loading stage before handleLoginSuccess:', typeof window !== 'undefined' ? (window as Window & { __loading_stage__?: string }).__loading_stage__ : 'N/A');
           
           try {
             // Принудительно устанавливаем данные в localStorage перед вызовом handleLoginSuccess
@@ -98,22 +97,22 @@ export const useAuthForm = ({
               localStorage.setItem('userData', JSON.stringify(userData));
               
               // Включаем режим отладки для системы стадий, но только если он еще не включен
-              if (!(window as any).DEBUG_LOADING_CONTEXT) {
+              if (!(window as Window & { DEBUG_LOADING_CONTEXT?: boolean }).DEBUG_LOADING_CONTEXT) {
                 console.log('AuthForm: Enabling DEBUG_LOADING_CONTEXT');
-                (window as any).DEBUG_LOADING_CONTEXT = true;
+                (window as Window & { DEBUG_LOADING_CONTEXT?: boolean }).DEBUG_LOADING_CONTEXT = true;
                 
                 // Устанавливаем таймер для отключения режима отладки через 2 секунды
                 setTimeout(() => {
                   console.log('AuthForm: Disabling DEBUG_LOADING_CONTEXT after timeout');
-                  (window as any).DEBUG_LOADING_CONTEXT = false;
+                  (window as Window & { DEBUG_LOADING_CONTEXT?: boolean }).DEBUG_LOADING_CONTEXT = false;
                 }, 2000);
               }
               
               // Проверяем, не было ли уже отправлено сообщение authStateChanged
-              const authEventSent = (window as any).__auth_event_sent__;
+              const authEventSent = (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__;
               if (!authEventSent) {
                 console.log('AuthForm: Dispatching authStateChanged event');
-                (window as any).__auth_event_sent__ = true;
+                (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__ = true;
                 
                 // Диспатчим событие и устанавливаем таймер для сброса флага
                 window.dispatchEvent(new CustomEvent('authStateChanged', {
@@ -127,7 +126,7 @@ export const useAuthForm = ({
                 // Сбрасываем флаг через 2 секунды
                 setTimeout(() => {
                   console.log('AuthForm: Resetting auth event sent flag');
-                  (window as any).__auth_event_sent__ = false;
+                  (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__ = false;
                 }, 2000);
               }
             }

@@ -330,18 +330,18 @@ const Header: React.FC = () => {
       isAuthChecked
     };
     
+    // Если хедер уже был показан, сохраняем это состояние
+    if (hasShownHeaderRef.current) {
+      setForceShowHeader(true);
+      return;
+    }
+    
     // Определяем, нужно ли показывать хедер
     const shouldShowHeader = isAuthChecked || 
       currentStage === LoadingStage.STATIC_CONTENT || 
       currentStage === LoadingStage.DYNAMIC_CONTENT || 
       currentStage === LoadingStage.DATA_LOADING || 
       currentStage === LoadingStage.COMPLETED;
-
-    // Если хедер уже был показан, не возвращаемся к скелетону
-    if (hasShownHeaderRef.current) {
-      setForceShowHeader(true);
-      return;
-    }
 
     // Если нужно показать хедер, обновляем состояние
     if (shouldShowHeader) {
@@ -359,8 +359,9 @@ const Header: React.FC = () => {
         currentStage,
         hasShownHeader: hasShownHeaderRef.current
       });
-    } else if (authLoading) {
-      // Если аутентификация загружается, устанавливаем таймаут для показа хедера
+    } else if (authLoading && !hasShownHeaderRef.current) {
+      // Только если header еще не был показан и идет загрузка аутентификации,
+      // устанавливаем таймаут для показа хедера
       if (headerLoadingTimeoutRef.current) {
         clearTimeout(headerLoadingTimeoutRef.current);
       }
@@ -478,7 +479,7 @@ const Header: React.FC = () => {
         }
       }
     }
-  }, []); // Убираем зависимости, чтобы эффект выполнялся только при монтировании
+  }, [authLoading, currentStage, isAuthChecked, userData]);
 
   // Add event listeners for user data changes and avatar updates
   useEffect(() => {
@@ -824,14 +825,13 @@ const Header: React.FC = () => {
   ];
 
   // Determine if we should show the skeleton
-  const shouldShowSkeleton = (authLoading && !forceShowHeader && !isAuthChecked && !hasShownHeaderRef.current) || 
+  const shouldShowSkeleton = (!forceShowHeader && !isAuthChecked && !hasShownHeaderRef.current) || 
                             (isLoggingOut && !forceShowHeader);
   
   // Логируем только при изменении решения о показе скелетона
   if (shouldShowSkeletonRef.current !== shouldShowSkeleton) {
     logDebug('Render decision', { 
       shouldShowSkeleton, 
-      authLoading, 
       forceShowHeader, 
       isAuthChecked, 
       currentStage,
@@ -839,6 +839,27 @@ const Header: React.FC = () => {
       isLoggingOut
     });
     shouldShowSkeletonRef.current = shouldShowSkeleton;
+  }
+  
+  // После первого рендеринга полного хедера, всегда показываем его, а не скелетон
+  if (hasShownHeaderRef.current && shouldShowSkeleton && !isLoggingOut) {
+    // Не вызываем компонент рекурсивно, а просто принудительно показываем содержимое
+    return (
+      <header
+        className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${
+          isScrolled ? "bg-white/95 shadow-lg py-2 sm:py-3" : "bg-white/90 py-3 sm:py-4"
+        }`}
+      >
+        <div className="w-full flex items-center">
+          <div className="w-full flex items-center justify-between px-8 sm:px-10">
+            <Link href="/" className="transition-transform duration-300 hover:scale-105 z-40">
+              <Logo />
+            </Link>
+            <div className="opacity-0">Загрузка...</div>
+          </div>
+        </div>
+      </header>
+    );
   }
   
   if (shouldShowSkeleton) {

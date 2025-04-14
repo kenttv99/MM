@@ -10,10 +10,18 @@ import { FaEnvelope, FaLock } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
 import ClientErrorBoundary from "@/components/Errors/ClientErrorBoundary";
+import { ApiError } from '@/utils/api';
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Динамическая загрузка AdminHeader без SSR для страницы логина
 const AdminHeader = dynamic(() => import("@/components/AdminHeader"), { ssr: false });
+
+// Интерфейс для ошибки валидации FastAPI
+interface ValidationErrorDetail {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}
 
 export default function AdminLoginPage() {
   const router = useRouter();
@@ -42,6 +50,13 @@ export default function AdminLoginPage() {
     e.preventDefault();
     if (isLoading) return;
 
+    // Добавляем явную проверку на пустые значения перед отправкой
+    if (!formValues.email || !formValues.password) {
+      setError("Email и пароль не могут быть пустыми.");
+      setIsLoading(false); // Сбрасываем isLoading, если была ошибка валидации
+      return; 
+    }
+
     setError("");
     setIsLoading(true);
 
@@ -54,12 +69,16 @@ export default function AdminLoginPage() {
         adminData: localStorage.getItem('admin_data') ? true : false
       });
       
+      // Добавляем лог для проверки отправляемых данных
+      console.log('AdminLogin: Sending payload:', JSON.stringify(formValues)); 
+      
+      // Возвращаем отправку данных в формате JSON
       const data = await apiFetch<{ access_token: string; id: number; email: string; fio?: string }>("/admin/login", {
         method: "POST",
-        data: JSON.stringify(formValues),
-        bypassLoadingStageCheck: true, // Ensure this works during authentication
-        headers: {
-          'Content-Type': 'application/json' // Ensure proper content type
+        data: JSON.stringify(formValues), // Отправляем JSON
+        bypassLoadingStageCheck: true, 
+        headers: { 
+          'Content-Type': 'application/json' // Указываем Content-Type для JSON
         }
       });
       
@@ -105,22 +124,52 @@ export default function AdminLoginPage() {
     } catch (err) {
       let errorMessage = "Произошла ошибка";
       
-      if (err instanceof Error) {
-        // Обработка различных типов ошибок
-        if (err.message.includes("HTTP error! status: 401")) {
+      console.error('AdminLogin: Raw error object:', err);
+
+      // Проверяем, является ли ошибка экземпляром нашего ApiError
+      if (err instanceof ApiError) { 
+        console.error('AdminLogin: ApiError details:', { status: err.status, body: err.body });
+        
+        if (err.status === 401) {
           errorMessage = "Неверный email или пароль";
-        } else if (err.message.includes("HTTP error! status: 429")) {
+        } else if (err.status === 422) {
+          errorMessage = "Ошибка валидации данных. Проверьте введенные значения.";
+          // Попытка извлечь детали валидации из err.body
+          if (err.body && Array.isArray(err.body.detail)) {
+            try {
+              // Используем интерфейс вместо any
+              const validationErrors = err.body.detail as ValidationErrorDetail[]; 
+              const messages = validationErrors.map(
+                (e) => `${e.loc?.join('.')} - ${e.msg}`
+              ).join("; ");
+              errorMessage += ` (${messages})`;
+            } catch (parseError) {
+              console.error("Failed to parse validation details from ApiError body:", parseError);
+            }
+          }
+        } else if (err.status === 429) {
           errorMessage = "Частые запросы. Попробуйте немного позже.";
-        } else if (err.message.includes("HTTP error! status: 500")) {
+        } else if (err.status === 500) {
           errorMessage = "Ошибка сервера. Попробуйте позже.";
-        } else if (err.message.includes("HTTP error! status: 503")) {
+        } else if (err.status === 503) {
           errorMessage = "Сервис временно недоступен. Попробуйте позже.";
         } else {
-          errorMessage = err.message;
+          // Если статус не стандартный, пытаемся использовать сообщение из тела
+          if(err.body && err.body.detail) {
+             errorMessage = typeof err.body.detail === 'string' ? err.body.detail : errorMessage;
+          } else if (err.body && err.body.error) {
+             errorMessage = typeof err.body.error === 'string' ? err.body.error : errorMessage; 
+          } else {
+            // Иначе используем стандартное сообщение ошибки Error
+            errorMessage = err.message;
+          }
         }
+      } else if (err instanceof Error) {
+          // Если это другая ошибка (не ApiError), используем ее сообщение
+          errorMessage = err.message;
       }
       
-      console.error('AdminLogin: Error during login:', errorMessage);
+      console.error('AdminLogin: Error during login (processed):', errorMessage);
       setError(errorMessage);
       setIsSuccess(false);
       setIsLoading(false);

@@ -53,7 +53,7 @@ The `config` directory contains configuration files that define application-wide
 ### Utils Directory
 The `utils` directory contains utility modules with functions used across the application:
 
-- **api.ts**: Implements the API communication layer with advanced features like request caching, deduplication, loading stage management, request queueing, and error handling. Also implements rate limiting based on the configurations in rateLimits.ts.
+- **api.ts**: Implements the API communication layer with advanced features like request caching, deduplication, loading stage management, request queueing, and error handling. Also implements rate limiting based on the configurations in rateLimits.ts. **When an HTTP error occurs, it throws an `ApiError` instance containing the status code and parsed response body.**
 - **logger.ts**: Provides a sophisticated logging system with different log levels, module-specific configurations, context tracking, and performance metrics.
 - **timerManager.ts**: Manages application timers with tracking to prevent memory leaks, providing functions to create and clear timeouts/intervals safely.
 - **eventService.ts**: Handles event-related operations such as creating, updating, and fetching events, as well as registration management.
@@ -95,15 +95,22 @@ The `contexts` directory contains React Context providers for global state manag
 Для обеспечения типовой безопасности и избежания проблем с линтером необходимо правильно импортировать типы:
 
 ```typescript
-// Для общего доступа к системе загрузки
-import { useLoading } from '@/contexts/loading';
+// Для общего доступа к системе загрузки (объединенный провайдер)
+import { LoadingProvider } from '@/contexts/loading';
 
-// Для использования легаси-контекста
-import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+// Для доступа к конкретным контекстам и хукам
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+import { useLoadingProgress } from '@/contexts/loading/LoadingProgressContext';
 
-// Импорт типов
+// Для импорта типов (перечисление стадий)
 import { LoadingStage } from '@/contexts/loading/types';
+
+// Устаревший контекст (использовать только при крайней необходимости или в процессе рефакторинга)
+import { LoadingProvider as LegacyLoadingProvider, useLoading as useLegacyLoading } from '@/contexts/loading/LoadingContextLegacy';
 ```
+**Примечание:** Недавно был проведен рефакторинг администраторской части для перехода с `LoadingContextLegacy` на новую модульную систему. Рекомендуется использовать модульные хуки (`useLoadingStage`, `useLoadingFlags` и т.д.) во всех новых и обновляемых компонентах.
 
 ### Принципы организации компонентов
 
@@ -202,7 +209,7 @@ frontend/src/
 ### Директория utils
 Директория `utils` содержит служебные модули с функциями, используемыми во всем приложении:
 
-- **api.ts**: Реализует слой коммуникации с API с продвинутыми функциями, такими как кеширование запросов, дедупликация, управление этапами загрузки, очередность запросов и обработка ошибок. Также реализует ограничение частоты запросов на основе конфигураций в rateLimits.ts.
+- **api.ts**: Реализует слой коммуникации с API с продвинутыми функциями, такими как кеширование запросов, дедупликация, управление этапами загрузки, очередность запросов, ограничение частоты запросов. **When an HTTP error occurs, it throws an `ApiError` instance containing the status code and parsed response body.**
 - **logger.ts**: Предоставляет сложную систему логирования с различными уровнями, конфигурацией для конкретных модулей, отслеживанием контекста и метриками производительности.
 - **timerManager.ts**: Управляет таймерами приложения с отслеживанием для предотвращения утечек памяти, предоставляя функции для безопасного создания и очистки таймаутов/интервалов.
 - **eventService.ts**: Обрабатывает операции, связанные с событиями, такие как создание, обновление и получение событий, а также управление регистрациями.
@@ -260,18 +267,20 @@ frontend/src/contexts/loading/
 Для обеспечения типовой безопасности и избежания проблем с зависимостями рекомендуется следующий подход к импортам:
 
 ```typescript
-// Для общего доступа к системе загрузки
-import { useLoading } from '@/contexts/loading';
+// Для общего доступа к системе загрузки (объединенный провайдер)
+import { LoadingProvider } from '@/contexts/loading';
 
-// Для использования легаси-контекста
-import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
-
-// Для доступа к конкретным контекстам
-import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+// Для доступа к конкретным контекстам и хукам
 import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+import { useLoadingProgress } from '@/contexts/loading/LoadingProgressContext';
 
-// Для импорта типов
+// Для импорта типов (перечисление стадий)
 import { LoadingStage } from '@/contexts/loading/types';
+
+// Устаревший контекст (использовать только при крайней необходимости или в процессе рефакторинга)
+import { LoadingProvider as LegacyLoadingProvider, useLoading as useLegacyLoading } from '@/contexts/loading/LoadingContextLegacy';
 ```
 
 ## Обновленные принципы организации компонентов

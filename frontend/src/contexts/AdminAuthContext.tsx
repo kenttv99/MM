@@ -3,7 +3,8 @@
 
 import { useRouter } from "next/navigation";
 import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
+import { LoadingStage } from "@/contexts/loading/types";
 import { checkAdminSession } from "../utils/eventService";
 import { createLogger } from "@/utils/logger";
 
@@ -39,7 +40,7 @@ const AdminAuthContext = createContext<AdminAuthContextType | undefined>(undefin
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
-  const { setStage } = useLoading();
+  const { setStage } = useLoadingStage();
   const isInitialized = useRef(false);
   const isMounted = useRef(false);
   const lastCheckTimeRef = useRef<number>(0);

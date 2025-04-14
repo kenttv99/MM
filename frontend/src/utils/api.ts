@@ -478,7 +478,7 @@ class ApiAborted extends Error {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-class ApiError extends Error {
+export class ApiError extends Error {
   status: number;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   body: any;
@@ -867,14 +867,20 @@ export const apiFetch = <T = unknown>(
       };
       
       // Add body for non-GET requests
-      if (method !== 'GET' && data) {
+      if (method !== 'GET' && data !== undefined) {
         if (data instanceof FormData) {
           // Если это FormData, передаем как есть
           requestOptions.body = data;
-          // Важно: Удаляем Content-Type, чтобы браузер установил правильный multipart/form-data
-          delete effectiveHeaders['Content-Type']; 
+          delete effectiveHeaders['Content-Type']; // Убираем Content-Type для FormData
+        } else if (typeof data === 'string') {
+          // Если это уже строка (например, готовый JSON от вызывающего кода)
+          requestOptions.body = data;
+          // Убедимся, что Content-Type установлен (если не установлен ранее)
+          if (!effectiveHeaders['Content-Type']) {
+            effectiveHeaders['Content-Type'] = 'application/json'; // По умолчанию для строк считаем JSON
+          }
         } else {
-          // Иначе преобразуем в JSON
+          // Иначе (если это объект) преобразуем в JSON
           requestOptions.body = JSON.stringify(data);
           // Убедимся, что Content-Type установлен для JSON
           if (!effectiveHeaders['Content-Type']) {
@@ -882,8 +888,7 @@ export const apiFetch = <T = unknown>(
           }
         }
       }
-      
-      // Переприсваиваем обновленные заголовки в requestOptions
+      // Переприсваиваем обновленные заголовки в requestOptions (важно после возможных изменений)
       requestOptions.headers = effectiveHeaders;
       
       // Log request

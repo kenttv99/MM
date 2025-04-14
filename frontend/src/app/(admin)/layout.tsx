@@ -6,7 +6,10 @@ import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
 import { useEffect, useState } from "react";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { LoadingProvider } from "@/contexts/loading";
+import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
+import { useLoadingFlags } from "@/contexts/loading/LoadingFlagsContext";
+import { LoadingStage } from "@/contexts/loading/types";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
 
@@ -14,7 +17,8 @@ import AdminHeader from "@/components/AdminHeader";
 const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
   const isLoginPage = pathname === "/admin-login";
-  const { setDynamicLoading, setStage } = useLoading();
+  const { setStage } = useLoadingStage();
+  const { setDynamicLoading } = useLoadingFlags();
   const { isAuthenticated, isAuthChecked } = useAdminAuth();
   const [adminLoaded, setAdminLoaded] = useState(false);
 
@@ -67,12 +71,14 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <AdminAuthProvider>
-      <ErrorBoundary>
-        <AdminLayoutContent>
-          {children}
-        </AdminLayoutContent>
-      </ErrorBoundary>
-    </AdminAuthProvider>
+    <LoadingProvider>
+      <AdminAuthProvider>
+        <ErrorBoundary>
+          <AdminLayoutContent>
+            {children}
+          </AdminLayoutContent>
+        </ErrorBoundary>
+      </AdminAuthProvider>
+    </LoadingProvider>
   );
 }

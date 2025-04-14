@@ -7,7 +7,9 @@ import { ModalButton } from "@/components/common/AuthModal";
 import { FaUserCircle, FaEnvelope, FaCalendarAlt, FaCog, FaUser } from "react-icons/fa";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { apiFetch } from "@/utils/api";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
+import { useLoadingFlags } from "@/contexts/loading/LoadingFlagsContext";
+import { LoadingStage } from "@/contexts/loading/types";
 import { useRouter } from "next/navigation";
 import { ApiAbortedResponse, ApiErrorResponse } from "@/types/api";
 
@@ -64,7 +66,8 @@ const ProfileSkeleton = () => (
 
 const AdminProfilePage = () => {
   const { isAuthenticated, adminData, loading: authLoading, logout } = useAdminAuth();
-  const { currentStage, setStage, setDynamicLoading } = useLoading();
+  const { currentStage, setStage } = useLoadingStage();
+  const { setDynamicLoading } = useLoadingFlags();
   const router = useRouter();
   
   const [formValues, setFormValues] = useState<AdminData>({ email: "", fio: "", id: 0 });

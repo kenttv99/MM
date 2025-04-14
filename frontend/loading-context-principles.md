@@ -315,38 +315,76 @@ export function shouldProcessRequest(
 
 **Типы API-ответов**:
 ```typescript
-export interface ApiErrorResponse {
-  error: string;
-  status: number;
+// Утилита apiFetch теперь выбрасывает экземпляр ApiError при HTTP-ошибках
+// Определение класса находится в utils/api.ts
+export class ApiError extends Error {
+  status: number; // HTTP статус код
+  body: Record<string, unknown> | null; // Распарсенное тело ответа (JSON) или null
+
+  // ... конструктор ...
 }
 
-export interface ApiAbortedResponse {
-  aborted: boolean;
-  reason?: string;
-}
+// Отмена запроса (пример, не экспортируется)
+// class ApiAborted extends Error { ... }
+
+// Успешный ответ (любой тип T, не обязательно объект)
+// type ApiSuccessResponse<T> = T;
 ```
 
-**Паттерн безопасной обработки ответов**:
+**Паттерн безопасной обработки ответов (Обновлено)**:
+Утилита `apiFetch` теперь сама обрабатывает HTTP-ошибки (`!response.ok`) и выбрасывает экземпляр `ApiError`. Успешные ответы возвращаются напрямую. Логика обработки в компонентах должна использовать `try...catch` и проверять тип ошибки.
+
 ```typescript
-if ('aborted' in response) {
-  const abortedResponse = response as unknown as ApiAbortedResponse;
-  // Обработка прерванного запроса
-  logError("Request aborted", abortedResponse.reason);
-  return null;
-}
+import { apiFetch } from '@/utils/api';
+import { ApiError } from '@/utils/api'; // Импортируем класс ApiError
 
-if ('error' in response) {
-  const errorResponse = response as unknown as ApiErrorResponse;
-  // Обработка ответа с ошибкой
-  logError("Error in response", errorResponse.error);
-  return null;
+async function fetchDataExample() {
+  try {
+    // apiFetch возвращает распарсенные данные типа Т при успехе
+    const data: ExpectedType = await apiFetch<ExpectedType>('/your/endpoint', options);
+    
+    // Обработка успешного ответа
+    processSuccessData(data);
+    
+  } catch (err) {
+    // Логируем исходную ошибку
+    console.error("API request failed:", err);
+
+    // Проверяем, является ли ошибка экземпляром ApiError
+    if (err instanceof ApiError) {
+      // Теперь у нас есть доступ к err.status и err.body (распарсенный JSON)
+      console.error(`API Error: Status ${err.status}`, err.body);
+      
+      // Обрабатываем специфичные статус-коды
+      if (err.status === 401) {
+        handleUnauthorizedError();
+      } else if (err.status === 422) {
+        // Ошибка валидации - тело содержит детали
+        const validationDetails = err.body?.detail; // FastAPI обычно помещает детали в поле 'detail'
+        handleValidationError(validationDetails); 
+      } else if (err.status === 404) {
+        handleNotFoundError();
+      } else {
+        // Другие HTTP ошибки
+        handleServerError(err.status, err.body);
+      }
+    } else if (err instanceof Error && err.name === 'AbortError') {
+       // Обработка отмененного запроса (если используется AbortController)
+       console.log("Request was aborted");
+       handleAbortedRequest();
+    } else {
+      // Обработка других непредвиденных ошибок (сетевые проблемы, ошибки JS и т.д.)
+      handleUnexpectedError(err instanceof Error ? err.message : 'An unknown error occurred');
+    }
+  }
 }
 ```
 
-Этот паттерн обеспечивает типовую безопасность при работе с разными формами ответов путем:
-1. Использования оператора `in` для проверки наличия свойства
-2. Приведения типов с помощью `as unknown as TargetType` для максимальной безопасности
-3. Соответствующей обработки каждого типа ответа
+Этот паттерн обеспечивает:
+1.  Разделение логики для успешных и ошибочных ответов.
+2.  Типобезопасный доступ к статусу и телу ошибки через проверку `instanceof ApiError`.
+3.  Централизованную обработку ошибок в `apiFetch` и явное их выбрасывание.
+4.  Обработку отмененных запросов и других непредвиденных ошибок.
 
 ### 6. Централизованная система логирования
 
@@ -415,12 +453,13 @@ const flagsLogger = createLogger('LoadingFlagsContext');
 
 ## Стратегия обработки ошибок
 
-**Ошибки API**:
-1. Сетевые ошибки → Возврат структурированного объекта ошибки
-2. Ошибки таймаута → Прерывание запроса через AbortController
-3. Ошибки парсинга JSON → Правильное форматирование для не-JSON ответов
-4. Ошибки блокировки стадии → Постановка в очередь или обход проверки
-5. Ошибки глобальной блокировки → Использование кэша или очереди в зависимости от доступности
+**Ошибки API (Обновлено)**:
+1.  Сетевые ошибки (fetch не удался) → `apiFetch` выбросит стандартную ошибку `Error` (или `TypeError`).
+2.  Ошибки таймаута → Прерывание запроса через `AbortController` (если сигнал передан в `apiFetch`), `apiFetch` выбросит `Error` с `name === 'AbortError'`.
+3.  HTTP ошибки (`!response.ok`) → `apiFetch` выбросит экземпляр `ApiError`, содержащий `status` и распарсенное тело ответа `body` (JSON или `null`).
+4.  Ошибки парсинга JSON (успешный ответ, но не JSON) → `apiFetch` выбросит `ApiError` (если статус `!ok`) или ошибку парсинга (если статус `ok`, но тело не JSON - требует проверки `transform`).
+5.  Ошибки блокировки стадии → `apiFetch` выбросит `Error` с сообщением о блокировке *до* выполнения запроса.
+6.  Ошибки лимитов запросов → `apiFetch` выбросит `Error` с сообщением о лимите *до* выполнения запроса.
 
 **Ошибки загрузки**:
 1. Регрессия стадий → Блокировка перехода с предупреждением
@@ -429,35 +468,9 @@ const flagsLogger = createLogger('LoadingFlagsContext');
 4. Ошибки компонентов → Показ запасного UI
 5. Несогласованные состояния загрузки → Автоматическое исправление через периодические проверки
 
-## Паттерн безопасной интеграции с API
+## Паттерн безопасной интеграции с API (Заменено)
 
-При интеграции с API-ответами следуйте этому паттерну для типовой безопасности:
-
-```typescript
-try {
-  const response = await apiFetch<ExpectedType>(url, options);
-  
-  if ('aborted' in response) {
-    const abortedResponse = response as unknown as ApiAbortedResponse;
-    handleAbortedRequest(abortedResponse.reason);
-    return;
-  }
-  
-  if ('error' in response) {
-    const errorResponse = response as unknown as ApiErrorResponse;
-    handleErrorResponse(errorResponse.error, errorResponse.status);
-    return;
-  }
-  
-  // Обработка успешного ответа
-  processData(response);
-} catch (err) {
-  // Обработка непредвиденных ошибок
-  handleUnexpectedError(err);
-}
-```
-
-Этот паттерн обеспечивает правильную проверку типов и обработку ошибок для всех взаимодействий с API.
+*(Этот раздел заменен обновленным разделом 5 "Обработка ошибок с типовой безопасностью")*
 
 ## Распространенные ошибки и их предотвращение
 
@@ -620,65 +633,72 @@ try {
 
 В случае ошибок при загрузке данных, компоненты должны:
 
-1. Проверять состояние монтирования через `isMounted.current`
-2. Устанавливать соответствующую стадию загрузки `setStage(LoadingStage.ERROR)`
-3. Обновлять состояние ошибки через общий контекст `setError(errorMessage)`
-4. Предоставлять пользователю возможность повторить запрос
-5. Правильно отменять предыдущие запросы перед новыми попытками
+1.  Перехватить ошибку от `apiFetch` с помощью `try...catch`.
+2.  Проверить тип ошибки (например, `instanceof ApiError` или `err.name === 'AbortError'`).
+3.  Установить соответствующую стадию загрузки `setStage(LoadingStage.ERROR)` (используя `useLoadingStage`).
+4.  Обновить состояние ошибки через общий контекст `setError(errorMessage)` (используя `useLoadingError`).
+5.  Предоставить пользователю возможность повторить запрос.
+6.  Правильно отменять предыдущие запросы перед новыми попытками (если применимо).
 
-Пример обработки ошибок:
-
-```typescript
-.catch(error => {
-  // Пропускаем отмененные запросы
-  if (error instanceof Error && error.name === 'AbortError') {
-    return;
-  }
-  
-  // Логируем ошибку
-  logger.error('Error fetching data', { error });
-  
-  // Обновляем состояние и показываем ошибку
-  if (isMounted.current) {
-    setStage(LoadingStage.ERROR);
-    setError(error instanceof Error ? error.message : 'Произошла ошибка');
-  }
-})
-```
-
-### Компонент отображения ошибки
-
-Рекомендуется использовать единый паттерн для отображения ошибок:
-
-```tsx
-if (currentStage === LoadingStage.ERROR) {
-  return (
-    <div className="p-8 text-center">
-      <h2 className="text-xl font-semibold text-red-600 mb-4">Произошла ошибка</h2>
-      <p className="text-gray-700 mb-4">{loadingErrorFromContext}</p>
-      <button onClick={handleRetry} className="px-4 py-2 bg-orange-500 text-white rounded-lg">
-        Попробовать снова
-      </button>
-    </div>
-  );
-}
-```
-
-### Отмена запросов при изменении параметров
-
-При изменении параметров запроса (например, фильтров) необходимо отменять предыдущие запросы:
+Пример обработки ошибок **(Обновлено)**:
 
 ```typescript
-// Отменяем предыдущий запрос
-if (abortControllerRef.current) {
-  abortControllerRef.current.abort();
-  abortControllerRef.current = null;
-}
+import { apiFetch, ApiError } from '@/utils/api'; // Импорт
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 
-// Создаем новый контроллер
-abortControllerRef.current = new AbortController();
-const signal = abortControllerRef.current.signal;
+// ... внутри компонента ...
+const { setStage } = useLoadingStage();
+const { setError } = useLoadingError();
+const isMounted = useRef(true); // Пример отслеживания монтирования
 
-// Используем signal в запросе
-fetchService(parameters, signal);
+// ... функция загрузки данных ...
+const loadData = async () => {
+  try {
+    const result = await apiFetch<MyDataType>('/my/data');
+    // Обработка успеха...
+  } catch (err) {
+    // Пропускаем отмененные запросы
+    if (err instanceof Error && err.name === 'AbortError') {
+      console.log("Data fetch aborted");
+      return; 
+    }
+    
+    let errorForUser = 'Произошла неизвестная ошибка';
+    
+    if (err instanceof ApiError) {
+      // Обрабатываем ошибки API
+      console.error(`API Error ${err.status}:`, err.body);
+      if (err.status === 401) {
+         errorForUser = 'Требуется авторизация.';
+         // Возможно, перенаправить на логин или вызвать logout()
+      } else if (err.status === 404) {
+         errorForUser = 'Данные не найдены.';
+      } else {
+         // Используем сообщение из тела ошибки, если оно есть и строка
+         if (err.body?.detail && typeof err.body.detail === 'string') {
+            errorForUser = err.body.detail;
+         } else {
+            errorForUser = `Ошибка сервера (статус ${err.status})`;
+         }
+      }
+    } else if (err instanceof Error) {
+       // Другие ошибки (сеть, JS)
+       console.error("Non-API error:", err);
+       errorForUser = err.message;
+    } else {
+       console.error("Unknown error type:", err);
+    }
+
+    // Обновляем состояние и показываем ошибку, если компонент еще смонтирован
+    if (isMounted.current) {
+      setStage(LoadingStage.ERROR);
+      setError(errorForUser);
+    }
+  } finally {
+     // Сброс флагов загрузки и т.д.
+  }
+};
+
+// ... useEffect для вызова loadData и очистки ...
 ``` 

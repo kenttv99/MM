@@ -326,7 +326,7 @@ const AdminHeader: React.FC = memo(() => {
               </span>
               
               {/* Выпадающее меню с кнопкой выхода */}
-              <div className="absolute right-0 top-full mt-1 w-48 bg-white shadow-lg rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50">
+              <div className="absolute right-0 top-full w-48 bg-white shadow-lg rounded-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible z-50 transition-opacity duration-150">
                 <div className="p-3 border-b border-gray-100">
                   <span className="text-sm font-medium text-gray-800">
                     {adminData?.fio || "Администратор"}

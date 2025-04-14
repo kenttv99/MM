@@ -9,6 +9,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
 import React, { useEffect } from "react";
 import { setCurrentLoadingStage } from "@/utils/api";
+import { usePathname } from "next/navigation";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
 
@@ -33,13 +34,22 @@ function LoadingStageConnector({ children }: { children: React.ReactNode }) {
 
 // Убираем React.memo
 const LayoutContent = ({ children }: { children: React.ReactNode }) => {
+  const pathname = usePathname();
+  const isAdminRoute = pathname.startsWith('/admin');
+
   return (
     <LoadingStageConnector>
-      <AuthProvider>
+      {!isAdminRoute ? (
+        <AuthProvider>
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
+        </AuthProvider>
+      ) : (
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
-      </AuthProvider>
+      )}
     </LoadingStageConnector>
   );
 };

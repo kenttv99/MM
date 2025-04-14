@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { FaPlus } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
+import { LoadingStage } from "@/contexts/loading/types";
 import "@/app/globals.css";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
@@ -164,7 +165,7 @@ const DashboardSkeleton = () => (
 
 export default function Dashboard() {
   const router = useRouter();
-  const { currentStage, setStage } = useLoading();
+  const { currentStage, setStage } = useLoadingStage();
   const { isAuthenticated, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
   
   const [users, setUsers] = useState<User[]>([]);

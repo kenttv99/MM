@@ -616,7 +616,6 @@ const ProfilePage: React.FC = () => {
             <>{console.log("ProfilePage: Rendering UserEventTickets component")}</>
             <UserEventTickets 
               ref={ticketsRef} 
-              needsRefresh={needsTicketsRefresh}
             />
           </div>
         )}

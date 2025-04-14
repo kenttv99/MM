@@ -1,90 +1,91 @@
-main-app.js?v=1744633731046:1836 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
-page.tsx:23 ProfilePage: Render start, stage: initial
-page.tsx:23 ProfilePage: Render start, stage: initial
-Header.tsx:42 Header: Header component mounted {authLoading: true, isAuthChecked: false, currentStage: 'initial'}
-logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
-logger.ts:200 AuthContext: Starting initial authentication check logic 
-logger.ts:200 AuthContext: User data found in localStorage. {userId: 2}
-logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: true}
-logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
-logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'static_content'}
-logger.ts:200 LoadingStageContext: Changing loading stage: initial -> static_content 
-logger.ts:200 AuthContext: AuthProvider unmounted. 
-logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
-logger.ts:200 AuthContext: Starting initial authentication check logic 
-logger.ts:200 AuthContext: User data found in localStorage. {userId: 2}
-logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: true}
-logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
-logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'static_content'}
-logger.ts:200 LoadingStageContext: Changing loading stage: initial -> static_content 
-logger.ts:200 API: Loading stage changed [module=api version=1.0.0 reason=explicit_set allowRegression=true] {prev: 'authentication', current: 'static_content'}
-page.tsx:23 ProfilePage: Render start, stage: static_content
-page.tsx:397 ProfilePage: Render end
-page.tsx:578 ProfilePage: Rendering UserEventTickets component
-page.tsx:23 ProfilePage: Render start, stage: static_content
-page.tsx:397 ProfilePage: Render end
-page.tsx:578 ProfilePage: Rendering UserEventTickets component
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:493 UserEventTickets: Initializing tickets state as empty (no fresh cache)
-UserEventTickets.tsx:493 UserEventTickets: Initializing tickets state as empty (no fresh cache)
-UserEventTickets.tsx:502 UserEventTickets: Initializing isInitialLoading: true (shouldUseCache: false)
-UserEventTickets.tsx:502 UserEventTickets: Initializing isInitialLoading: true (shouldUseCache: false)
-UserEventTickets.tsx:966 UserEventTickets: Rendering skeleton
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:966 UserEventTickets: Rendering skeleton
-Header.tsx:79 AvatarDisplay: Using avatarUrl prop /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
-Header.tsx:127 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg', cacheBuster: '1744359145805'}
-UserEventTickets.tsx:705 UserEventTickets: Init useEffect start
-UserEventTickets.tsx:718 UserEventTickets: Init useEffect - Cache empty, fetching tickets...
-UserEventTickets.tsx:605 UserEventTickets: Загрузка билетов, страница 1, userId: 2
-UserEventTickets.tsx:631 UserEventTickets: Fetching tickets with filter "approved"
-page.tsx:102 ProfilePage: initProfile finished
-UserEventTickets.tsx:755 UserEventTickets: Init useEffect cleanup
-Header.tsx:79 AvatarDisplay: Using avatarUrl prop /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
-Header.tsx:127 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg', cacheBuster: '1744359145805'}
-UserEventTickets.tsx:705 UserEventTickets: Init useEffect start
-UserEventTickets.tsx:718 UserEventTickets: Init useEffect - Cache empty, fetching tickets...
-UserEventTickets.tsx:605 UserEventTickets: Загрузка билетов, страница 1, userId: 2
-UserEventTickets.tsx:631 UserEventTickets: Fetching tickets with filter "approved"
-page.tsx:23 ProfilePage: Render start, stage: static_content
-page.tsx:397 ProfilePage: Render end
-page.tsx:578 ProfilePage: Rendering UserEventTickets component
-page.tsx:23 ProfilePage: Render start, stage: static_content
-page.tsx:397 ProfilePage: Render end
-page.tsx:578 ProfilePage: Rendering UserEventTickets component
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:966 UserEventTickets: Rendering skeleton
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:966 UserEventTickets: Rendering skeleton
-Header.tsx:133 AvatarDisplay: Avatar preloaded successfully: /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
-UserEventTickets.tsx:661 UserEventTickets: Received 1 tickets
-UserEventTickets.tsx:584 UserEventTickets: Filtered tickets: 0 cancelled, 1 remaining
-UserEventTickets.tsx:286 TicketsCache: Updated from fetchTickets - Stats: 1 tickets, page 1, status: success, last fetched: 15:28:57
-UserEventTickets.tsx:681 UserEventTickets: Ticket loading complete
-UserEventTickets.tsx:694 UserEventTickets: Завершение fetchTickets finally.
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 0)
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 0)
-UserEventTickets.tsx:755 UserEventTickets: Init useEffect cleanup
-UserEventTickets.tsx:705 UserEventTickets: Init useEffect start
-UserEventTickets.tsx:727 UserEventTickets: Init useEffect - Using recent cached data.
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 1)
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 1)
-UserEventTickets.tsx:661 UserEventTickets: Received 1 tickets
-UserEventTickets.tsx:584 UserEventTickets: Filtered tickets: 0 cancelled, 1 remaining
-UserEventTickets.tsx:286 TicketsCache: Updated from fetchTickets - Stats: 1 tickets, page 1, status: success, last fetched: 15:28:57
-UserEventTickets.tsx:681 UserEventTickets: Ticket loading complete
-UserEventTickets.tsx:694 UserEventTickets: Завершение fetchTickets finally.
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 1)
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 1)
-page.tsx:428 ProfilePage: Аватарка успешно загружена: /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 1)
-UserEventTickets.tsx:480 UserEventTickets: Component function start
-UserEventTickets.tsx:995 UserEventTickets: Rendering main content (tickets: 1)
-logger.ts:200 LoadingContextProvider: Timeout reached for stage static_content, attempting to advance to DYNAMIC_CONTENT. 
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+UserEventTickets.tsx:909 UserEventTickets: Попытка отмены билета ID: 15
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+hot-reloader-client.js:187 [Fast Refresh] rebuilding
+hot-reloader-client.js:44 [Fast Refresh] done in 4708ms
+api.ts:882 
+        
+        
+       POST http://localhost:3000/tickets/15/cancel 404 (Not Found)
+eval @ api.ts:882
+apiFetch @ api.ts:751
+eval @ UserEventTickets.tsx:910
+callCallback @ react-dom.development.js:20565
+invokeGuardedCallbackImpl @ react-dom.development.js:20614
+invokeGuardedCallback @ react-dom.development.js:20689
+invokeGuardedCallbackAndCatchFirstError @ react-dom.development.js:20703
+executeDispatch @ react-dom.development.js:32128
+processDispatchQueueItemsInOrder @ react-dom.development.js:32160
+processDispatchQueue @ react-dom.development.js:32173
+dispatchEventsForPlugins @ react-dom.development.js:32184
+eval @ react-dom.development.js:32374
+batchedUpdates$1 @ react-dom.development.js:24953
+batchedUpdates @ react-dom.development.js:28844
+dispatchEventForPluginEventSystem @ react-dom.development.js:32373
+dispatchEvent @ react-dom.development.js:30141
+dispatchDiscreteEvent @ react-dom.development.js:30112
+logger.ts:206 ⛔ API: Error response: 404 Not Found [module=api version=1.0.0] {endpoint: '/tickets/15/cancel', method: 'POST', requestId: 'POST:/tickets/15/cancel:{}', loadingStage: 'static_content', statusCode: 404, …}
+window.console.error @ app-index.js:33
+console.error @ hydration-error-info.js:63
+actualLog @ logger.ts:206
+internalLog @ logger.ts:242
+logError @ logger.ts:263
+error @ logger.ts:487
+eval @ api.ts:891
+await in eval
+apiFetch @ api.ts:751
+eval @ UserEventTickets.tsx:910
+callCallback @ react-dom.development.js:20565
+invokeGuardedCallbackImpl @ react-dom.development.js:20614
+invokeGuardedCallback @ react-dom.development.js:20689
+invokeGuardedCallbackAndCatchFirstError @ react-dom.development.js:20703
+executeDispatch @ react-dom.development.js:32128
+processDispatchQueueItemsInOrder @ react-dom.development.js:32160
+processDispatchQueue @ react-dom.development.js:32173
+dispatchEventsForPlugins @ react-dom.development.js:32184
+eval @ react-dom.development.js:32374
+batchedUpdates$1 @ react-dom.development.js:24953
+batchedUpdates @ react-dom.development.js:28844
+dispatchEventForPluginEventSystem @ react-dom.development.js:32373
+dispatchEvent @ react-dom.development.js:30141
+dispatchDiscreteEvent @ react-dom.development.js:30112
+UserEventTickets.tsx:954 UserEventTickets: Исключение при отмене билета 15: {error: 'Not Found', status: 404}
+window.console.error @ app-index.js:33
+console.error @ hydration-error-info.js:63
+eval @ UserEventTickets.tsx:954
+await in eval
+callCallback @ react-dom.development.js:20565
+invokeGuardedCallbackImpl @ react-dom.development.js:20614
+invokeGuardedCallback @ react-dom.development.js:20689
+invokeGuardedCallbackAndCatchFirstError @ react-dom.development.js:20703
+executeDispatch @ react-dom.development.js:32128
+processDispatchQueueItemsInOrder @ react-dom.development.js:32160
+processDispatchQueue @ react-dom.development.js:32173
+dispatchEventsForPlugins @ react-dom.development.js:32184
+eval @ react-dom.development.js:32374
+batchedUpdates$1 @ react-dom.development.js:24953
+batchedUpdates @ react-dom.development.js:28844
+dispatchEventForPluginEventSystem @ react-dom.development.js:32373
+dispatchEvent @ react-dom.development.js:30141
+dispatchDiscreteEvent @ react-dom.development.js:30112
+UserEventTickets.tsx:958 UserEventTickets: Завершение отмены билета 15 finally.
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+page.tsx:52 ProfilePage: Render start, stage: static_content
+page.tsx:428 ProfilePage: Render end
+page.tsx:616 ProfilePage: Rendering UserEventTickets component
+page.tsx:52 ProfilePage: Render start, stage: static_content
+page.tsx:428 ProfilePage: Render end
+page.tsx:616 ProfilePage: Rendering UserEventTickets component
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)
+UserEventTickets.tsx:486 UserEventTickets: Component function start
+UserEventTickets.tsx:1016 UserEventTickets: Rendering main content (tickets: 1)

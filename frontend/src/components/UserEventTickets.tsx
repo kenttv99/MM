@@ -257,14 +257,16 @@ const FilterModal: React.FC<FilterModalProps> = ({
   const handleApplyFilters = () => {
     setActiveFilter(tempFilter);
     setDateRange(tempDateRange);
-    setUseDateFilter(true); // Всегда устанавливаем в true
+    setUseDateFilter(true); 
     onClose();
   };
   
   const handleResetFilters = () => {
-    setTempFilter("approved");
-    setTempDateRange({ startDate: '', endDate: '' });
-    onClose();
+    // Устанавливаем основные состояния, а не временные
+    setActiveFilter("approved"); 
+    setDateRange({ startDate: '', endDate: '' });
+    setUseDateFilter(false); // Сбрасываем использование фильтра по дате
+    onClose(); // Закрываем модальное окно
   };
 
   return (
@@ -367,6 +369,107 @@ const FilterModal: React.FC<FilterModalProps> = ({
     </AnimatePresence>
   );
 };
+
+// --- НАЧАЛО: Локальное определение модального окна отмены ---
+interface CancelTicketModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  eventTitle: string;
+  isLoading: boolean;
+  error?: string;
+  success?: string;
+}
+
+const CancelTicketModal: React.FC<CancelTicketModalProps> = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  eventTitle,
+  isLoading,
+  error,
+  success
+}) => {
+  const modalVariants = {
+    hidden: { opacity: 0, scale: 0.95 },
+    visible: { opacity: 1, scale: 1, transition: { duration: 0.2 } },
+    exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
+  };
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <motion.div
+            className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl relative"
+            variants={modalVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+          >
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors"
+              aria-label="Закрыть"
+              disabled={isLoading}
+            >
+              <FaTimesCircle size={20} />
+            </button>
+            <h2 className="text-xl font-semibold mb-4 text-gray-800">Отмена регистрации</h2>
+            
+            {error && (
+              <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">
+                <p className="text-sm font-medium">{error}</p>
+              </div>
+            )}
+            
+            {success && (
+              <div className="mb-4 p-3 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md">
+                <p className="text-sm font-medium">{success}</p>
+              </div>
+            )}
+            
+            {!success && !error && (
+               <p className="mb-6 text-gray-600">Вы уверены, что хотите отменить регистрацию на мероприятие &apos;{eventTitle}&apos;?</p>
+            )}
+            
+            <div className="flex flex-col sm:flex-row justify-end gap-3">
+              <button
+                onClick={onClose}
+                disabled={isLoading}
+                className="px-4 py-2 rounded-lg font-medium transition-colors duration-300 bg-gray-100 text-gray-700 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"
+              >
+                {success ? "Закрыть" : "Отмена"}
+              </button>
+              {!success && (
+                <button
+                  onClick={onConfirm}
+                  disabled={isLoading}
+                  className="px-4 py-2 rounded-lg font-medium transition-colors duration-300 bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-solid border-white border-r-transparent" />
+                      <span>Отмена...</span>
+                    </>
+                  ) : (
+                    "Подтвердить"
+                  )}
+                </button>
+              )}
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+};
+// --- КОНЕЦ: Локальное определение модального окна отмены ---
 
 // Определение для ref компонента
 export interface UserEventTicketsRef {
@@ -602,7 +705,8 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       console.log("UserEventTickets: Завершение fetchTickets finally.");
       setIsFetching(false);
     }
-  }, [setStage, processTickets, ticketsPerPage, activeFilter, dateRange, isAuth, userData, setLoadingError, setLocalError, setTickets, setPage, setHasMore, setIsLoadingMore, setIsFetching, globalTicketsCache]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setStage, processTickets, ticketsPerPage, activeFilter, isAuth, userData, setLoadingError, setLocalError, setTickets, setPage, setHasMore, setIsFetching, setIsInitialLoading, globalTicketsCache]);
 
   // --- Эффект для перезагрузки при смене фильтров ---
   useEffect(() => {
@@ -616,12 +720,14 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     // Сбрасываем состояние перед новым запросом
     setTickets([]); 
     setPage(1); 
-    setHasMore(true); // Считаем, что могут быть еще страницы
+    setHasMore(true); 
 
     // Вызываем fetchTickets для первой страницы с новыми фильтрами
+    // Используем текущую версию fetchTickets из замыкания
     fetchTickets(1);
 
-  }, [activeFilter, dateRange, fetchTickets]); // Зависим от фильтров и fetchTickets
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFilter, dateRange]); // Оставляем только фильтры
 
   // --- Новый useEffect для инициализации и проверки кэша ---
   useEffect(() => {
@@ -680,7 +786,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       clearTimeout(safetyTimeout)
     };
 
-  }, [isAuth, userData, fetchTickets, isInitialLoading]);
+  }, [isAuth, userData, fetchTickets, isInitialLoading, setStage, currentStage, tickets]);
 
   const loadMoreTickets = useCallback(async () => {
     if (isLoadingMore || !hasMore || isFetching) return;
@@ -762,9 +868,104 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     }
   }), [isFetching, isAuth, userData, isInitialLoading, fetchTickets]);
 
+  // --- НАЧАЛО: Добавление состояний для модалки отмены ---
+  const [selectedTicketToCancel, setSelectedTicketToCancel] = useState<UserTicket | null>(null);
+  const [isCancelModalOpen, setIsCancelModalOpen] = useState(false);
+  const [cancelModalLoading, setCancelModalLoading] = useState(false);
+  const [cancelModalError, setCancelModalError] = useState<string | undefined>(undefined);
+  const [cancelModalSuccess, setCancelModalSuccess] = useState<string | undefined>(undefined);
+  const isTicketBeingCancelled = useRef(false); // Для предотвращения конфликтов с ticket-update
+  // --- КОНЕЦ: Добавление состояний --- 
+  
+  // Восстанавливаем обработчики для отмены
+  const handleCancelClick = useCallback((ticket: UserTicket) => {
+    setSelectedTicketToCancel(ticket);
+    setCancelModalError(undefined);
+    setCancelModalSuccess(undefined);
+    setIsCancelModalOpen(true);
+  }, []);
+  
+  const handleCancelConfirm = useCallback(async () => {
+    if (!selectedTicketToCancel) {
+      setCancelModalError('Не удалось найти выбранный билет');
+      return;
+    }
+    
+    isTicketBeingCancelled.current = true; // Ставим флаг
+    setCancelModalError(undefined);
+    setCancelModalSuccess(undefined);
+    setCancelModalLoading(true);
+    // Не меняем глобальный setStage здесь, чтобы не мешать другим процессам
+
+    const token = localStorage.getItem('token');
+    if (!token || !userData?.id) { // Проверяем и userData.id
+      setCancelModalError("Ошибка аутентификации.");
+      setCancelModalLoading(false);
+      isTicketBeingCancelled.current = false;
+      return;
+    }
+
+    try {
+      console.log(`UserEventTickets: Попытка отмены билета ID: ${selectedTicketToCancel.id} для event ID: ${selectedTicketToCancel.event.id}`);
+      const response = await apiFetch<APIResponse<{ message?: string; error?: string }>>(`/registration/cancel`, {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` 
+        },
+        data: { 
+          event_id: selectedTicketToCancel.event.id, 
+          user_id: userData.id
+        }
+      });
+      
+      if (response?.error) { // Проверяем наличие поля error в ответе
+        throw new Error(response.error || 'Ошибка при отмене билета');
+      }
+      
+      setCancelModalSuccess('Билет успешно отменен!');
+      
+      // Обновляем список билетов ЛОКАЛЬНО
+      const updatedTickets = tickets.filter(ticket => ticket.id !== selectedTicketToCancel.id);
+      setTickets(updatedTickets); 
+      
+      // Обновляем глобальный кэш (если нужно)
+      globalTicketsCache.data = updatedTickets;
+      globalTicketsCache.count = updatedTickets.length;
+      globalTicketsCache.logCacheUpdate('handleCancelConfirm');
+      
+      // Оповещаем приложение (если нужно)
+      window.dispatchEvent(new CustomEvent('ticket-update', {
+        detail: {
+          source: 'user-event-tickets',
+          action: 'cancel',
+          ticketId: selectedTicketToCancel.id,
+          eventId: selectedTicketToCancel.event.id,
+          needsRefresh: false // Сообщаем, что локальное обновление уже произошло
+        }
+      }));
+      
+      // Не закрываем модалку сразу, даем увидеть сообщение об успехе
+      setTimeout(() => {
+        setIsCancelModalOpen(false);
+        setSelectedTicketToCancel(null);
+      }, 1500); 
+
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Не удалось отменить билет';
+      console.error(`UserEventTickets: Исключение при отмене билета ${selectedTicketToCancel?.id}:`, err);
+      setCancelModalError(errorMsg);
+      // Оставляем модалку открытой, чтобы показать ошибку
+    } finally {
+      console.log(`UserEventTickets: Завершение отмены билета ${selectedTicketToCancel?.id} finally.`);
+      setCancelModalLoading(false);
+      isTicketBeingCancelled.current = false; // Снимаем флаг
+    }
+  }, [selectedTicketToCancel, tickets, setTickets, userData, setCancelModalError, setCancelModalSuccess, setCancelModalLoading, setIsCancelModalOpen]);
+
   useEffect(() => {
     const handleTicketUpdate = (event: Event) => {
-      if (!isAuth) return;
+      if (!isAuth || isTicketBeingCancelled.current) return; // <-- Возвращаем проверку флага
       
       if (event instanceof CustomEvent && event.detail && event.detail.source === 'user-event-tickets') {
         return;
@@ -796,7 +997,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     
     window.addEventListener('ticket-update', handleTicketUpdate);
     return () => window.removeEventListener('ticket-update', handleTicketUpdate);
-  }, [isAuth, tickets, fetchTickets, isFetching]);
+  }, [isAuth, isTicketBeingCancelled, tickets, fetchTickets, isFetching]); // <-- Возвращаем isTicketBeingCancelled в зависимости
 
   // Отображение ошибки загрузки, если она есть - ВОЗВРАЩАЕМ СЮДА
   if (loadingError) {
@@ -866,6 +1067,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
             ) : filteredTickets.length > 0 ? (
                <div className="space-y-4">
                  {filteredTickets.map((ticket, index) => {
+                   // --- НАЧАЛО: Условие для кнопки отмены ---
+                   const canCancel = ticket.status === 'approved' && ticket.event.status === 'registration_open';
+                   // --- КОНЕЦ: Условие для кнопки отмены ---
                    return (
                      <div key={`ticket-${ticket.id}`}>
                        <motion.div
@@ -885,6 +1089,16 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                              >
                                {getStatusText(ticket.status)}
                              </div>
+                             {/* --- НАЧАЛО: Отображение кнопки отмены --- */}
+                             {canCancel && (
+                               <button 
+                                 onClick={() => handleCancelClick(ticket)}
+                                 className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
+                               >
+                                 Отменить
+                               </button>
+                             )}
+                             {/* --- КОНЕЦ: Отображение кнопки отмены --- */}
                            </div>
                          </div>
                          
@@ -950,7 +1164,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                  })}
                </div>
             ) : (
-               <div className="flex flex-col items-center justify-center py-10 px-4">
+               <div className="flex flex-col items-center justify-center py-10 px-4 min-h-[150px]">
                 <div className="bg-orange-50 rounded-full p-4 mb-4">
                   <FaTicketAlt className="text-orange-500 text-3xl" />
                 </div>
@@ -980,6 +1194,18 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
             setDateRange={setDateRange}
             setUseDateFilter={() => {}}
           />
+          
+          {/* --- НАЧАЛО: Рендер модалки отмены --- */}
+          <CancelTicketModal 
+             isOpen={isCancelModalOpen}
+             onClose={() => setIsCancelModalOpen(false)}
+             onConfirm={handleCancelConfirm}
+             eventTitle={selectedTicketToCancel?.event.title || ''}
+             isLoading={cancelModalLoading}
+             error={cancelModalError}
+             success={cancelModalSuccess}
+          />
+          {/* --- КОНЕЦ: Рендер модалки отмены --- */}
         </>
       )}
     </div>

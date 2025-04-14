@@ -227,7 +227,7 @@ const getStatusStyles = (status: EventData["status"]) => {
       label: "Регистрация открыта"
     };
     case "registration_closed": return { 
-      bgColor: "bg-red-500/80", 
+      bgColor: "bg-orange-500/80", 
       textColor: "text-white",
       label: "Регистрация закрыта"
     };

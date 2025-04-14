@@ -18,6 +18,35 @@ import { UserData, FormState, ValidationErrors } from "@/types/index";
 import { apiFetch } from "@/utils/api";
 import UserEventTickets, { UserEventTicketsRef } from "@/components/UserEventTickets";
 
+// --- НАЧАЛО: Локальное определение скелетона --- 
+const ProfileSkeleton: React.FC = () => {
+  return (
+    <div className="card p-6 bg-white rounded-xl shadow-md animate-pulse">
+      <div className="flex flex-col items-center gap-4 mb-6">
+        {/* Skeleton for Avatar */}
+        <div className="w-24 h-24 bg-gray-200 rounded-full"></div>
+        <div className="text-center w-full space-y-2">
+          {/* Skeleton for Name */}
+          <div className="h-6 bg-gray-200 rounded w-3/4 mx-auto"></div>
+          {/* Skeleton for Email */}
+          <div className="h-4 bg-gray-200 rounded w-1/2 mx-auto"></div>
+        </div>
+      </div>
+      <div className="space-y-3 text-center">
+        {/* Skeleton for Contacts */}
+        <div className="h-4 bg-gray-200 rounded w-2/3 mx-auto"></div>
+        <div className="h-4 bg-gray-200 rounded w-2/3 mx-auto"></div>
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center">
+        {/* Skeleton for Buttons */}
+        <div className="h-10 bg-gray-200 rounded w-1/3"></div>
+        <div className="h-10 bg-gray-200 rounded w-1/3"></div>
+      </div>
+    </div>
+  );
+};
+// --- КОНЕЦ: Локальное определение скелетона --- 
+
 const ProfilePage: React.FC = () => {
   const { currentStage, setStage } = useLoadingStage();
   console.log(`ProfilePage: Render start, stage: ${currentStage}`);
@@ -46,6 +75,7 @@ const ProfilePage: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
+  const [isProfileSectionReady, setIsProfileSectionReady] = useState(false);
   
   const validateForm = useCallback((state: FormState = formState): boolean => {
     const errors: ValidationErrors = {};
@@ -100,6 +130,7 @@ const ProfilePage: React.FC = () => {
       validateForm(initialData);
       hasFetched.current = true;
       console.log("ProfilePage: initProfile finished");
+      setIsProfileSectionReady(true);
     };
     
     initProfile();
@@ -399,179 +430,186 @@ const ProfilePage: React.FC = () => {
     <div className="container mx-auto px-4 py-6 mt-16 min-h-[calc(100vh-4rem)] flex items-center justify-center">
       <div className="w-full max-w-2xl">
         <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Ваш профиль</h1>
-        <div className="card p-6 bg-white rounded-xl shadow-md">
-          <div className="flex flex-col items-center gap-4 mb-6">
-            <div className="relative group w-24 h-24">
-              {formState.avatarPreview ? (
-                formState.avatarPreview.startsWith('data:') ? (
-                  <Image
-                    src={formState.avatarPreview}
-                    alt="Аватар"
-                    width={96}
-                    height={96}
-                    className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
-                    onLoad={() => console.log("ProfilePage: Аватарка (data URI) успешно загружена")}
-                    onError={() => {
-                      console.error("Ошибка загрузки data URI аватарки в профиле");
-                      setFormState((prev) => ({ ...prev, avatarPreview: null }));
-                    }}
-                    unoptimized 
-                    priority
-                  />
+
+        {/* --- НАЧАЛО УСЛОВНОГО РЕНДЕРИНГА --- */}
+        {isProfileSectionReady ? (
+          <div className="card p-6 bg-white rounded-xl shadow-md">
+            <div className="flex flex-col items-center gap-4 mb-6">
+              <div className="relative group w-24 h-24">
+                {formState.avatarPreview ? (
+                  formState.avatarPreview.startsWith('data:') ? (
+                    <Image
+                      src={formState.avatarPreview}
+                      alt="Аватар"
+                      width={96}
+                      height={96}
+                      className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
+                      onLoad={() => console.log("ProfilePage: Аватарка (data URI) успешно загружена")}
+                      onError={() => {
+                        console.error("Ошибка загрузки data URI аватарки в профиле");
+                        setFormState((prev) => ({ ...prev, avatarPreview: null }));
+                      }}
+                      unoptimized 
+                      priority
+                    />
+                  ) : (
+                    <Image
+                      src={`${formState.avatarPreview}?t=${localStorage.getItem('avatar_cache_buster') || Date.now()}`}
+                      alt="Аватар"
+                      width={96}
+                      height={96}
+                      className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
+                      onLoad={() => console.log("ProfilePage: Аватарка успешно загружена:", formState.avatarPreview)}
+                      onError={() => {
+                        console.error("Ошибка загрузки изображения аватарки в профиле:", formState.avatarPreview);
+                        const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
+                        if (cachedAvatarUrl && cachedAvatarUrl !== formState.avatarPreview) {
+                          console.log("ProfilePage: Trying to load avatar from cache:", cachedAvatarUrl);
+                          setFormState(prev => ({ ...prev, avatarPreview: cachedAvatarUrl }));
+                          return;
+                        }
+                        if (typeof window !== 'undefined' && formState.avatarPreview) {
+                          const testImg = document.createElement('img');
+                          testImg.onload = () => console.log("Тест прямой загрузки аватарки успешен");
+                          testImg.onerror = () => console.error("Тест прямой загрузки аватарки провален");
+                          testImg.src = formState.avatarPreview;
+                        }
+                        setFormState((prev) => ({ ...prev, avatarPreview: null }));
+                      }}
+                      unoptimized
+                      priority
+                    />
+                  )
                 ) : (
-                  <Image
-                    src={`${formState.avatarPreview}?t=${localStorage.getItem('avatar_cache_buster') || Date.now()}`}
-                    alt="Аватар"
-                    width={96}
-                    height={96}
-                    className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
-                    onLoad={() => console.log("ProfilePage: Аватарка успешно загружена:", formState.avatarPreview)}
-                    onError={() => {
-                      console.error("Ошибка загрузки изображения аватарки в профиле:", formState.avatarPreview);
-                      const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
-                      if (cachedAvatarUrl && cachedAvatarUrl !== formState.avatarPreview) {
-                        console.log("ProfilePage: Trying to load avatar from cache:", cachedAvatarUrl);
-                        setFormState(prev => ({ ...prev, avatarPreview: cachedAvatarUrl }));
-                        return;
-                      }
-                      if (typeof window !== 'undefined' && formState.avatarPreview) {
-                        const testImg = document.createElement('img');
-                        testImg.onload = () => console.log("Тест прямой загрузки аватарки успешен");
-                        testImg.onerror = () => console.error("Тест прямой загрузки аватарки провален");
-                        testImg.src = formState.avatarPreview;
-                      }
-                      setFormState((prev) => ({ ...prev, avatarPreview: null }));
-                    }}
-                    unoptimized
-                    priority
+                  <div className="w-full h-full bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-3xl font-bold group-hover:bg-orange-200 transition-colors">
+                    {formState.fio?.charAt(0)?.toUpperCase() || "U"}
+                  </div>
+                )}
+                {isEditing && (
+                  <>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      aria-label="Сменить аватар"
+                    >
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        className="bg-orange-500 rounded-full p-2"
+                      >
+                        <FaCamera className="text-white w-5 h-5" />
+                      </motion.div>
+                    </button>
+                    {formState.avatarPreview && (
+                      <div
+                        onClick={handleRemoveAvatar}
+                        className="absolute top-0 right-0 bg-red-500 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-red-600 z-10"
+                        style={{ width: '18px', height: '18px', transform: 'translate(25%, -25%)' }}
+                        title="Удалить аватар"
+                        aria-label="Удалить аватар"
+                      >
+                        <FaTrash style={{ width: '8px', height: '8px' }} />
+                      </div>
+                    )}
+                  </>
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileChange}
+                  className="hidden"
+                  ref={fileInputRef}
+                />
+              </div>
+              <div className="text-center">
+                <h2 className="text-xl font-semibold text-gray-800">{formState.fio || "Не указано"}</h2>
+                <p className="text-gray-600 text-sm">{formState.email || "Не указан"}</p>
+              </div>
+            </div>
+            {isEditing ? (
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <InputField
+                    type="text"
+                    placeholder="ФИО"
+                    name="fio"
+                    value={formState.fio}
+                    onChange={handleChange}
+                    icon={FaUser}
+                    required
                   />
-                )
-              ) : (
-                <div className="w-full h-full bg-orange-100 rounded-full flex items-center justify-center text-orange-500 text-3xl font-bold group-hover:bg-orange-200 transition-colors">
-                  {formState.fio?.charAt(0)?.toUpperCase() || "U"}
-                </div>
-              )}
-              {isEditing && (
-                <>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                    aria-label="Сменить аватар"
-                  >
-                    <motion.div
-                      initial={{ scale: 0 }}
-                      animate={{ scale: 1 }}
-                      className="bg-orange-500 rounded-full p-2"
-                    >
-                      <FaCamera className="text-white w-5 h-5" />
-                    </motion.div>
-                  </button>
-                  {formState.avatarPreview && (
-                    <div
-                      onClick={handleRemoveAvatar}
-                      className="absolute top-0 right-0 bg-red-500 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-red-600 z-10"
-                      style={{ width: '18px', height: '18px', transform: 'translate(25%, -25%)' }}
-                      title="Удалить аватар"
-                      aria-label="Удалить аватар"
-                    >
-                      <FaTrash style={{ width: '8px', height: '8px' }} />
-                    </div>
+                  {validationErrors.fio && (
+                    <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
                   )}
-                </>
-              )}
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-                ref={fileInputRef}
-              />
-            </div>
-            <div className="text-center">
-              <h2 className="text-xl font-semibold text-gray-800">{formState.fio || "Не указано"}</h2>
-              <p className="text-gray-600 text-sm">{formState.email || "Не указан"}</p>
-            </div>
-          </div>
-          {isEditing ? (
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <InputField
-                  type="text"
-                  placeholder="ФИО"
-                  name="fio"
-                  value={formState.fio}
-                  onChange={handleChange}
-                  icon={FaUser}
-                  required
-                />
-                {validationErrors.fio && (
-                  <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
-                )}
+                </div>
+                <div>
+                  <InputField
+                    type="text"
+                    placeholder="Telegram (@username)"
+                    name="telegram"
+                    value={formState.telegram}
+                    onChange={handleChange}
+                    icon={FaTelegramPlane}
+                    required
+                  />
+                  {validationErrors.telegram && (
+                    <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>
+                  )}
+                </div>
+                <div>
+                  <InputField
+                    type="tel"
+                    placeholder="WhatsApp (только цифры)"
+                    name="whatsapp"
+                    value={formState.whatsapp}
+                    onChange={handleChange}
+                    icon={FaWhatsapp}
+                    required
+                  />
+                  {validationErrors.whatsapp && (
+                    <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
+                  )}
+                </div>
+                <button
+                  type="submit"
+                  disabled={Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT}
+                  className={`btn btn-primary w-full ${Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                   {(isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT) ? "Сохранение..." : "Сохранить"}
+                </button>
+              </form>
+            ) : (
+              <div className="space-y-3 text-center">
+                <p className="text-gray-600"><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
+                <p className="text-gray-600"><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
               </div>
-              <div>
-                <InputField
-                  type="text"
-                  placeholder="Telegram (@username)"
-                  name="telegram"
-                  value={formState.telegram}
-                  onChange={handleChange}
-                  icon={FaTelegramPlane}
-                  required
-                />
-                {validationErrors.telegram && (
-                  <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>
-                )}
-              </div>
-              <div>
-                <InputField
-                  type="tel"
-                  placeholder="WhatsApp (только цифры)"
-                  name="whatsapp"
-                  value={formState.whatsapp}
-                  onChange={handleChange}
-                  icon={FaWhatsapp}
-                  required
-                />
-                {validationErrors.whatsapp && (
-                  <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
-                )}
-              </div>
-              <button
-                type="submit"
-                disabled={Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT}
-                className={`btn btn-primary w-full ${Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT ? "opacity-50 cursor-not-allowed" : ""}`}
+            )}
+            <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center">
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={toggleEdit}
+                className="btn btn-secondary flex items-center justify-center gap-2"
               >
-                 {(isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT) ? "Сохранение..." : "Сохранить"}
-              </button>
-            </form>
-          ) : (
-            <div className="space-y-3 text-center">
-              <p className="text-gray-600"><strong>Telegram:</strong> {formState.telegram || "Не указан"}</p>
-              <p className="text-gray-600"><strong>WhatsApp:</strong> {formState.whatsapp || "Не указан"}</p>
+                <FaPencilAlt className="w-4 h-4" /> {isEditing ? "Отмена" : "Редактировать"}
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => setIsChangePasswordOpen(true)}
+                className="btn btn-primary flex items-center justify-center gap-2"
+              >
+                <FaLock className="w-4 h-4" /> Сменить пароль
+              </motion.button>
             </div>
-          )}
-          <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center">
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={toggleEdit}
-              className="btn btn-secondary flex items-center justify-center gap-2"
-            >
-              <FaPencilAlt className="w-4 h-4" /> {isEditing ? "Отмена" : "Редактировать"}
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setIsChangePasswordOpen(true)}
-              className="btn btn-primary flex items-center justify-center gap-2"
-            >
-              <FaLock className="w-4 h-4" /> Сменить пароль
-            </motion.button>
+            {fetchError && <ErrorDisplay error={fetchError} className="mt-4" />}
+            {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
           </div>
-          {fetchError && <ErrorDisplay error={fetchError} className="mt-4" />}
-          {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
-        </div>
-        
+        ) : (
+          <ProfileSkeleton />
+        )}
+        {/* --- КОНЕЦ УСЛОВНОГО РЕНДЕРИНГА --- */}
+
         {isAuth && (
           <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
             <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>

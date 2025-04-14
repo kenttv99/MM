@@ -140,17 +140,6 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
       stageTimeoutRef.current = null;
     }
 
-    // Устанавливаем тайм-аут для STATIC_CONTENT
-    if (currentStage === LoadingStage.STATIC_CONTENT) {
-      stageTimeoutRef.current = setTimeout(() => {
-        loadingLogger.info(`Timeout reached for stage ${currentStage}, attempting to advance to DYNAMIC_CONTENT.`);
-        // Проверяем, что мы все еще на той же стадии, перед переходом
-        if (currentStage === LoadingStage.STATIC_CONTENT) { 
-            setStage(LoadingStage.DYNAMIC_CONTENT, false);
-        }
-      }, 5000); // 5 секунд согласно документации
-    }
-    
     // TODO: Можно добавить аналогичные тайм-ауты для AUTHENTICATION и DYNAMIC_CONTENT, если нужно
     // Например, для DYNAMIC_CONTENT -> COMPLETED, если долго нет запросов
 

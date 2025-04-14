@@ -12,7 +12,7 @@ import { EventData } from "@/types/events";
 import { useInView } from "react-intersection-observer";
 import { createLogger, LogLevel, configureModuleLogging } from '@/utils/logger';
 // Импортируем необходимые хуки из соответствующих контекстов
-import { useLoading, LoadingStage } from '@/contexts/loading/LoadingContextLegacy';
+import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
 import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 // Импортируем функцию fetchEvents из eventService
 import { fetchEvents as fetchEventsService } from '@/utils/eventService';
@@ -20,6 +20,7 @@ import { fetchEvents as fetchEventsService } from '@/utils/eventService';
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
 // Импортируем компонент Footer
 import Footer from "@/components/Footer";
+import { LoadingStage } from '@/contexts/loading/types';
 
 // Настройка логирования для модуля согласно принципам документации
 configureModuleLogging('EventsPage', {
@@ -403,7 +404,7 @@ const EventsPage = () => {
   useEffect(() => {
     // Упрощенное логирование при монтировании
     if (currentStage !== LoadingStage.ERROR) {
-      setStage(LoadingStage.DATA_LOADING);
+      setStage(LoadingStage.DYNAMIC_CONTENT);
       setDynamicLoading(true);
     }
     
@@ -474,7 +475,7 @@ const EventsPage = () => {
     if (!hasInitialData.current) {
       setShowInitialSkeleton(true);
       setDynamicLoading(true);
-      setStage(LoadingStage.DATA_LOADING);
+      setStage(LoadingStage.DYNAMIC_CONTENT);
     }
     
     // Отменяем предыдущий запрос если он есть
@@ -608,7 +609,7 @@ const EventsPage = () => {
       // Сбрасываем состояние загрузки в случае ошибки
       setIsFetching(false);
     }
-  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, fetchEventsService, isMounted]);
+  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]);
 
   // Функция для сброса фильтров
   const handleResetFilters = useCallback(() => {
@@ -634,7 +635,7 @@ const EventsPage = () => {
     hasInitialData.current = false;
     
     // Устанавливаем соответствующую стадию загрузки
-    setStage(LoadingStage.DATA_LOADING);
+    setStage(LoadingStage.DYNAMIC_CONTENT);
     setDynamicLoading(true);
     
     // Запускаем обновленный запрос с короткой задержкой
@@ -668,7 +669,7 @@ const EventsPage = () => {
     hasInitialData.current = false;
     
     // Устанавливаем соответствующую стадию загрузки
-    setStage(LoadingStage.DATA_LOADING);
+    setStage(LoadingStage.DYNAMIC_CONTENT);
     setDynamicLoading(true);
     
     // Запускаем запрос данных с примененными фильтрами

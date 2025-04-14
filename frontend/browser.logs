@@ -1,0 +1,28 @@
+main-app.js?v=1744590567574:1836 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+Header.tsx:42 Header: Header component mounted {authLoading: true, isAuthChecked: false, currentStage: 'initial'}
+logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
+logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
+logger.ts:200 AuthContext: Starting initial authentication check logic 
+logger.ts:200 AuthContext: No token found. 
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: false}
+logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
+logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'static_content'}
+logger.ts:200 LoadingStageContext: Changing loading stage: initial -> static_content 
+logger.ts:200 AuthContext: AuthProvider unmounted. 
+logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
+logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
+logger.ts:200 AuthContext: Starting initial authentication check logic 
+logger.ts:200 AuthContext: No token found. 
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: false}
+logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
+logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'static_content'}
+logger.ts:200 LoadingStageContext: Changing loading stage: initial -> static_content 
+logger.ts:200 API: Loading stage changed [module=api version=1.0.0 reason=explicit_set allowRegression=true] {prev: 'authentication', current: 'static_content'}
+logger.ts:200 AuthContext: AuthProvider unmounted. 
+Header.tsx:42 Header: Showing header based on auth check or loading stage {isAuthChecked: true, currentStage: 'static_content', hasShownHeader: true}
+logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'static_content'}
+logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
+logger.ts:200 AuthContext: Starting initial authentication check logic 
+logger.ts:200 AuthContext: No token found. 
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: false}
+logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 

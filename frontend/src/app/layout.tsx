@@ -3,10 +3,11 @@
 
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { LoadingProvider, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { LoadingProvider } from "@/contexts/loading";
+import { LoadingStage } from "@/contexts/loading/types";
 import { AuthProvider } from "@/contexts/AuthContext";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { setCurrentLoadingStage } from "@/utils/api";
 
 const inter = Inter({ subsets: ["latin", "cyrillic"] });
@@ -30,18 +31,28 @@ function LoadingStageConnector({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// Новый компонент, обернутый в React.memo
+const LayoutContent = React.memo(({ children }: { children: React.ReactNode }) => {
+  return (
+    <LoadingStageConnector>
+      <AuthProvider>
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
+      </AuthProvider>
+    </LoadingStageConnector>
+  );
+});
+// Добавляем displayName для отладки
+LayoutContent.displayName = 'LayoutContent';
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ru" suppressHydrationWarning>
       <body className={inter.className}>
         <LoadingProvider>
-          <LoadingStageConnector>
-            <AuthProvider>
-              <ErrorBoundary>
-                {children}
-              </ErrorBoundary>
-            </AuthProvider>
-          </LoadingStageConnector>
+          {/* Используем мемоизированный компонент */}
+          <LayoutContent>{children}</LayoutContent>
         </LoadingProvider>
       </body>
     </html>

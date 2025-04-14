@@ -2,7 +2,7 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLoading } from "@/contexts/LoadingContextLegacy";
+import { useLoadingFlags } from "@/contexts/loading";
 import Loading from "@/components/Loading";
 import { usePathname } from "next/navigation";
 
@@ -15,7 +15,7 @@ export default function PageTransitionWrapper({
   children, 
   disableLoading = false,
 }: PageTransitionWrapperProps) {
-  const { isDynamicLoading, setDynamicLoading } = useLoading();
+  const { isDynamicLoading, setDynamicLoading } = useLoadingFlags();
   const [showDynamicLoading, setShowDynamicLoading] = useState(false);
   const pathname = usePathname();
   

@@ -8,7 +8,8 @@ import Logo from "./Logo";
 import Login from "./Login";
 import Registration from "./Registration";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { useLoadingStage } from "@/contexts/loading";
+import { LoadingStage } from "@/contexts/loading/types";
 import Image from "next/image";
 import AuthModal from "./common/AuthModal";
 import { NavItem } from "@/types/index";
@@ -291,7 +292,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
 
 const Header: React.FC = () => {
   const { isAuth, userData, logout, isLoading: authLoading, isAuthChecked, updateUserData } = useAuth();
-  const { currentStage } = useLoading();
+  const { currentStage } = useLoadingStage();
   const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);

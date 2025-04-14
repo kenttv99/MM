@@ -21,19 +21,18 @@ frontend/src/
 │   └── userService.ts       # User-related operations and API interactions
 │
 └── contexts/                # React Context providers for global state
-    ├── AdminAuthContext.tsx # Authentication state and functions for admin users
-    ├── AuthContext.tsx      # Authentication state for regular users (login/logout, tokens, etc.)
-    ├── LoadingContextLegacy.tsx # Compatibility layer for legacy loading system
-    ├── index.ts             # Exports all context providers and hooks
-    └── loading/             # Modular loading state management system
-        ├── index.ts         # Exports: providers, hooks and utilities
-        ├── types.ts         # Type definitions: LoadingStage, StageHistoryEntry, etc.
-        ├── LoadingStageContext.tsx    # Manages stage transitions with validation (427 lines)
-        ├── LoadingFlagsContext.tsx    # Handles loading flags with admin route special logic
-        ├── LoadingProgressContext.tsx # Tracks numerical progress (0-100%)
-        ├── LoadingErrorContext.tsx    # Error handling with auto-clear timers
-        ├── LoadingProvider.tsx        # Main provider: inconsistency checks, error recovery
-        └── README.md                  # Technical documentation (95 lines)
+    ├── AdminAuthContext.tsx # Authentication state for admin users
+    ├── AuthContext.tsx      # User authentication management
+    ├── index.ts             # Context exports
+    └── loading/             # Modern loading system
+        ├── index.ts         # Public API exports
+        ├── types.ts         # Type definitions
+        ├── LoadingStageContext.tsx    # Stage transitions logic
+        ├── LoadingFlagsContext.tsx    # Loading state flags
+        ├── LoadingProgressContext.tsx # Progress tracking
+        ├── LoadingErrorContext.tsx    # Error handling
+        ├── LoadingProvider.tsx        # Unified context provider
+        └── README.md                  # Technical docs
 ```
 
 ## Key Components and Responsibilities
@@ -67,11 +66,11 @@ The `contexts` directory contains React Context providers for global state manag
 - **AuthContext.tsx**: Manages authentication for regular users, including login/logout, token handling, and user data.
 - **LoadingContextLegacy.tsx**: Compatibility layer for components still using the legacy loading system.
 - **loading/**: A modular approach to loading state management:
-  - **LoadingStageContext.tsx**: Manages application loading stages with controlled transitions.
-  - **LoadingFlagsContext.tsx**: Handles loading flags (isStaticLoading, isDynamicLoading).
-  - **LoadingProgressContext.tsx**: Tracks numerical progress for loading operations.
-  - **LoadingErrorContext.tsx**: Manages loading-related error states.
-  - **LoadingProvider.tsx**: Combines all specialized contexts into a unified provider.
+  - **LoadingStageContext.tsx**: Manages stage transitions with validation (427 lines)
+  - **LoadingFlagsContext.tsx**: Handles loading flags with admin route special logic
+  - **LoadingProgressContext.tsx**: Tracks numerical progress (0-100%)
+  - **LoadingErrorContext.tsx**: Error handling with auto-clear timers
+  - **LoadingProvider.tsx**: Main provider: inconsistency checks, error recovery
 
 ## Architecture Insights
 
@@ -173,7 +172,6 @@ frontend/src/
 └── contexts/                # React Context провайдеры для глобального состояния
     ├── AdminAuthContext.tsx # Состояние аутентификации и функции для администраторов
     ├── AuthContext.tsx      # Состояние аутентификации для обычных пользователей (вход/выход, токены и т.д.)
-    ├── LoadingContextLegacy.tsx # Слой совместимости для устаревшей системы загрузки
     ├── index.ts             # Экспорты всех провайдеров контекста и хуков
     └── loading/             # Модульная система управления состоянием загрузки
         ├── index.ts         # Экспорты контекстов и утилит загрузки

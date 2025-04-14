@@ -31,10 +31,11 @@ export interface EventData {
 
 export interface EventResponse {
   success: boolean;
-  message: string;
-  event?: EventData;
+  data?: EventData;
+  error?: string;
+  message?: string;
   authError?: boolean;
-  warningOnly?: boolean; // Флаг для случаев, когда операция успешна, но с предупреждением
+  event?: EventData;
 }
 
 export interface EventFormData {

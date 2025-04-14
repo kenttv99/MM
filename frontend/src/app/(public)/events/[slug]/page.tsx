@@ -19,7 +19,7 @@ import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
-import { useLoading } from "@/contexts/LoadingContextLegacy";
+import { useLoading } from '@/contexts/loading';
 import { ApiErrorResponse, ApiAbortedResponse } from '@/types/api';
 
 // Константы для уровней логирования

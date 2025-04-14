@@ -1,5 +1,9 @@
 // frontend/src/utils/eventService.ts
-import { EventFormData, EventResponse, EventData } from '@/types/events';
+import { 
+  EventFormData, 
+  EventResponse, 
+  EventData 
+} from '@/types/events';
 import { createLogger } from '@/utils/logger';
 // import { API_BASE_URL } from '@/config/constants';
 // import { EventFilter } from '@/types/events';
@@ -11,21 +15,19 @@ export interface EventFilter {
 }
 
 // Интерфейс для общих API-ответов
-export interface ApiResponse<T = unknown> {
+type ApiResponse<T = unknown> = {
   success: boolean;
   data?: T;
   error?: string;
-  message?: string;
-  aborted?: boolean;
-}
+};
 
 // Интерфейс для пагинированного ответа с событиями
-export interface PaginatedEventsResponse {
+type PaginatedEventsResponse = {
   events: EventData[];
   totalPages: number;
   currentPage: number;
   hasMore: boolean;
-}
+};
 
 // Интерфейс для ответа с событиями
 export interface EventsResponse {
@@ -40,6 +42,97 @@ export interface EventsResponse {
 
 // Создаем логгер для сервиса
 const logger = createLogger('eventService');
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
+
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+const fetchHandler = async <T>(
+  endpoint: string,
+  method: HttpMethod = 'GET',
+  body?: BodyInit,
+  isAdmin: boolean = false
+): Promise<ApiResponse<T>> => {
+  const headers: HeadersInit = { 'Content-Type': 'application/json' };
+  
+  if (isAdmin) {
+    const token = localStorage.getItem('admin_token');
+    if (!token) return { success: false, error: 'Требуется авторизация' };
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}${endpoint}`, {
+      method,
+      headers,
+      body,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      return { success: false, error: error || 'Ошибка запроса' };
+    }
+
+    return { success: true, data: await response.json() };
+  } catch (error) {
+    logger.error('Network error:', error);
+    return { success: false, error: 'Ошибка соединения' };
+  }
+};
+
+const prepareFormData = (data: EventFormData): FormData => {
+  const formData = new FormData();
+  
+  Object.entries(data).forEach(([key, value]) => {
+    if (value !== undefined && value !== null) {
+      formData.append(key, value instanceof File ? value : String(value));
+    }
+  });
+
+  return formData;
+};
+
+export const EventService = {
+  createEvent: async (data: EventFormData): Promise<EventResponse> => {
+    const formData = prepareFormData(data);
+    const result = await fetchHandler<EventData>('/admin/events', 'POST', formData, true);
+    return { 
+      ...result,
+      message: result.error ? 'Ошибка создания' : 'Успешно создано'
+    };
+  },
+
+  updateEvent: async (id: string, data: EventFormData): Promise<EventResponse> => {
+    const formData = prepareFormData(data);
+    const result = await fetchHandler<EventData>(`/admin/events/${id}`, 'PUT', formData, true);
+    return {
+      ...result,
+      message: result.error ? 'Ошибка обновления' : 'Успешно обновлено'
+    };
+  },
+
+  getEvents: async (page: number = 1, filters?: Record<string, string>): Promise<ApiResponse<PaginatedEventsResponse>> => {
+    const params = new URLSearchParams({ page: String(page), ...filters });
+    return fetchHandler(`/events?${params}`);
+  },
+
+  getEvent: async (id: string): Promise<ApiResponse<EventData>> => {
+    return fetchHandler(`/events/${id}`);
+  },
+
+  getEventBySlug: async (slug: string): Promise<ApiResponse<EventData>> => {
+    return fetchHandler(`/events/slug/${encodeURIComponent(slug)}`);
+  },
+
+  validateSession: async (): Promise<boolean> => {
+    const token = localStorage.getItem('admin_token');
+    if (!token) return false;
+    
+    const result = await fetchHandler('/admin/validate', 'GET', undefined, true);
+    return result.success;
+  }
+};
 
 export const prepareEventFormData = (eventData: EventFormData): FormData => {
   const formData = new FormData();
@@ -239,158 +332,6 @@ function extractBaseSlug(slug: string): string {
   // No suffix found, return the original slug
   return slug;
 }
-
-export const createEvent = async (eventData: EventFormData): Promise<EventResponse> => {
-  console.log("eventService: Starting createEvent");
-  const token = localStorage.getItem("admin_token");
-  if (!token) {
-    console.log("eventService: No admin token found for createEvent");
-    return { 
-      success: false,
-      message: "Необходима авторизация администратора",
-      authError: true 
-    };
-  }
-
-  try {
-    // Проверка сессии на сервере
-    const isSessionValid = await ensureAdminSession();
-    if (!isSessionValid) {
-      console.log("eventService: Admin session is invalid");
-      return {
-        success: false,
-        message: "Сессия администратора истекла. Необходимо войти заново.",
-        authError: true
-      };
-    }
-    
-    console.log("eventService: Preparing event data for creation");
-    
-    // Prepare form data for upload
-    const formData = prepareEventFormData({
-      ...eventData,
-      url_slug: prepareUrlSlug(eventData.url_slug, undefined)
-    });
-    
-    // Логируем данные формы (без файла, если он есть)
-    const formDataDebug = Object.fromEntries(
-      Array.from(formData.entries())
-        .filter(entry => !(entry[1] instanceof File))
-    );
-    console.log("eventService: Prepared form data:", formDataDebug);
-
-    console.log("eventService: Making API request to create event");
-    
-    // При отправке FormData с файлами, браузер автоматически устанавливает правильный Content-Type
-    // Убедимся, что URL точно заканчивается слешем для избежания перенаправления
-    const createUrl = '/admin_edits/';
-    
-    const createResponse = await fetch(createUrl, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`
-        // НЕ устанавливаем Content-Type вручную для FormData с файлами!
-      },
-      // Используем same-origin вместо include, это решает проблему с перенаправлением и cookies
-      credentials: 'same-origin',
-      body: formData
-    });
-    
-    // Проверяем наличие обновленного токена в заголовках
-    handleTokenRefresh(createResponse);
-    
-    console.log(`eventService: Create event response status: ${createResponse.status}`);
-    
-    // Логируем полный ответ для отладки
-    try {
-      const responseText = await createResponse.clone().text();
-      console.log(`eventService: Raw response: ${responseText}`);
-    } catch (err) {
-      console.error("eventService: Failed to log raw response:", err);
-    }
-    
-    // Обработка ошибок
-    if (createResponse.status === 401) {
-      console.log("eventService: Authentication error 401 in createEvent, clearing session");
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("admin_data");
-      return {
-        success: false,
-        message: "Ошибка аутентификации. Пожалуйста, войдите снова.",
-        authError: true,
-      };
-    }
-    
-    if (createResponse.status === 403) {
-      console.log("eventService: Authorization error 403 in createEvent, NOT clearing session");
-      
-      // Проверяем токен еще раз для отладки
-      const adminData = localStorage.getItem("admin_data");
-      console.log("eventService: Admin data in localStorage:", adminData ? JSON.parse(adminData) : "missing");
-      
-      // Пробуем получить текст ошибки
-      const errorText = await createResponse.text();
-      console.log("eventService: Error response body:", errorText);
-      
-      return {
-        success: false,
-        message: "У вас недостаточно прав для выполнения этой операции. Проверьте, что вы авторизованы как администратор.",
-        authError: true,
-      };
-    }
-    
-    // Обрабатываем успешный ответ или другие ошибки
-    try {
-      const responseData = await createResponse.json();
-      console.log("eventService: Response data:", responseData);
-      
-      if (createResponse.status === 200 || createResponse.status === 201) {
-        console.log("eventService: Event created successfully");
-        return {
-          success: true,
-          event: responseData,
-          message: "Событие успешно создано",
-        };
-      } else {
-        console.warn(`eventService: Unexpected response status: ${createResponse.status}`);
-        return {
-          success: false,
-          message: responseData.message || responseData.detail || `Неизвестная ошибка при создании события (${createResponse.status})`,
-        };
-      }
-    } catch (error) {
-      console.error("eventService: Error parsing response:", error);
-      return {
-        success: false,
-        message: "Ошибка обработки ответа от сервера",
-      };
-    }
-  } catch (error) {
-    console.error("eventService: Error creating event:", error);
-    
-    // Определяем тип ошибки для более детального сообщения пользователю
-    let errorMessage: string;
-    
-    if (error instanceof TypeError && error.message === "Failed to fetch") {
-      errorMessage = "Ошибка подключения к серверу. Проверьте ваше интернет-соединение или обратитесь к администратору.";
-      console.error("eventService: Network connection error - Failed to fetch");
-    } else if (error instanceof DOMException && error.name === "AbortError") {
-      errorMessage = "Запрос отменен. Пожалуйста, попробуйте снова.";
-      console.error("eventService: Request was aborted");
-    } else if (error instanceof Error) {
-      errorMessage = `Ошибка при создании события: ${error.message}`;
-      console.error(`eventService: Error with message: ${error.message}`);
-    } else {
-      errorMessage = "Неизвестная ошибка при создании события.";
-      console.error("eventService: Unknown error type:", error);
-    }
-    
-    return {
-      success: false,
-      message: errorMessage,
-    };
-  }
-};
 
 // Define a type for event data - used for type consistency
 interface EventUpdateData {

@@ -124,6 +124,33 @@ async def change_user_password(
     await db.commit()
     return {"message": "Пароль успешно изменен"}
 
+@router.post("/logout", status_code=status.HTTP_200_OK)
+async def logout_user(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_async_db),
+    request: Request = None
+):
+    """Обработка выхода пользователя и логирование действия."""
+    try:
+        current_user = await get_current_user(credentials.credentials, db)
+        # Основное действие - логирование выхода
+        await log_user_activity(db, current_user.id, request, action="logout")
+        await db.commit() # Сохраняем лог активности
+        logger.info(f"User {current_user.email} logged out successfully.")
+        return {"message": "Logout successful"}
+    except HTTPException as e:
+        # Если токен недействителен или произошла другая ошибка аутентификации
+        logger.warning(f"Logout attempt failed for token: {e.detail}")
+        raise e
+    except Exception as e:
+        error_msg = f"Error during logout: {str(e)}"
+        logger.error(error_msg)
+        logger.exception("Full traceback during logout:")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Logout failed due to server error"
+        )
+
 @router.get("/me", response_model=UserResponse)
 async def get_user_profile(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),

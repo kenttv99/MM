@@ -371,6 +371,10 @@ const EventsPage = () => {
   const startDateInputRef = useRef<HTMLInputElement>(null);
   const endDateInputRef = useRef<HTMLInputElement>(null);
 
+  // Рефы для закрытия фильтра по клику вне окна
+  const filterRef = useRef<HTMLDivElement>(null);
+  const filterButtonRef = useRef<HTMLButtonElement>(null);
+
   // Хуки из новой системы загрузки
   const { setStage, currentStage } = useLoadingStage();
   const { setDynamicLoading, setStaticLoading } = useLoadingFlags(); // Предполагая, что setStaticLoading тоже нужен
@@ -737,6 +741,35 @@ const EventsPage = () => {
     }
   }, [currentStage, isFetching, setStage, isMounted]);
   
+  // Эффект для закрытия фильтра по клику вне его области
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Проверяем, открыт ли фильтр и был ли клик вне области фильтра и вне кнопки открытия
+      if (
+        isFilterOpen &&
+        filterRef.current &&
+        !filterRef.current.contains(event.target as Node) &&
+        filterButtonRef.current &&
+        !filterButtonRef.current.contains(event.target as Node)
+      ) {
+        setIsFilterOpen(false);
+      }
+    };
+
+    // Добавляем слушатель, если фильтр открыт
+    if (isFilterOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    } else {
+      // Убираем слушатель, если фильтр закрыт
+      document.removeEventListener("mousedown", handleClickOutside);
+    }
+
+    // Очистка слушателя при размонтировании компонента
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [isFilterOpen]); // Зависимость только от isFilterOpen
+
   // Рендер состояния ошибки
   if (currentStage === LoadingStage.ERROR) {
     return (
@@ -788,6 +821,7 @@ const EventsPage = () => {
           <div className="mb-6 relative">
             <div className="flex justify-end">
               <button
+                ref={filterButtonRef}
                 onClick={() => setIsFilterOpen(!isFilterOpen)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg ${isFilterActive ? "bg-orange-100 text-orange-700" : "bg-gray-100 text-gray-700"}`}
               >
@@ -800,25 +834,25 @@ const EventsPage = () => {
 
             {/* Выпадающий фильтр */}
             {isFilterOpen && (
-              <DateFilter
-                startDate={tempFilters.startDate}
-                endDate={tempFilters.endDate}
-                onStartDateChange={(value) => {
-                  setTempFilters(prev => ({ ...prev, startDate: value }));
-                }}
-                onEndDateChange={(value) => {
-                  setTempFilters(prev => ({ ...prev, endDate: value }));
-                }}
-                onApply={() => {
-                  handleApplyFilters();
-                }}
-                onClose={() => setIsFilterOpen(false)}
-                onReset={() => {
-                  setTempFilters({ startDate: "", endDate: "" });
-                }}
-                startDateRef={startDateInputRef}
-                endDateRef={endDateInputRef}
-              />
+              <div ref={filterRef}>
+                <DateFilter
+                  startDate={tempFilters.startDate}
+                  endDate={tempFilters.endDate}
+                  onStartDateChange={(value) => {
+                    setTempFilters(prev => ({ ...prev, startDate: value }));
+                  }}
+                  onEndDateChange={(value) => {
+                    setTempFilters(prev => ({ ...prev, endDate: value }));
+                  }}
+                  onApply={() => {
+                    handleApplyFilters();
+                  }}
+                  onClose={() => setIsFilterOpen(false)}
+                  onReset={handleResetFilters}
+                  startDateRef={startDateInputRef}
+                  endDateRef={endDateInputRef}
+                />
+              </div>
             )}
             
             {/* Отображение активных фильтров */}

@@ -78,7 +78,6 @@ const stageRequestCounts: Record<LoadingStage, number> = {
   [LoadingStage.AUTHENTICATION]: 0,
   [LoadingStage.STATIC_CONTENT]: 0,
   [LoadingStage.DYNAMIC_CONTENT]: 0,
-  [LoadingStage.DATA_LOADING]: 0,
   [LoadingStage.COMPLETED]: 0,
   [LoadingStage.INITIAL]: 0,
   [LoadingStage.ERROR]: 0
@@ -846,30 +845,46 @@ export const apiFetch = <T = unknown>(
       }
       
       // Prepare headers
-      const requestHeaders: Record<string, string> = {
-        'Content-Type': 'application/json',
-        ...headers
-      };
+      const defaultHeaders: Record<string, string> = {}; // Убрали Content-Type по умолчанию
+      if (!(data instanceof FormData)) {
+        defaultHeaders['Content-Type'] = 'application/json'; // Добавляем только если не FormData
+      }
+      const effectiveHeaders = { ...defaultHeaders, ...headers };
       
       // Add Authorization header if token exists
       if (typeof window !== 'undefined') {
         const token = localStorage.getItem('token');
         if (token) {
-          requestHeaders['Authorization'] = `Bearer ${token}`;
+          effectiveHeaders['Authorization'] = `Bearer ${token}`;
         }
       }
       
       // Prepare request options
-      const fetchOptions: RequestInit = {
+      const requestOptions: RequestInit = {
         method,
-        headers: requestHeaders,
+        headers: effectiveHeaders,
         signal: signal || localSignal
       };
       
       // Add body for non-GET requests
-      if (method !== 'GET' && data !== undefined) {
-        fetchOptions.body = JSON.stringify(data);
+      if (method !== 'GET' && data) {
+        if (data instanceof FormData) {
+          // Если это FormData, передаем как есть
+          requestOptions.body = data;
+          // Важно: Удаляем Content-Type, чтобы браузер установил правильный multipart/form-data
+          delete effectiveHeaders['Content-Type']; 
+        } else {
+          // Иначе преобразуем в JSON
+          requestOptions.body = JSON.stringify(data);
+          // Убедимся, что Content-Type установлен для JSON
+          if (!effectiveHeaders['Content-Type']) {
+             effectiveHeaders['Content-Type'] = 'application/json';
+          }
+        }
       }
+      
+      // Переприсваиваем обновленные заголовки в requestOptions
+      requestOptions.headers = effectiveHeaders;
       
       // Log request
       apiLogger.debug(`Sending ${method} request to ${url}`, {
@@ -879,7 +894,7 @@ export const apiFetch = <T = unknown>(
       });
       
       // Execute the request
-      const response = await fetch(url, fetchOptions);
+      const response = await fetch(url, requestOptions);
       const endTime = Date.now();
       
       // Update log context with status info

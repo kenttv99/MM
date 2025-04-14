@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import React, { useEffect, useState, useRef, useCallback, useLayoutEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck, FaFilter } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
@@ -395,6 +395,23 @@ const CancelTicketModal: React.FC<CancelTicketModalProps> = ({
     visible: { opacity: 1, scale: 1, transition: { duration: 0.2 } },
     exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
   };
+
+  // Добавляем useLayoutEffect для управления классом и padding
+  useLayoutEffect(() => {
+    const originalPaddingRight = document.body.style.paddingRight;
+    if (isOpen) {
+      const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.paddingRight = `${scrollBarWidth}px`;
+      document.body.classList.add('body-scroll-locked');
+    } else {
+      document.body.classList.remove('body-scroll-locked');
+      document.body.style.paddingRight = originalPaddingRight;
+    }
+    return () => {
+      document.body.classList.remove('body-scroll-locked');
+      document.body.style.paddingRight = originalPaddingRight;
+    };
+  }, [isOpen]);
 
   return (
     <AnimatePresence>
@@ -1020,7 +1037,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     <div className="h-full overflow-auto" ref={ticketsContainerRef}>
       {isFetching && tickets.length === 0 ? (
         <div className="p-2">
-          <>{console.log("UserEventTickets: Rendering skeleton (isFetching && no tickets)")}</>
           <TicketSkeleton />
           {showLoadingHint && (
             <div className="text-center mt-4 text-gray-500 text-sm animate-pulse">

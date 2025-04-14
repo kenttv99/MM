@@ -92,7 +92,7 @@ const Notifications: React.FC = () => {
     <div className="relative">
       <motion.button
         ref={notificationButtonRef}
-        onClick={toggleNotifications}
+        // onClick={toggleNotifications}
         className="md:hidden text-orange-500 hover:text-orange-600 p-2 min-w-[44px] min-h-[44px] z-40"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
@@ -109,7 +109,7 @@ const Notifications: React.FC = () => {
 
       <motion.button
         ref={notificationButtonRef}
-        onClick={toggleNotifications}
+        // onClick={toggleNotifications}
         className="hidden md:block text-orange-500 hover:text-orange-600 p-2 min-w-[44px] min-h-[44px]"
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}

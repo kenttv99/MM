@@ -333,7 +333,6 @@ const ProfilePage: React.FC = () => {
             try {
                 const formData = new FormData();
                 formData.append("file", selectedFile);
-                formData.append("user_id", userData.id.toString());
                 const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
                     method: "POST", 
                     data: formData,
@@ -613,7 +612,7 @@ const ProfilePage: React.FC = () => {
         {isAuth && (
           <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
             <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-            <>{console.log("ProfilePage: Rendering UserEventTickets component")}</>
+            {/* <>{console.log("ProfilePage: Rendering UserEventTickets component")}</> */}
             <UserEventTickets 
               ref={ticketsRef} 
             />

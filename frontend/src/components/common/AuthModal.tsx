@@ -1,5 +1,5 @@
 // frontend/src/components/common/AuthModal.tsx
-import React from "react";
+import React, { useLayoutEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AuthModalProps, ModalButtonProps } from "@/types/index";
 import { FaTimes } from "react-icons/fa";
@@ -38,6 +38,22 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, title, error, su
     visible: { opacity: 1, scale: 1, transition: { duration: 0.2 } },
     exit: { opacity: 0, scale: 0.95, transition: { duration: 0.2 } },
   };
+
+  useLayoutEffect(() => {
+    const originalPaddingRight = document.body.style.paddingRight;
+    if (isOpen) {
+      const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+      document.body.style.paddingRight = `${scrollBarWidth}px`;
+      document.body.classList.add('body-scroll-locked');
+    } else {
+      document.body.classList.remove('body-scroll-locked');
+      document.body.style.paddingRight = originalPaddingRight;
+    }
+    return () => {
+      document.body.classList.remove('body-scroll-locked');
+      document.body.style.paddingRight = originalPaddingRight;
+    };
+  }, [isOpen]);
 
   return (
     <AnimatePresence>

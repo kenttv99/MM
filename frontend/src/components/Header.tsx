@@ -1,7 +1,7 @@
 // frontend/src/components/Header.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import Logo from "./Logo";
@@ -13,8 +13,8 @@ import { LoadingStage } from "@/contexts/loading/types";
 import Image from "next/image";
 import AuthModal from "./common/AuthModal";
 import { NavItem } from "@/types/index";
-import Notifications from "./Notifications";
 import { useRouter } from "next/navigation";
+import Notifications from "./Notifications";
 
 // Добавляем уровни логирования для оптимизации вывода
 const LOG_LEVEL = {
@@ -66,9 +66,10 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
   const [key, setKey] = useState(0);
   const preloadTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [forceUpdate, setForceUpdate] = useState(0);
-  const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | undefined>(undefined);
+  const [currentAvatarUrl, setCurrentAvatarUrl] = useState<string | undefined>(avatarUrl);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
   const avatarLoadedRef = useRef(false);
+  const lastPreloadedUrlRef = useRef<string | null>(null);
 
   // Effect to handle initial load and localStorage check
   useEffect(() => {
@@ -83,6 +84,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
       localStorage.setItem('cached_avatar_url', avatarUrl);
       
       // Preload the avatar
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       preloadAvatar(avatarUrl);
       return;
     }
@@ -103,16 +105,20 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
         setCurrentAvatarUrl(cachedAvatarUrl);
         
         // Preload the cached avatar
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         preloadAvatar(cachedAvatarUrl, cachedAvatarTimestamp);
       }
       
       setIsInitialLoad(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [avatarUrl, isInitialLoad]);
 
   // Helper function to preload avatar
-  const preloadAvatar = (url: string, timestamp?: string | null) => {
-    if (!url || url.startsWith('data:')) return;
+  const preloadAvatar = useCallback((url: string, timestamp?: string | null) => {
+    if (!url || url.startsWith('data:') || url === lastPreloadedUrlRef.current) return;
+    
+    lastPreloadedUrlRef.current = url;
     
     // Clear any existing preload timeout
     if (preloadTimeoutRef.current) {
@@ -141,7 +147,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
       
       testImg.src = `${url}${url.includes('?') ? '&' : '?'}t=${cacheBuster}`;
     }, 50);
-  };
+  }, []);
 
   // Effect to listen for avatar update events
   useEffect(() => {
@@ -169,6 +175,7 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
         localStorage.setItem('avatar_cache_buster', timestamp.toString());
         
         // Preload the new avatar
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         preloadAvatar(newUrl, timestamp.toString());
       }
     };
@@ -179,56 +186,21 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
     return () => {
       window.removeEventListener('avatar-updated', handleAvatarUpdate as EventListener);
     };
-  }, []);
+  }, [preloadAvatar]);
 
-  // Effect to handle userDataChanged events
+  // Effect to update state when avatarUrl prop changes
   useEffect(() => {
-    if (typeof window === 'undefined') return;
-    
-    const handleUserDataChange = (event: CustomEvent) => {
-      const { userData, avatarRemoved } = event.detail;
-      
-      if (!userData) return;
-      
-      console.log("AvatarDisplay: Received userDataChanged event", { 
-        hasAvatar: !!userData.avatar_url,
-        avatarRemoved
-      });
-      
-      // If avatar was removed, clear the current avatar
-      if (avatarRemoved) {
-        console.log("AvatarDisplay: Avatar removed, clearing display");
-        setCurrentAvatarUrl(undefined);
-        localStorage.removeItem('cached_avatar_url');
-        setImgError(false);
-        return;
+    if (avatarUrl !== currentAvatarUrl) {
+      console.log("AvatarDisplay: Prop avatarUrl changed", avatarUrl);
+      setCurrentAvatarUrl(avatarUrl);
+      setImgError(false);
+      if (avatarUrl) {
+        const timestamp = typeof window !== 'undefined' ? localStorage.getItem('avatar_cache_buster') : null;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        preloadAvatar(avatarUrl, timestamp);
       }
-      
-      // If we have a new avatar URL, update the current avatar URL state
-      if (userData.avatar_url) {
-        console.log("AvatarDisplay: New avatar detected in userData", userData.avatar_url);
-        
-        // Update the current avatar URL state
-        setCurrentAvatarUrl(userData.avatar_url);
-        
-        // Cache the avatar URL in localStorage
-        localStorage.setItem('cached_avatar_url', userData.avatar_url);
-        
-        // Get cache buster from localStorage or generate new one
-        const timestamp = localStorage.getItem('avatar_cache_buster') || Date.now().toString();
-        
-        // Preload the new avatar
-        preloadAvatar(userData.avatar_url, timestamp);
-      }
-    };
-    
-    // Add event listener for user data changes
-    window.addEventListener('userDataChanged', handleUserDataChange as EventListener);
-    
-    return () => {
-      window.removeEventListener('userDataChanged', handleUserDataChange as EventListener);
-    };
-  }, []);
+    }
+  }, [avatarUrl, currentAvatarUrl, preloadAvatar]);
 
   const sizeClasses = "w-10 h-10 min-w-[40px] min-h-[40px]";
   
@@ -296,17 +268,41 @@ const Header: React.FC = () => {
   const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isRegisterMode, setIsRegisterMode] = useState(false);
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
+  const [, forceRender] = useState(0);
   const lastScrollY = useRef<number>(0);
   const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef<boolean>(true);
   const loadingRef = useRef<boolean>(authLoading);
   const checkedRef = useRef<boolean>(isAuthChecked);
-  const [, forceUpdate] = useState({});
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const logoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Заменяем useEffect на useLayoutEffect для управления классом и padding
+  useLayoutEffect(() => {
+    const originalPaddingRight = document.body.style.paddingRight; // Сохраняем исходный padding
+    if (isMobileMenuOpen) {
+      // Вычисляем ширину скроллбара
+      const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+      // Устанавливаем padding
+      document.body.style.paddingRight = `${scrollBarWidth}px`;
+      // Добавляем класс для блокировки overflow
+      document.body.classList.add('body-scroll-locked');
+    } else {
+      // Удаляем класс
+      document.body.classList.remove('body-scroll-locked');
+      // Восстанавливаем исходный padding
+      document.body.style.paddingRight = originalPaddingRight;
+    }
+
+    // Функция очистки
+    return () => {
+      document.body.classList.remove('body-scroll-locked');
+      document.body.style.paddingRight = originalPaddingRight;
+    };
+  }, [isMobileMenuOpen]);
 
   // Слушаем события изменения состояния аутентификации
   useEffect(() => {
@@ -315,7 +311,7 @@ const Header: React.FC = () => {
       loadingRef.current = event.detail.isAuth;
       checkedRef.current = true;
       if (event.detail.isAuth) {
-        forceUpdate({});
+        forceRender(c => c + 1);
         logInfo('Showing header due to authentication', { 
           isAuthenticated: event.detail.isAuth,
           userData: event.detail.userData
@@ -379,14 +375,15 @@ const Header: React.FC = () => {
         // Force immediate UI update
         const forceUIUpdate = () => {
           // Force update of user data in this component by using the Auth context
-          if (updateUserData && typeof updateUserData === 'function') {
-            // Create a fresh copy to ensure React detects the change
-            const freshUserData = {...updatedUserData};
-            updateUserData(freshUserData, false);
-            
-            // Also trigger a React state update to force re-render
-            forceUpdate({});
-          }
+          // НЕПРАВИЛЬНО: Вызов updateUserData здесь создает цикл!
+          // if (updateUserData && typeof updateUserData === 'function') {
+          //   const freshUserData = {...updatedUserData};
+          //   updateUserData(freshUserData, false);
+          // }
+          
+          // Also trigger a React state update to force re-render
+          // Этого должно быть достаточно для обновления UI с новыми данными из контекста
+          forceRender(c => c + 1);
         };
         
         // If avatar was removed, make sure to clear any cached versions
@@ -435,14 +432,14 @@ const Header: React.FC = () => {
             testImg.onload = () => {
               console.log('Header: Updated avatar loaded successfully:', cachedBusterUrl);
               // Force another update after successful load
-              forceUIUpdate();
+              forceRender(c => c + 1);
             };
             testImg.onerror = () => console.error('Header: Failed to load updated avatar:', cachedBusterUrl);
             testImg.src = cachedBusterUrl;
           }, 50);
         } else {
           // No avatar changes, just update normally
-          forceUIUpdate();
+          forceRender(c => c + 1);
         }
       }
     };
@@ -467,34 +464,30 @@ const Header: React.FC = () => {
         }
         
         // Immediately update user data with the new avatar
-        if (updateUserData && typeof updateUserData === 'function') {
-          // Create a fresh copy to ensure React detects the change
-          const freshUserData = {...updatedUserData};
+        // НЕПРАВИЛЬНО: Вызов updateUserData здесь создает цикл!
+        // if (updateUserData && typeof updateUserData === 'function') {
+        //   const freshUserData = {...updatedUserData};
+        //   updateUserData(freshUserData, false);
+        // }
+
+        // Force a re-render of the entire header
+        // Этого должно быть достаточно для обновления UI с новыми данными из контекста
+        forceRender(c => c + 1);
           
-          // Force immediate render
-          updateUserData(freshUserData, false);
-          
-          // Force a re-render of the entire header
-          forceUpdate({});
-          
-          // Also trigger a React state update to force re-render
-          forceUpdate({});
-          
-          // Preload the image with a slight delay
-          setTimeout(() => {
-            const cachedBusterUrl = newAvatarUrl.includes('?') 
-              ? `${newAvatarUrl}&t=${effectiveTimestamp}` 
-              : `${newAvatarUrl}?t=${effectiveTimestamp}`;
-              
-            const img = document.createElement('img');
-            img.src = cachedBusterUrl;
-            img.onload = () => {
-              logInfo('Header: New avatar preloaded successfully');
-              // Force another update after successful load
-              forceUpdate({});
-            };
-          }, 50);
-        }
+        // Preload the image with a slight delay
+        setTimeout(() => {
+          const cachedBusterUrl = newAvatarUrl.includes('?') 
+            ? `${newAvatarUrl}&t=${effectiveTimestamp}` 
+            : `${newAvatarUrl}?t=${effectiveTimestamp}`;
+            
+          const img = document.createElement('img');
+          img.src = cachedBusterUrl;
+          img.onload = () => {
+            logInfo('Header: New avatar preloaded successfully');
+            // Force another update after successful load
+            forceRender(c => c + 1);
+          };
+        }, 50);
       }
     };
 
@@ -545,26 +538,26 @@ const Header: React.FC = () => {
   }, []);
 
   const openLogin = useCallback(() => {
-    setIsRegisterMode(false);
-    setIsModalOpen(true);
+    setIsRegisterModalOpen(false);
+    setIsLoginModalOpen(true);
   }, []);
 
   const openRegistration = useCallback(() => {
-    setIsRegisterMode(true);
-    setIsModalOpen(true);
+    setIsRegisterModalOpen(true);
+    setIsLoginModalOpen(true);
   }, []);
 
   const handleModalClose = useCallback(() => {
-    setIsModalOpen(false);
-    setIsRegisterMode(false);
+    setIsLoginModalOpen(false);
+    setIsRegisterModalOpen(false);
   }, []);
 
   const toggleToLogin = useCallback(() => {
-    setIsRegisterMode(false);
+    setIsRegisterModalOpen(false);
   }, []);
 
   const toggleToRegister = useCallback(() => {
-    setIsRegisterMode(true);
+    setIsRegisterModalOpen(true);
   }, []);
 
   const handleLogout = useCallback(async () => {
@@ -573,7 +566,8 @@ const Header: React.FC = () => {
       // Set logging out state and hide header immediately
       setIsLoggingOut(true);
       setIsMobileMenuOpen(false);
-      setIsModalOpen(false);
+      setIsLoginModalOpen(false);
+      setIsRegisterModalOpen(false);
       
       // Clear any existing timeouts
       if (logoutTimeoutRef.current) {
@@ -682,7 +676,8 @@ const Header: React.FC = () => {
     { label: "Войти", onClick: openLogin },
   ];
   const authNavItemsMobile: NavItem[] = [
-    { href: "/profile", label: "Профиль" },
+    { label: "Мероприятия", href: "/events" },
+    { href: "/profile", label: "Профиль • Билеты" },
     { label: "Выход", onClick: handleLogout },
   ];
 
@@ -713,7 +708,7 @@ const Header: React.FC = () => {
           </Link>
 
           <div className="hidden md:flex items-center gap-3">
-            <Notifications />
+            {isAuth && <Notifications />}
             {isAuth && userData ? (
               <>
                 <Link href="/profile" className="text-orange-500 hover:text-orange-600">
@@ -758,16 +753,31 @@ const Header: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Кнопка-бургер для мобильных (меньше md) */}
+          <div className="md:hidden flex items-center">
+            <button
+              onClick={toggleMobileMenu}
+              className="text-gray-700 hover:text-orange-500 p-2 min-w-[44px] min-h-[44px]"
+              aria-label="Открыть меню"
+            >
+              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
+              </svg>
+            </button>
+          </div>
+
         </div>
       </div>
 
+      {/* Мобильное меню */}
       {isMobileMenuOpen && (
         <motion.div
           initial={{ x: "100%", opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: "100%", opacity: 0 }}
           transition={{ duration: 0.3 }}
-          className="fixed inset-0 bg-white/95 z-50 md:hidden flex flex-col overflow-y-auto"
+          className="fixed inset-0 bg-white/95 z-50 md:hidden flex flex-col"
         >
           <div className="flex justify-between items-center p-4 border-b border-gray-200 bg-white">
             <Link href="/" className="hover:scale-105 transition-transform duration-300" onClick={toggleMobileMenu}>
@@ -831,17 +841,23 @@ const Header: React.FC = () => {
         </motion.div>
       )}
 
-      {isModalOpen && (
+      {isLoginModalOpen && (
         <AuthModal
-          isOpen={isModalOpen}
+          isOpen={isLoginModalOpen}
           onClose={handleModalClose}
-          title={isRegisterMode ? "Регистрация" : "Вход"}
+          title="Вход"
         >
-          {isRegisterMode ? (
-            <Registration isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
-          ) : (
-            <Login isOpen={isModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
-          )}
+          <Login isOpen={isLoginModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
+        </AuthModal>
+      )}
+
+      {isRegisterModalOpen && (
+        <AuthModal
+          isOpen={isRegisterModalOpen}
+          onClose={handleModalClose}
+          title="Регистрация"
+        >
+          <Registration isOpen={isRegisterModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
         </AuthModal>
       )}
     </header>

@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useRef } from 'react';
 import { createLogger } from "@/utils/logger";
 import { LoadingStageProvider, useLoadingStage } from './LoadingStageContext';
 import { LoadingFlagsProvider, useLoadingFlags } from './LoadingFlagsContext';
@@ -40,6 +40,7 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading } = useLoadingFlags();
   const { progress, setProgress } = useLoadingProgress();
   const { error, setError, clearError } = useLoadingError();
+  const stageTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Реф для тайм-аута стадий
 
   // Function to detect and fix loading inconsistencies
   const detectAndFixLoadingInconsistency = useCallback((): boolean => {
@@ -130,6 +131,36 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     
     return () => clearInterval(checkInterval);
   }, [detectAndFixLoadingInconsistency]);
+
+  // Эффект для автоматического перехода стадий по тайм-ауту
+  useEffect(() => {
+    // Очищаем предыдущий тайм-аут при изменении стадии
+    if (stageTimeoutRef.current) {
+      clearTimeout(stageTimeoutRef.current);
+      stageTimeoutRef.current = null;
+    }
+
+    // Устанавливаем тайм-аут для STATIC_CONTENT
+    if (currentStage === LoadingStage.STATIC_CONTENT) {
+      stageTimeoutRef.current = setTimeout(() => {
+        loadingLogger.info(`Timeout reached for stage ${currentStage}, attempting to advance to DYNAMIC_CONTENT.`);
+        // Проверяем, что мы все еще на той же стадии, перед переходом
+        if (currentStage === LoadingStage.STATIC_CONTENT) { 
+            setStage(LoadingStage.DYNAMIC_CONTENT, false);
+        }
+      }, 5000); // 5 секунд согласно документации
+    }
+    
+    // TODO: Можно добавить аналогичные тайм-ауты для AUTHENTICATION и DYNAMIC_CONTENT, если нужно
+    // Например, для DYNAMIC_CONTENT -> COMPLETED, если долго нет запросов
+
+    // Очистка при размонтировании
+    return () => {
+      if (stageTimeoutRef.current) {
+        clearTimeout(stageTimeoutRef.current);
+      }
+    };
+  }, [currentStage, setStage]); // Зависимость от currentStage и setStage
   
   // Combined context value with all loading data
   const contextValue: LoadingContextType = {

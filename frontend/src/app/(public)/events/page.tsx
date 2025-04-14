@@ -12,7 +12,8 @@ import { EventData } from "@/types/events";
 import { useInView } from "react-intersection-observer";
 import { createLogger, LogLevel, configureModuleLogging } from '@/utils/logger';
 // Импортируем необходимые хуки из соответствующих контекстов
-import { useLoading } from '@/contexts/loading/LoadingContextLegacy';
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext';
 import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 // Импортируем функцию fetchEvents из eventService
 import { fetchEvents as fetchEventsService } from '@/utils/eventService';
@@ -345,80 +346,63 @@ const EventsSkeletonGrid: React.FC = () => {
 };
 
 const EventsPage = () => {
-  // Генерируем уникальный ID для текущего монтирования
-  const mountId = useRef(Math.random().toString(36).substring(2, 10)).current;
-  
-  // Сервисные состояния компонента
-  const isMounted = useIsMounted();
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const lastFetchTime = useRef<number>(0);
-  const hasInitialData = useRef<boolean>(false);
-  const hasAttemptedInitialFetch = useRef<boolean>(false);
-  const fetchEventsRef = useRef<string | null>(null);
-  const errorRetryCount = useRef<number>(0);
-  
-  // Добавляем референс для кэширования сгруппированных событий
-  const prevEventsRef = useRef<Record<string, unknown>>({});
-  
-  // Статусы и состояния загрузки из контекста
-  const { 
-    setStage, 
-    currentStage, 
-    isStaticLoading, 
-    isDynamicLoading, 
-    setStaticLoading, 
-    setDynamicLoading
-  } = useLoading();
-  
-  // Локальные состояния загрузки для UI
+  // Рефы и состояния компонента
+  const isMounted = useIsMounted(); // Хук для отслеживания монтирования
+  const [data, setData] = useState<EventsResponse>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
-  const [showInitialSkeleton, setShowInitialSkeleton] = useState<boolean>(true);
-  const { error: loadingErrorFromContext, setError } = useLoadingError();
-  
-  // Состояние данных
-  const [data, setData] = useState<EventsResponse | null>(null);
-  const [page, setPage] = useState<number>(1);
-  const [hasMore, setHasMore] = useState<boolean>(true);
-  const minFetchInterval = 1000; // Минимальный интервал между запросами (мс)
-  
-  // Состояние фильтров - временные и примененные
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [tempFilters, setTempFilters] = useState<DateFilters>({
-    startDate: "",
-    endDate: ""
-  });
-  const [activeFilters, setActiveFilters] = useState<DateFilters>({
-    startDate: "",
-    endDate: ""
-  });
-  const startDateInputRef = useRef<HTMLInputElement | null>(null);
-  const endDateInputRef = useRef<HTMLInputElement | null>(null);
-  
+  const [tempFilters, setTempFilters] = useState<DateFilters>({ startDate: "", endDate: "" });
+  const [activeFilters, setActiveFilters] = useState<DateFilters>({ startDate: "", endDate: "" });
+  const [showInitialSkeleton, setShowInitialSkeleton] = useState(true); // Показываем скелетон при первой загрузке
+  const [mountId, setMountId] = useState(0); // Используется для принудительного перезапуска useEffect
+
+  // Рефы для AbortController и отслеживания состояния загрузки
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const hasInitialData = useRef(false); // Флаг для отслеживания первичной загрузки данных
+  const hasAttemptedInitialFetch = useRef(false); // Отслеживаем, была ли попытка первичной загрузки
+  const lastFetchTime = useRef(Date.now()); // Отслеживание времени последнего запроса
+  const minFetchInterval = 500; // Минимальный интервал между запросами (мс)
+  const fetchEventsRef = useRef<string | null>(null); // Реф для хранения параметров последнего запроса
+  const prevEventsRef = useRef<Record<string, unknown>>({}); // Реф для кеширования сгруппированных событий
+
+  // Рефы для инпутов дат
+  const startDateInputRef = useRef<HTMLInputElement>(null);
+  const endDateInputRef = useRef<HTMLInputElement>(null);
+
+  // Хуки из новой системы загрузки
+  const { setStage, currentStage } = useLoadingStage();
+  const { setDynamicLoading, setStaticLoading } = useLoadingFlags(); // Предполагая, что setStaticLoading тоже нужен
+  const { setError, error: loadingErrorFromContext } = useLoadingError(); // Возвращаем имя loadingErrorFromContext
+
   // Ref для отслеживания бесконечной прокрутки
   const { ref: lastElementRef, inView } = useInView({
     threshold: 0.1,
     rootMargin: '400px'
   });
   
-  // При монтировании компонента устанавливаем стадию загрузки
+  // При монтировании компонента устанавливаем стадию загрузки - УБРАНО ПРИНУДИТЕЛЬНОЕ УПРАВЛЕНИЕ СТАДИЕЙ
   useEffect(() => {
-    // Упрощенное логирование при монтировании
-    if (currentStage !== LoadingStage.ERROR) {
-      setStage(LoadingStage.DYNAMIC_CONTENT);
-      setDynamicLoading(true);
-    }
+    // Логирование при монтировании можно оставить для отладки, но не управляем стадией
+    // if (currentStage !== LoadingStage.ERROR) {
+    //   setStage(LoadingStage.DYNAMIC_CONTENT); // <-- Удалено
+    //   setDynamicLoading(true); // <-- Удалено
+    // }
     
-    // Доп. логика для обеспечения перехода в COMPLETED
+    // Доп. логика для обеспечения перехода в COMPLETED ПОСЛЕ загрузки данных
     const completionTimer = setTimeout(() => {
       if (isMounted.current && hasInitialData.current && currentStage !== LoadingStage.COMPLETED) {
+        // Логируем попытку установить COMPLETED
+        logger.info('Attempting to set COMPLETED stage via timer', { currentStage });
         setStage(LoadingStage.COMPLETED);
       }
-    }, 3000);
+    }, 3000); // Увеличим немного задержку для надежности
     
     return () => {
       clearTimeout(completionTimer);
     };
-  }, [mountId, currentStage, setStage, setDynamicLoading, isMounted]);
+  }, [mountId, currentStage, setStage, isMounted]);
   
   // Функция группировки событий по датам
   const groupEventsByDate = useCallback((events: EventData[]) => {

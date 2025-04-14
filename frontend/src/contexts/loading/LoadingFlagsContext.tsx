@@ -1,5 +1,5 @@
 "use client";
-import React, { createContext, useContext, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useRef, useCallback, useState, useEffect } from 'react';
 import { createLogger } from "@/utils/logger";
 import { LoadingFlagsContextType, LoadingState, LoadingStage } from './types';
 import { useLoadingStage, getStageLevel, useIsMounted } from './LoadingStageContext';
@@ -10,150 +10,120 @@ const flagsLogger = createLogger('LoadingFlagsContext');
 // Create context
 const LoadingFlagsContext = createContext<LoadingFlagsContextType | undefined>(undefined);
 
-// Global active requests counter for tracking
-let activeRequestsCount = 0;
-// Global flag for tracking last dynamic loading state
-let lastDynamicLoadingState = false;
-
 // Provider component
 export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentStage, setStage } = useLoadingStage();
-  const loadingStateRef = useRef<LoadingState>({ isStaticLoading: false, isDynamicLoading: false });
-  const isMounted = useIsMounted();
+  const [isStaticLoading, setIsStaticLoadingState] = useState(false);
+  const [isDynamicLoading, setIsDynamicLoadingState] = useState(false);
+  const [activeRequestsCount, setActiveRequestsCount] = useState(0);
   
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => { isMounted.current = false; };
+  }, []);
+
   // Function for setting static loading
   const setStaticLoading = useCallback((isLoading: boolean) => {
-    // Log only when state changes
-    if (loadingStateRef.current.isStaticLoading !== isLoading) {
+    if (!isMounted.current) return;
+    
+    setIsStaticLoadingState(prev => {
+      if (prev === isLoading) return prev;
       flagsLogger.info('Setting static loading', { isLoading, stage: currentStage });
-    }
-    
-    // Check for admin route
-    const isAdminRoute = typeof window !== 'undefined' && 
-      window.location.pathname.startsWith('/admin');
-    
-    // Special behavior for admin routes
-    if (isAdminRoute) {
-      if (isLoading) {
-        // For admin routes, immediately set STATIC_CONTENT,
-        // but don't update isStaticLoading if we're at a higher stage
-        if (currentStage === LoadingStage.AUTHENTICATION || currentStage === LoadingStage.INITIAL) {
-          setStage(LoadingStage.STATIC_CONTENT);
-          
-          // Accelerated transition for admin routes - immediately go to COMPLETED
-          requestAnimationFrame(() => {
-            if (isMounted.current) {
-              setStage(LoadingStage.COMPLETED);
-              loadingStateRef.current.isStaticLoading = false;
-            }
-          });
-        } else if (currentStage === LoadingStage.STATIC_CONTENT) {
-          // If we're at STATIC_CONTENT, update the flag but add a timer for auto transition
-          loadingStateRef.current.isStaticLoading = isLoading;
-          
-          // Start immediate transition to COMPLETED
-          setStage(LoadingStage.COMPLETED);
-          loadingStateRef.current.isStaticLoading = false;
+      
+      const isAdminRoute = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin');
+      if (isAdminRoute) {
+        if (isLoading) {
+          if (currentStage === LoadingStage.AUTHENTICATION || currentStage === LoadingStage.INITIAL) {
+            setStage(LoadingStage.STATIC_CONTENT);
+            requestAnimationFrame(() => {
+              if (isMounted.current) setStage(LoadingStage.COMPLETED);
+            });
+            return false;
+          } else if (currentStage === LoadingStage.STATIC_CONTENT) {
+            setStage(LoadingStage.COMPLETED);
+            return false;
+          } else {
+            return false;
+          }
         } else {
-          // At higher stages, just ignore the flag
-          loadingStateRef.current.isStaticLoading = false;
-          return;
+          if (currentStage !== LoadingStage.AUTHENTICATION && currentStage !== LoadingStage.INITIAL) {
+             setStage(LoadingStage.COMPLETED);
+          }
+          return false;
         }
       } else {
-        // If removing loading flag on admin route, force transition to COMPLETED
-        // if we were at STATIC_CONTENT or higher
-        if (currentStage !== LoadingStage.AUTHENTICATION && currentStage !== LoadingStage.INITIAL) {
-          // Immediately transition to COMPLETED bypassing intermediate stages
-          loadingStateRef.current.isStaticLoading = false;
-          loadingStateRef.current.isDynamicLoading = false;
-          setStage(LoadingStage.COMPLETED);
+        if (isLoading && currentStage === LoadingStage.AUTHENTICATION) {
+          setStage(LoadingStage.STATIC_CONTENT);
         }
+        return isLoading;
       }
-    } else {
-      // Standard behavior for non-admin routes
-      if (isLoading && currentStage === LoadingStage.AUTHENTICATION) {
-        setStage(LoadingStage.STATIC_CONTENT);
-      }
-      loadingStateRef.current.isStaticLoading = isLoading;
-    }
-  }, [currentStage, setStage, isMounted]);
+    });
+  }, [currentStage, setStage]);
   
-  // Function for setting dynamic loading
+  // Переработанная функция setDynamicLoading
   const setDynamicLoading = useCallback((isLoading: boolean) => {
-    // Skip update if state hasn't changed
-    if (loadingStateRef.current.isDynamicLoading === isLoading && lastDynamicLoadingState === isLoading) {
-      return;
-    }
-    
-    // Update global state
-    lastDynamicLoadingState = isLoading;
-    
-    // Log only when state changes
-    if (loadingStateRef.current.isDynamicLoading !== isLoading) {
-      flagsLogger.info('Setting dynamic loading', { isLoading, stage: currentStage });
-    }
-    
-    if (isLoading) {
-      activeRequestsCount++;
-      if (currentStage === LoadingStage.STATIC_CONTENT) {
-        setStage(LoadingStage.DYNAMIC_CONTENT);
-      }
-    } else {
-      activeRequestsCount = Math.max(0, activeRequestsCount - 1);
-      
-      // If no active requests, explicitly reset all loading flags
-      if (activeRequestsCount === 0) {
-        // Move to COMPLETED stage when all requests complete
+    if (!isMounted.current) return;
+
+    // Обновляем счетчик и сразу получаем новое значение
+    let newCount = 0;
+    setActiveRequestsCount(prevCount => {
+       newCount = isLoading ? prevCount + 1 : Math.max(0, prevCount - 1);
+       flagsLogger.debug("Active requests count updated", { newCount, from: prevCount, change: isLoading ? '+1' : '-1' });
+       return newCount;
+    });
+
+    // Определяем, должен ли флаг быть true или false
+    // Флаг должен быть true, если isLoading=true ИЛИ если newCount > 0
+    const shouldBeLoading = isLoading || newCount > 0;
+
+    // Обновляем состояние флага, только если оно изменилось
+    setIsDynamicLoadingState(prevDynamic => {
+      if (prevDynamic === shouldBeLoading) return prevDynamic; // Нет изменений
+
+      flagsLogger.info('Setting dynamic loading', { isLoading: shouldBeLoading, newCount, stage: currentStage });
+
+      // Логика смены стадий при ИЗМЕНЕНИИ флага
+      if (shouldBeLoading && !prevDynamic) { // Динамическая загрузка НАЧАЛАСЬ
+        if (currentStage === LoadingStage.STATIC_CONTENT) {
+          setStage(LoadingStage.DYNAMIC_CONTENT);
+        }
+      } else if (!shouldBeLoading && prevDynamic) { // Динамическая загрузка ЗАКОНЧИЛАСЬ (newCount === 0)
+        flagsLogger.info('All dynamic requests finished.');
         if (currentStage === LoadingStage.DYNAMIC_CONTENT) {
           setStage(LoadingStage.COMPLETED);
         }
-        
-        // Important: explicitly update ref and flag so all components know loading is complete
-        loadingStateRef.current.isDynamicLoading = false;
-        
-        // Update global flag so GlobalSpinner can be updated correctly
-        lastDynamicLoadingState = false;
-        
-        // If we're already at COMPLETED stage or higher and no active requests,
-        // make sure we're in COMPLETED stage to ensure spinner is hidden
+        // Дополнительная проверка и установка COMPLETED через таймаут
         const stageLevel = getStageLevel(currentStage);
-        if (stageLevel >= 2) { // DYNAMIC_CONTENT or higher
+        if (stageLevel >= getStageLevel(LoadingStage.DYNAMIC_CONTENT)) {
           setTimeout(() => {
-            if (activeRequestsCount === 0 && isMounted.current) {
-              setStage(LoadingStage.COMPLETED);
-            }
+            // Перепроверяем счетчик внутри таймаута перед установкой COMPLETED
+            setActiveRequestsCount(currentCountInTimeout => {
+                if (currentCountInTimeout === 0 && isMounted.current) {
+                    setStage(LoadingStage.COMPLETED);
+                }
+                return currentCountInTimeout; // Возвращаем текущее значение без изменений
+            });
           }, 500);
         }
-      } else {
-        // If there are still active requests, just update the flag
-        loadingStateRef.current.isDynamicLoading = isLoading;
       }
-    }
-    
-    // Add timer for guaranteed state check
-    if (!isLoading && activeRequestsCount === 0) {
-      setTimeout(() => {
-        if (isMounted.current && activeRequestsCount === 0) {
-          // Final check and reset
-          loadingStateRef.current.isDynamicLoading = false;
-          lastDynamicLoadingState = false;
-        }
-      }, 1000); // Timeout for guaranteed check
-    }
-  }, [currentStage, setStage, isMounted]);
+      return shouldBeLoading; // Возвращаем новое состояние флага
+    });
+  }, [currentStage, setStage]);
   
   // Reset all loading flags
   const resetLoading = useCallback(() => {
-    loadingStateRef.current.isStaticLoading = false;
-    loadingStateRef.current.isDynamicLoading = false;
-    lastDynamicLoadingState = false;
+    if (!isMounted.current) return;
+    setIsStaticLoadingState(false);
+    setIsDynamicLoadingState(false);
+    setActiveRequestsCount(0);
     flagsLogger.info('Resetting all loading flags');
   }, []);
   
   // Context value
   const contextValue: LoadingFlagsContextType = {
-    isStaticLoading: loadingStateRef.current.isStaticLoading,
-    isDynamicLoading: loadingStateRef.current.isDynamicLoading,
+    isStaticLoading,
+    isDynamicLoading,
     setStaticLoading,
     setDynamicLoading,
     resetLoading

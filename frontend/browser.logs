@@ -1,28 +1,50 @@
-main-app.js?v=1744590567574:1836 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
+main-app.js?v=1744633002284:1836 Download the React DevTools for a better development experience: https://reactjs.org/link/react-devtools
 Header.tsx:42 Header: Header component mounted {authLoading: true, isAuthChecked: false, currentStage: 'initial'}
-logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
 logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
 logger.ts:200 AuthContext: Starting initial authentication check logic 
-logger.ts:200 AuthContext: No token found. 
-logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: false}
+logger.ts:200 AuthContext: User data found in localStorage. {userId: 2}
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: true}
 logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
 logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'static_content'}
 logger.ts:200 LoadingStageContext: Changing loading stage: initial -> static_content 
 logger.ts:200 AuthContext: AuthProvider unmounted. 
-logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'initial'}
 logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
 logger.ts:200 AuthContext: Starting initial authentication check logic 
-logger.ts:200 AuthContext: No token found. 
-logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: false}
+logger.ts:200 AuthContext: User data found in localStorage. {userId: 2}
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: true}
 logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
 logger.ts:200 LoadingStageContext: Allowing transition involving INITIAL stage {from: 'initial', to: 'static_content'}
 logger.ts:200 LoadingStageContext: Changing loading stage: initial -> static_content 
 logger.ts:200 API: Loading stage changed [module=api version=1.0.0 reason=explicit_set allowRegression=true] {prev: 'authentication', current: 'static_content'}
-logger.ts:200 AuthContext: AuthProvider unmounted. 
-Header.tsx:42 Header: Showing header based on auth check or loading stage {isAuthChecked: true, currentStage: 'static_content', hasShownHeader: true}
-logger.ts:200 LoadingFlagsContext: Setting dynamic loading {isLoading: true, stage: 'static_content'}
-logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
-logger.ts:200 AuthContext: Starting initial authentication check logic 
-logger.ts:200 AuthContext: No token found. 
-logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: false}
-logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
+UserEventTickets.tsx:492 UserEventTickets: Initializing tickets state as empty (no fresh cache)
+UserEventTickets.tsx:492 UserEventTickets: Initializing tickets state as empty (no fresh cache)
+UserEventTickets.tsx:501 UserEventTickets: Initializing isInitialLoading: true (shouldUseCache: false)
+UserEventTickets.tsx:501 UserEventTickets: Initializing isInitialLoading: true (shouldUseCache: false)
+UserEventTickets.tsx:975 UserEventTickets: Отображение скелетонов (isInitialLoading)
+UserEventTickets.tsx:975 UserEventTickets: Отображение скелетонов (isInitialLoading)
+Header.tsx:79 AvatarDisplay: Using avatarUrl prop /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
+Header.tsx:127 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg', cacheBuster: '1744359145805'}
+UserEventTickets.tsx:716 UserEventTickets: Init useEffect - Cache empty, fetching tickets...
+UserEventTickets.tsx:604 UserEventTickets: Загрузка билетов, страница 1, userId: 2
+UserEventTickets.tsx:630 UserEventTickets: Fetching tickets with filter "approved"
+Header.tsx:79 AvatarDisplay: Using avatarUrl prop /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
+Header.tsx:127 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg', cacheBuster: '1744359145805'}
+UserEventTickets.tsx:716 UserEventTickets: Init useEffect - Cache empty, fetching tickets...
+UserEventTickets.tsx:604 UserEventTickets: Загрузка билетов, страница 1, userId: 2
+UserEventTickets.tsx:630 UserEventTickets: Fetching tickets with filter "approved"
+UserEventTickets.tsx:975 UserEventTickets: Отображение скелетонов (isInitialLoading)
+UserEventTickets.tsx:975 UserEventTickets: Отображение скелетонов (isInitialLoading)
+Header.tsx:133 AvatarDisplay: Avatar preloaded successfully: /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
+page.tsx:425 ProfilePage: Аватарка успешно загружена: /images/users_avatars/858b8c4b-2cfe-463c-b010-c9882f13bee7.jpg
+UserEventTickets.tsx:660 UserEventTickets: Received 1 tickets
+UserEventTickets.tsx:583 UserEventTickets: Filtered tickets: 0 cancelled, 1 remaining
+UserEventTickets.tsx:286 TicketsCache: Updated from fetchTickets - Stats: 1 tickets, page 1, status: success, last fetched: 15:16:49
+UserEventTickets.tsx:680 UserEventTickets: Ticket loading complete
+UserEventTickets.tsx:693 UserEventTickets: Завершение fetchTickets finally.
+UserEventTickets.tsx:725 UserEventTickets: Init useEffect - Using recent cached data.
+UserEventTickets.tsx:660 UserEventTickets: Received 1 tickets
+UserEventTickets.tsx:583 UserEventTickets: Filtered tickets: 0 cancelled, 1 remaining
+UserEventTickets.tsx:286 TicketsCache: Updated from fetchTickets - Stats: 1 tickets, page 1, status: success, last fetched: 15:16:49
+UserEventTickets.tsx:680 UserEventTickets: Ticket loading complete
+UserEventTickets.tsx:693 UserEventTickets: Завершение fetchTickets finally.
+logger.ts:200 LoadingContextProvider: Timeout reached for stage static_content, attempting to advance to DYNAMIC_CONTENT. 

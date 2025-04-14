@@ -19,7 +19,9 @@ import Registration from "@/components/Registration";
 import AuthModal from "@/components/common/AuthModal";
 import { apiFetch } from "@/utils/api";
 import { EventData } from "@/types/events";
-import { useLoading } from '@/contexts/loading';
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+import { LoadingStage } from '@/contexts/loading/types';
 import { ApiErrorResponse, ApiAbortedResponse } from '@/types/api';
 
 // Константы для уровней логирования
@@ -177,25 +179,15 @@ const extractIdFromSlug = (slug: string): string => {
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
   const [event, setEvent] = useState<EventData | null>(null);
-  const [hasServerError, setHasServerError] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [validatedEventId, setValidatedEventId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const { isAuth } = useAuth();
-  const [isLoading, setIsLoading] = useState(false);
-  const [showInitialSkeleton, setShowInitialSkeleton] = useState(true);
-  const { setDynamicLoading } = useLoading();
-  const fetchInProgressRef = useRef(false);
-  const hasInitialFetchRef = useRef(false);
+  const { currentStage, setStage } = useLoadingStage();
+  const { error: loadingErrorFromContext, setError } = useLoadingError();
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(false);
-  const globalLockTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const mountCountRef = useRef(0);
-  const eventIdRef = useRef<string>("");
-  const [registrationUpdateKey, setRegistrationUpdateKey] = useState(0);
-  const isStableMount = useRef(true);
-  const registrationReadyRef = useRef(false);
-  const [, setComponentsReady] = useState({ registration: false });
-  
+
   // Функции логирования с разными уровнями
   type LogData = unknown;
   
@@ -241,97 +233,78 @@ export default function EventPage() {
   
   // Функция для получения данных мероприятия
   const fetchEventData = useCallback(async (targetSlug: string): Promise<EventData | null> => {
-    // Skip during unstable mounting
-    if (!isStableMount.current) {
+    if (!isMountedRef.current) {
       logInfo("Component not stable yet, skipping fetch");
       return null;
     }
-    
-    if (fetchInProgressRef.current) {
+    if (fetchAbortControllerRef.current) {
       logInfo("Fetch already in progress, skipping");
       return null;
     }
-    
+
     const eventId = extractIdFromSlug(targetSlug);
-    eventIdRef.current = eventId;
-    
     logInfo(`Fetching event data for slug: ${targetSlug}, extracted eventId: ${eventId}`);
-    
-    fetchInProgressRef.current = true;
-    
+    fetchAbortControllerRef.current = new AbortController();
+
     try {
-      setIsLoading(true);
-      setDynamicLoading(true);
-      
       const timestamp = Date.now();
-      // Используем явный API endpoint вместо относительного пути
       const url = `/v1/public/events/${eventId}?t=${timestamp}`;
-      
       logInfo(`Making API request`, { url, targetSlug });
-      
-      const controller = new AbortController();
-      
+
       const response = await apiFetch<EventData>(url, {
-        signal: controller.signal,
+        signal: fetchAbortControllerRef.current.signal,
         bypassLoadingStageCheck: true
       });
-      
-      // Проверяем, не был ли запрос отменён
+
       if (!isMountedRef.current) return null;
-      
       logInfo("Raw response data", response);
-      
+
       if ('aborted' in response) {
         const abortedResponse = response as unknown as ApiAbortedResponse;
         logError("Request was aborted", abortedResponse.reason);
-        setFetchError("Запрос был прерван");
+        setError("Запрос был прерван");
+        setStage(LoadingStage.ERROR);
         return null;
       }
-      
+
       if ('error' in response) {
-        logError("Error in response", response.error);
         const errorResponse = response as unknown as ApiErrorResponse;
-        setFetchError(typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка загрузки");
-        // Ensure status is treated as a number
-        setHasServerError(typeof errorResponse.status === 'number' ? errorResponse.status >= 500 : false);
+        logError("Error in response", errorResponse.error);
+        const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка загрузки";
+        setError(errorMessage);
+        setStage(LoadingStage.ERROR);
         return null;
       }
-      
-      // Проверяем что ответ - это данные мероприятия
+
       if ('title' in response) {
-        // Типобезопасный кастинг
         const eventData = response as unknown as EventData;
-        
-        setFetchError(null);
-        setHasServerError(false);
-        hasInitialFetchRef.current = true;
         return eventData;
       } else {
         logWarn("Invalid event data received", response);
-        setFetchError("Мероприятие не найдено");
+        setError("Мероприятие не найдено");
+        setStage(LoadingStage.ERROR);
         return null;
       }
     } catch (err) {
       if (isMountedRef.current) {
         logError("Error fetching event", err);
-        setFetchError(err instanceof Error ? err.message : "Ошибка загрузки мероприятия");
+        const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятия";
+        setError(errorMessage);
+        setStage(LoadingStage.ERROR);
       }
       return null;
     } finally {
       if (isMountedRef.current) {
-        setIsLoading(false);
-        setDynamicLoading(false);
-        fetchInProgressRef.current = false;
+        fetchAbortControllerRef.current = null;
       }
     }
-  }, [setDynamicLoading, logInfo, logError, logWarn]);
+  }, [setStage, setError, logInfo, logError, logWarn]);
   
   // Simplified page navigation effect
   useEffect(() => {
     // Function to handle page navigation events
     const handleNavigation = () => {
       logInfo("Navigation detected - updating registration component");
-      setRegistrationUpdateKey(prev => prev + 1);
     };
     
     // Add event listeners for navigation and focus events
@@ -366,7 +339,7 @@ export default function EventPage() {
     const handleAuthChange = () => {
       logInfo("Auth change detected");
       // Только сбрасываем флаг начальной загрузки
-      hasInitialFetchRef.current = false;
+      // hasInitialFetchRef.current = false;
     };
     window.addEventListener("auth-change", handleAuthChange);
     return () => window.removeEventListener("auth-change", handleAuthChange);
@@ -389,162 +362,173 @@ export default function EventPage() {
     }
   }, [logInfo, logError]);
 
-  // Main effect to handle initial data fetching
+  // Основной useEffect для загрузки данных
   useEffect(() => {
-    // Don't fetch during unstable mounting periods
-    if (mountCountRef.current > 2) {
-      logWarn("Skipping fetch due to unstable mount state");
-      return;
-    }
-    
-    // Don't continue if slug is missing
-    if (!slug) return;
-    
-    // If we already have the event data, don't fetch again
-    if (event) {
-      // Save event info to localStorage for breadcrumbs
-      saveEventToLocalStorage(event, slug.toString());
-      return;
-    }
-    
-    // Only fetch if we're in a stable state
-    setTimeout(() => {
-      if (isMountedRef.current && !fetchInProgressRef.current) {
-        fetchEventData(slug.toString()).then(data => {
-          if (data && isMountedRef.current) {
-            setEvent(data);
-            
-            // Save event info to localStorage for breadcrumbs
-            saveEventToLocalStorage(data, slug.toString());
-          }
-        });
-      }
-    }, 100); // Small delay to allow component to stabilize
-  }, [event, fetchEventData, slug, saveEventToLocalStorage, logWarn]);
-  
-  // Add new effect to track when ALL data is fully loaded
-  const [isEventRegistrationReady, setIsEventRegistrationReady] = useState(false);
-  
-  // Create a ref for the event registration component to communicate its ready state
-  const eventRegistrationReadyRef = useRef(false);
-  
-  // Create a function to mark the EventRegistration component as ready
-  const markEventRegistrationReady = useCallback(() => {
-    logInfo('EventRegistration component is ready');
-    eventRegistrationReadyRef.current = true;
-    setIsEventRegistrationReady(true);
-    registrationReadyRef.current = true;
-    setComponentsReady(prev => ({...prev, registration: true}));
-    
-    // Hide skeleton when registration is ready (if event data is already loaded)
-    if (event) {
-      setShowInitialSkeleton(false);
-    }
-  }, [event, logInfo]);
-  
-  // Add effect to hide skeleton when both event data and registration component are ready
-  useEffect(() => {
-    if (event && isEventRegistrationReady) {
-      logInfo('All components ready - hiding skeleton');
-      setShowInitialSkeleton(false);
-    }
-  }, [event, isEventRegistrationReady, logInfo]);
-  
-  // Additional effect to ensure we don't get stuck waiting for components
-  useEffect(() => {
-    // If we have event data but the EventRegistration component is taking too long,
-    // we should still hide the skeleton after a reasonable timeout (2 seconds)
-    if (event && !isEventRegistrationReady) {
-      const registrationTimeout = setTimeout(() => {
-        if (isMountedRef.current && !isEventRegistrationReady) {
-          logInfo('Registration component timeout - hiding skeleton anyway');
-          setShowInitialSkeleton(false);
-        }
-      }, 2000);
-      
-      return () => clearTimeout(registrationTimeout);
-    }
-  }, [event, isEventRegistrationReady, logInfo]);
-  
-  // Add as early as possible in the component
-  useEffect(() => {
-    // Track mount count to detect rapid remounts
-    mountCountRef.current += 1;
     isMountedRef.current = true;
-    
-    // Log mount with current count
-    logInfo(`Component mounted (${mountCountRef.current})`);
-
-    // Detect unstable mounting patterns
-    if (mountCountRef.current > 1) {
-      logWarn(`Detected rapid remounts (${mountCountRef.current} mounts), suppressing further fetches`);
-    } else {
-      // First mount is considered stable
-      isStableMount.current = true;
+    let currentEventId: number | null = null;
+    try {
+        const extractedId = extractIdFromSlug(slug);
+        if (extractedId && /^\d+$/.test(extractedId)) {
+            currentEventId = parseInt(extractedId, 10);
+        } else {
+            throw new Error("Invalid ID extracted from slug");
+        }
+    } catch (e) {
+        logError("Failed to parse event ID from slug", { slug, error: e });
+        setError("Некорректный идентификатор мероприятия в URL.");
+        setStage(LoadingStage.ERROR);
+        setValidatedEventId(null); // Сбрасываем ID
+        return;
     }
-    
-    // Wait a bit and then mark as stable regardless
-    // This ensures hooks are stable after initial fluctuation
-    const stabilityTimer = setTimeout(() => {
-      isStableMount.current = true;
-    }, 300);
-    
-    return () => {
-      clearTimeout(stabilityTimer);
-      isMountedRef.current = false;
-      logInfo(`Component unmounted (${mountCountRef.current})`);
+
+    setValidatedEventId(currentEventId); // Сохраняем валидный ID в state
+    logInfo(`Effect triggered for slug: '${slug}', eventId: ${currentEventId}`);
+
+    if (!slug || currentEventId === null) { // Проверяем и slug, и ID
+      logWarn("Slug or parsed eventId is missing/invalid, cannot fetch event data.");
+      // Ошибка уже должна быть установлена выше, если ID невалидный
+      if (!loadingErrorFromContext) {
+          setError("Не удалось определить ID мероприятия.");
+          setStage(LoadingStage.ERROR);
+      }
+      return;
+    }
+
+    // Отменяем предыдущий запрос, если он еще выполняется
+    if (fetchAbortControllerRef.current) {
+      logInfo(`Aborting previous fetch request for slug: ${slug}`);
+      fetchAbortControllerRef.current.abort();
+    }
+
+    // Создаем новый AbortController для текущего запроса
+    const controller = new AbortController();
+    fetchAbortControllerRef.current = controller;
+    const signal = controller.signal;
+
+    // Асинхронная функция для выполнения запроса
+    const fetchData = async () => {
+      // Используем currentEventId, т.к. он точно number здесь
+      logInfo(`Starting fetch for eventId: ${currentEventId}`);
       
-      // Cleanup
-      if (globalLockTimeoutRef.current) {
-        clearTimeout(globalLockTimeoutRef.current);
-        globalLockTimeoutRef.current = null;
+      // Устанавливаем стадию загрузки, только если она еще не началась или ниже
+      // Это предотвратит сброс стадии при перемонтировании в StrictMode
+      if (currentStage < LoadingStage.STATIC_CONTENT) { 
+          setStage(LoadingStage.STATIC_CONTENT); 
+      }
+      
+      setError(null); // Сбрасываем предыдущую ошибку
+      // Сбрасываем предыдущие данные только если начинаем новую загрузку (из INITIAL)
+      // Если это повторный вызов (из-за StrictMode), а данные уже есть, не сбрасываем
+      if (currentStage === LoadingStage.INITIAL) {
+         setEvent(null); 
+      }
+
+      try {
+        const timestamp = Date.now();
+        const url = `/v1/public/events/${currentEventId}?t=${timestamp}`;
+        logInfo(`Making API request`, { url });
+
+        const response = await apiFetch<EventData>(url, {
+          signal: signal, // Передаем сигнал для возможности отмены
+          bypassLoadingStageCheck: true
+        });
+
+        // Если компонент размонтирован или запрос отменен до завершения, выходим
+        if (!isMountedRef.current || signal.aborted) {
+          logInfo(`Fetch aborted or component unmounted for eventId: ${currentEventId}`);
+          return;
+        }
+
+        logInfo("Raw response data", response);
+
+        // Обработка ответа от apiFetch
+        if ('aborted' in response) {
+           const abortedReason = (response as ApiAbortedResponse).reason || "Причина неизвестна";
+           logWarn("Request marked as aborted by apiFetch", { reason: abortedReason });
+        } else if ('error' in response) {
+           // Приводим тип через unknown
+           const errorResponse = response as unknown as ApiErrorResponse;
+          logError("API Error fetching event", errorResponse.error);
+          // Используем только errorResponse.error, так как message нет в типе
+          const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка загрузки данных мероприятия";
+          setError(errorMessage);
+          setStage(LoadingStage.ERROR);
+        } else if ('title' in response) {
+          const eventData = response as EventData;
+          logInfo(`Fetch successful for eventId: ${currentEventId}. Setting stage to DYNAMIC_CONTENT.`);
+          setEvent(eventData);
+          saveEventToLocalStorage(eventData, slug); // Сохраняем в LS
+          setStage(LoadingStage.DYNAMIC_CONTENT); // Или COMPLETED, если нет динамики
+        } else {
+          // Неожиданный формат ответа
+          logWarn("Invalid event data received", response);
+          setError("Некорректный ответ от сервера.");
+          setStage(LoadingStage.ERROR);
+        }
+      } catch (err) {
+         // Обработка ошибок fetch или других непредвиденных ошибок
+         if (err instanceof Error && err.name === 'AbortError') {
+           // Используем currentEventId в логе
+           logInfo(`Fetch explicitly aborted for eventId: ${currentEventId}`);
+           // Это ожидаемое поведение при быстрой смене slug или размонтировании, не ошибка
+         } else if (isMountedRef.current) {
+           // Обрабатываем другие ошибки только если компонент все еще смонтирован
+           // Используем currentEventId в логе
+           logError(`Unexpected error fetching event eventId: ${currentEventId}`, err);
+           const errorMessage = err instanceof Error ? err.message : "Неизвестная ошибка при загрузке мероприятия";
+           setError(errorMessage);
+           setStage(LoadingStage.ERROR);
+         }
+      } finally {
+          // Сбрасываем AbortController только если он принадлежит этому запросу
+          if (fetchAbortControllerRef.current === controller) {
+             fetchAbortControllerRef.current = null;
+             // Используем currentEventId в логе
+             logInfo(`Fetch process finished for eventId: ${currentEventId}, AbortController cleared.`);
+          }
       }
     };
-  }, [logInfo, logWarn]);
-  
-  // Debug render states
-  useEffect(() => {
-    if (isMountedRef.current) {
-      logDebug(`Render state`, { 
-        isLoading, 
-        hasEvent: !!event, 
-        fetchError,
-        showingSkeleton: showInitialSkeleton
-      });
-    }
-  }, [isLoading, event, fetchError, showInitialSkeleton, logDebug]);
 
-  // This effect will run whenever the page is navigated to - with initialization check
-  useEffect(() => {
-    // Skip on initial page load in development to reduce renders
-    if (process.env.NODE_ENV === 'development' && mountCountRef.current <= 2) {
-      logInfo("Skipping initial registration update in dev mode");
-      return;
-    }
-    
-    logInfo("Page mounted or navigated to - forcing EventRegistration update");
-    // Increment the key to force the component to re-mount
-    setRegistrationUpdateKey(prev => prev + 1);
-  }, [logInfo]);
-  
-  // Render error states
-  if (hasServerError) {
-    logWarn("Rendering server error");
-    return <ErrorPlaceholder />;
+    fetchData();
+
+    // Функция очистки useEffect
+    return () => {
+      isMountedRef.current = false;
+      // Используем currentEventId в логе
+      logInfo(`Cleanup effect for slug: '${slug}', eventId: ${currentEventId}. Aborting controller.`);
+      controller.abort(); // Отменяем запрос при размонтировании или смене slug
+      // Обнуляем ref контроллера, если он соответствует текущему
+      if (fetchAbortControllerRef.current === controller) {
+           fetchAbortControllerRef.current = null;
+      }
+    };
+    // Зависимость только от slug (и стабильных функций контекста)
+  }, [slug, currentStage, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage]);
+
+  // 1. Сначала проверяем на ошибку
+  if (currentStage === LoadingStage.ERROR) {
+    logWarn("Rendering error state from context");
+    return (
+      <div className="min-h-screen flex flex-col">
+        <Header />
+        <main className="flex-grow flex items-center justify-center">
+          <ErrorPlaceholder error={loadingErrorFromContext ? new Error(loadingErrorFromContext) : null} />
+        </main>
+        <Footer />
+      </div>
+    );
   }
-  
-  if (fetchError) {
-    logWarn("Rendering fetch error");
-    return notFound();
-  }
-  
-  // Render loading state with improved skeleton
-  if (!event || isLoading || showInitialSkeleton) {
-    logInfo("Rendering loading state with improved skeleton");
+
+  // 2. Показываем скелетон, ТОЛЬКО если данных мероприятия еще нет
+  // Не зависим напрямую от currentStage для показа скелетона, только от наличия event
+  if (!event) {
+    // Логируем только при первом рендере скелетона или если currentStage изменился
+    logInfo(`Rendering loading state (Skeleton because !event)`, { currentStage }); 
     return <EventDetailsSkeleton />;
   }
 
-  // Render event content
+  // 3. Если дошли сюда - ошибки нет, данные event есть. Рендерим контент.
+  logInfo("Rendering event content", { currentStage, eventId: event.id });
   return (
     <div className="min-h-screen flex flex-col">
       <Header />
@@ -558,8 +542,7 @@ export default function EventPage() {
             {event.image_url ? (
               <Image src={event.image_url} alt={event.title} fill className="object-cover" priority unoptimized />
             ) : (
-              <AnimatedGradientBackground>
-              </AnimatedGradientBackground>
+              <AnimatedGradientBackground />
             )}
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <motion.h1
@@ -576,12 +559,12 @@ export default function EventPage() {
 
         <div className="container mx-auto px-6 py-12">
           {event.ticket_type && (
-            <motion.section 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               className="mb-12"
             >
-              <EventDetails 
+              <EventDetails
                 date={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
                 time={format(new Date(event.start_date), "HH:mm", { locale: ru })}
                 location={event.location || "Не указано"}
@@ -591,67 +574,57 @@ export default function EventPage() {
             </motion.section>
           )}
 
-          <motion.section 
-            initial={{ opacity: 0, y: 20 }} 
-            animate={{ opacity: 1, y: 0 }} 
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
             className="mb-12"
           >
             <div className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${
-              event.status !== "registration_open" || 
-              (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
-                ? "opacity-50 pointer-events-none" 
+              event.status !== "registration_open" ||
+              (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0
+                ? "opacity-50 pointer-events-none"
                 : ""
             }`}>
               <h2 className="text-2xl font-semibold mb-4 text-center">
-                {event.status === "registration_open" && 
-                 (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
+                {event.status === "registration_open" &&
+                 (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0
                   ? "Регистрация закрыта (мест нет)"
-                  : event.status === "registration_open" 
+                  : event.status === "registration_open"
                     ? "Регистрация открыта"
-                    : event.status === "registration_closed" 
+                    : event.status === "registration_closed"
                       ? "Регистрация закрыта"
-                      : event.status === "completed" 
-                        ? "Мероприятие завершено" 
+                      : event.status === "completed"
+                        ? "Мероприятие завершено"
                         : "Черновик"}
               </h2>
 
-              <EventRegistration
-                key={`event-registration-${registrationUpdateKey}`}
-                eventId={event.id || parseInt(extractIdFromSlug(slug.toString()))}
-                eventTitle={event.title}
-                eventDate={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
-                eventTime={format(new Date(event.start_date), "HH:mm", { locale: ru })}
-                eventLocation={event.location || "Не указано"}
-                ticketType={event.ticket_type?.name || "Стандартный"}
-                availableQuantity={event.ticket_type?.available_quantity || 0}
-                soldQuantity={event.ticket_type?.sold_quantity || 0}
-                price={event.price}
-                freeRegistration={event.ticket_type?.free_registration || false}
-                onBookingClick={handleBookingClick}
-                onLoginClick={handleLoginClick}
-                onBookingSuccess={handleBookingSuccess}
-                onReady={markEventRegistrationReady}
-                displayStatus={event.status === "registration_open" && 
-                             (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0 
-                              ? "Регистрация закрыта (мест нет)"
-                              : event.status === "registration_open" 
-                                ? "Регистрация открыта"
-                                : event.status === "registration_closed" 
-                                  ? "Регистрация закрыта"
-                                  : event.status === "completed" 
-                                    ? "Мероприятие завершено" 
-                                    : "Черновик"}
-              />
+              {validatedEventId !== null && (
+                <EventRegistration
+                  eventId={validatedEventId}
+                  eventTitle={event.title}
+                  eventDate={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
+                  eventTime={format(new Date(event.start_date), "HH:mm", { locale: ru })}
+                  eventLocation={event.location || "Не указано"}
+                  ticketType={event.ticket_type?.name || "Стандартный"}
+                  availableQuantity={event.ticket_type?.available_quantity || 0}
+                  soldQuantity={event.ticket_type?.sold_quantity || 0}
+                  price={event.price}
+                  freeRegistration={event.ticket_type?.free_registration || false}
+                  onBookingClick={handleBookingClick}
+                  onLoginClick={handleLoginClick}
+                  onBookingSuccess={handleBookingSuccess}
+                />
+              )}
 
               {!isAuth && (
-                <motion.p 
-                  initial={{ opacity: 0 }} 
-                  animate={{ opacity: 1 }} 
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
                   className="text-center mt-6 text-gray-700 bg-orange-50 py-3 px-6 rounded-full"
                 >
                   Для бронирования билета{" "}
-                  <button 
-                    onClick={handleLoginClick} 
+                  <button
+                    onClick={handleLoginClick}
                     className="text-orange-600 font-semibold hover:underline"
                   >
                     войдите в аккаунт
@@ -660,18 +633,18 @@ export default function EventPage() {
               )}
             </div>
           </motion.section>
-
+          
           {event.description && (
-            <motion.section 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               className="max-w-3xl mx-auto"
             >
               <h2 className="text-2xl font-semibold mb-4">Описание</h2>
-              <FormattedDescription 
-                content={event.description} 
-                className="text-gray-600 max-w-full overflow-wrap-break-word" 
-                disableFontSize={false} 
+              <FormattedDescription
+                content={event.description}
+                className="text-gray-600 max-w-full overflow-wrap-break-word"
+                disableFontSize={false}
               />
             </motion.section>
           )}
@@ -681,22 +654,22 @@ export default function EventPage() {
 
       <AnimatePresence>
         {isModalOpen && (
-          <AuthModal 
-            isOpen={isModalOpen} 
-            onClose={() => setIsModalOpen(false)} 
+          <AuthModal
+            isOpen={isModalOpen}
+            onClose={() => setIsModalOpen(false)}
             title={isRegisterMode ? "Регистрация" : "Вход"}
           >
             {isRegisterMode ? (
-              <Registration 
-                isOpen={isModalOpen} 
-                onClose={() => setIsModalOpen(false)} 
-                toggleMode={() => setIsRegisterMode(false)} 
+              <Registration
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                toggleMode={() => setIsRegisterMode(false)}
               />
             ) : (
-              <Login 
-                isOpen={isModalOpen} 
-                onClose={() => setIsModalOpen(false)} 
-                toggleMode={() => setIsRegisterMode(true)} 
+              <Login
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                toggleMode={() => setIsRegisterMode(true)}
               />
             )}
           </AuthModal>

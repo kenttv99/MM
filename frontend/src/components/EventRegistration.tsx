@@ -100,25 +100,20 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const isRegistrationClosedOrCompleted =
     displayStatus === "Регистрация закрыта" || displayStatus === "Мероприятие завершено";
 
-  // Main useEffect for ticket checking
+  // --- Переработанный useEffect для ПРОВЕРКИ билета при загрузке --- 
   useEffect(() => {
-    // Skip ticket check if user is not authenticated
-    if (!isAuth) {
-      console.log('EventRegistration: User not authenticated - skipping ticket check');
-      
-      // Immediately notify parent that we're ready if onReady callback exists
+    if (!isAuth || !userData) {
+      setUserTicket(null); // Сбрасываем билет, если не авторизован
       if (onReady) {
-        console.log('EventRegistration: Notifying parent component that loading is complete');
+        console.log('EventRegistration: Notifying parent component that loading is complete (not auth)');
         onReady();
       }
-      
       return;
     }
     
     let isMounted = true;
     let hasCalledReady = false;
 
-    // Function to safely notify parent component that we're ready
     const notifyReady = () => {
       if (isMounted && onReady && !hasCalledReady) {
         console.log('EventRegistration: Notifying parent component that loading is complete');
@@ -127,245 +122,158 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       }
     };
 
-    // Function to check if user has a ticket for this event
-    const checkUserTicket = async () => {
-      // Skip ticket checking if a booking is in progress
+    // Переименованная функция для получения билета
+    const fetchUserTicketForEvent = async () => {
+      // Не проверяем билет, если идет процесс бронирования
       if (isActiveBooking.current) {
         console.log('EventRegistration: Skipping ticket check during active booking');
+        notifyReady(); // Сразу сообщаем о готовности, т.к. проверка пропускается
         return;
       }
 
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.log('EventRegistration: No token found, cannot fetch ticket.');
+        setUserTicket(null);
+        notifyReady();
+        return;
+      }
+
+      setIsCheckingTicket(true);
+      setError(undefined); // Сбрасываем предыдущие ошибки
+      const currentEventId = parseInt(eventId.toString());
+      console.log(`EventRegistration: Checking for existing ticket for eventId: ${currentEventId}`);
+
       try {
-        setIsCheckingTicket(true);
-        const token = localStorage.getItem('token');
-        if (!token) {
-          console.log('EventRegistration: No token found, user needs to login');
-          setUserTicket(null);
-          notifyReady();
-          return;
-        }
+        // Используем GET запрос для получения билетов пользователя по ID мероприятия
+        // Предполагаемый эндпоинт: /user_edits/my-tickets?event_id={eventId}
+        // Если бэкенд не поддерживает фильтрацию, придется получать все и фильтровать:
+        // const allTicketsResponse = await apiFetch<TicketResponse>('/user_edits/my-tickets', {...});
+        // const allTickets = parseTicketResponse(allTicketsResponse);
+        // const foundTicket = allTickets.find(t => t.event.id === currentEventId && !isTicketCancelled(t.status));
 
-        // Use the user_edits/my-tickets endpoint with stronger cache-busting
-        console.log('EventRegistration: Using /user_edits/my-tickets endpoint to check tickets');
-        
-        try {
-          // Generate a truly unique cache key with high entropy
-          const timestamp = Date.now();
-          const random = Math.random().toString(36).substring(2);
-          const uniqueId = `${timestamp}_${random}_${Math.floor(Math.random() * 1000000)}`;
-          
-          // Force browser to skip cache with cache control headers and unique URL parameters
-          const response = await fetch('/user_edits/my-tickets?no_cache=' + uniqueId, {
-            method: 'GET',
+        const ticketResponse = await apiFetch<TicketResponse>(`/user_edits/my-tickets?event_id=${currentEventId}`, {
+          method: 'GET',
             headers: {
-              'Content-Type': 'application/json',
               'Authorization': `Bearer ${token}`,
-              'Cache-Control': 'no-cache, no-store, must-revalidate',
-              'Pragma': 'no-cache',
-              'Expires': '0'
-            }
-          }).then(res => {
-            // Handle 401 gracefully
-            if (res.status === 401) {
-              console.log('EventRegistration: Authorization error (401), user needs to login');
-              setUserTicket(null);
-              return { detail: 'Authentication required' };
-            }
-            return res.json();
-          });
-          
-          console.log('EventRegistration: Raw ticket response:', response);
-          
-          // If we get all tickets, filter for the current event
-          if (response && !response.detail) {
-            console.log('EventRegistration: Got all tickets, filtering for current event', response);
-            
-            // Use parseTicketResponse to extract tickets from any response format
-            const allTickets = parseTicketResponse(response);
-        
-            // Filter for tickets matching this event and not cancelled - very strict filtering
-            const currentEventId = parseInt(eventId.toString());
-            const eventTickets = allTickets.filter((ticket: UserTicket) => 
-              ticket.event.id === currentEventId && 
-              !isTicketCancelled(ticket.status)
-            );
-            
-            console.log(`EventRegistration: Found ${eventTickets.length} active tickets for event ${currentEventId}`);
-            
-            // Status-based debug log
-            if (eventTickets.length === 0) {
-              console.log('EventRegistration: No active tickets for this event - showing booking UI');
-              setUserTicket(null);
-            } else {
-              // Use the first valid ticket if found
-              const ticketData = eventTickets[0];
-              
-              // Log all ticket statuses for debugging
-              allTickets.forEach((t: UserTicket) => {
-                if (t.event.id === currentEventId) {
-                  console.log(`EventRegistration: Ticket #${t.id} has status: ${t.status}`);
-                }
-              });
-              
-              // Ensure we have the basic ticket data structure
-              const processedTicket: UserTicket = {
-                id: ticketData.id || 0,
-                event: {
-                  id: parseInt(eventId.toString()),
-                  title: eventTitle,
-                  start_date: ticketData.event?.start_date || eventDate || new Date().toISOString(),
-                  end_date: ticketData.event?.end_date || undefined,
-                  location: ticketData.event?.location || eventLocation
-                },
-                ticket_type: ticketData.ticket_type || "standart",
-                registration_date: ticketData.registration_date || ticketData.created_at || new Date().toISOString(),
-                status: ticketData.status || "confirmed",
-                ticket_number: ticketData.ticket_number || ticketData.id?.toString()
-              };
+              'Cache-Control': 'no-cache' // Гарантируем свежие данные
+          },
+          bypassLoadingStageCheck: true
+        });
 
-              console.log('EventRegistration: Processed ticket data:', processedTicket);
-            
-              // One more safety check - don't display cancelled tickets
-              if (isTicketCancelled(processedTicket.status)) {
-                console.log('EventRegistration: Ticket is cancelled, not showing');
-                setUserTicket(null);
-              } else {
-                // Set the user ticket for UI display
-                setUserTicket(processedTicket);
-              }
-            }
-          } else {
-            // No ticket data found or auth error
-            console.log('EventRegistration: No ticket data found or auth required:', response);
+        console.log('Response for existing ticket check:', ticketResponse);
+        
+        if (!isMounted) return; // Выходим, если компонент размонтирован
+
+        if ('aborted' in ticketResponse) {
+          const abortedResponse = ticketResponse as unknown as ApiAbortedResponse;
+          console.warn("EventRegistration: Ticket check request aborted", abortedResponse.reason);
+          // Не устанавливаем ошибку, т.к. это может быть просто отмена навигации
+        } else if ('error' in ticketResponse) {
+          const errorResponse = ticketResponse as unknown as ApiErrorResponse;
+          // Ошибка 404 означает, что билет просто не найден - это не ошибка для UI
+          if (errorResponse.status === 404) {
+            console.log('EventRegistration: No existing ticket found (404).');
             setUserTicket(null);
+          } else {
+            // Другие ошибки отображаем
+            console.error('Error fetching user ticket:', errorResponse);
+            const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при проверке билета.";
+            setError(errorMessage);
+            setUserTicket(null); // Сбрасываем билет при ошибке
           }
-        } catch (fetchErr) {
-          console.error('EventRegistration: Error fetching tickets:', fetchErr);
-          setUserTicket(null);
+        } else {
+            // Успешный ответ - парсим и ищем нужный билет
+            const foundTickets = parseTicketResponse(ticketResponse);
+            const activeTicket = foundTickets.find(t => t.event.id === currentEventId && !isTicketCancelled(t.status));
+            
+            if (activeTicket) {
+                console.log('EventRegistration: Found existing active ticket:', activeTicket);
+                setUserTicket(activeTicket);
+            } else {
+                console.log('EventRegistration: No active ticket found in the response.');
+                setUserTicket(null);
+            }
         }
       } catch (err) {
-        console.error('EventRegistration: Error checking user ticket:', err);
-        setUserTicket(null);
+        if (!isMounted) return; 
+        // Обработка непредвиденных ошибок (сеть и т.п.)
+        console.error('Unexpected error fetching user ticket:', err);
+        if (err && typeof err === 'object' && 'detail' in err) {
+          console.error('Error details:', (err as any).detail);
+        }
+        setError(err instanceof Error ? err.message : "Ошибка при проверке билета.");
+        setUserTicket(null); // Сбрасываем билет при ошибке
       } finally {
-        setIsCheckingTicket(false);
-        notifyReady();
+        if (isMounted) {
+          setIsCheckingTicket(false);
+          notifyReady(); // Сообщаем о готовности после завершения проверки
+        }
       }
     };
 
-    // Check for ticket on component mount and userData change - with a small delay to ensure we get fresh data
-    setTimeout(checkUserTicket, 100);
-    
+    // Запускаем проверку билета с небольшой задержкой
+    const timeoutId = setTimeout(fetchUserTicketForEvent, 100);
+      
     return () => {
       isMounted = false;
+      clearTimeout(timeoutId);
     };
-  }, [isAuth, userData, eventId, eventTitle, eventDate, eventLocation, onReady]);
+  // Зависимости: isAuth, userData, eventId, onReady
+  }, [isAuth, userData?.id, eventId, onReady]); // Добавил userData.id для перезапуска при смене пользователя
+  
 
   // Handle ticket update events
-  const handleTicketUpdate = useCallback(() => {
-    // Skip event handling if the user is not authenticated
-    if (!isAuth) {
-      console.log('EventRegistration: Skipping ticket-update handling - user not authenticated');
-      return;
-    }
-    
-    // Skip event handling during an active booking to prevent race conditions
-    if (isActiveBooking.current) {
-      console.log('EventRegistration: Skipping ticket-update handling during active booking');
-      return;
-    }
-    
-    // Add a small delay to allow other state changes to settle
-    console.log('EventRegistration: Received ticket-update event, scheduling ticket check');
-    setTimeout(() => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        console.log('EventRegistration: Re-checking ticket status after ticket-update event');
-        // We need to re-fetch tickets here
-        const fetchTickets = async () => {
-          try {
-            setIsCheckingTicket(true);
-            const timestamp = Date.now();
-            const random = Math.random().toString(36).substring(2);
-            const uniqueId = `${timestamp}_${random}_${Math.floor(Math.random() * 1000000)}`;
-            
-            const response = await fetch('/user_edits/my-tickets?no_cache=' + uniqueId, {
-              method: 'GET',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`,
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
-              }
-            }).then(res => {
-              if (res.status === 401) return { detail: 'Authentication required' };
-              return res.json();
-            });
-            
-            if (response && !response.detail) {
-              // Use our helper function to parse tickets
-              const allTickets = parseTicketResponse(response);
-              
-              const currentEventId = parseInt(eventId.toString());
-              const eventTickets = allTickets.filter((ticket: UserTicket) => 
-                ticket.event.id === currentEventId && 
-                !isTicketCancelled(ticket.status)
-              );
-              
-              if (eventTickets.length === 0) {
-                setUserTicket(null);
-              } else {
-                const ticketData = eventTickets[0];
-                const processedTicket: UserTicket = {
-                  id: ticketData.id || 0,
-                  event: {
-                    id: parseInt(eventId.toString()),
-                    title: eventTitle,
-                    start_date: ticketData.event?.start_date || eventDate || new Date().toISOString(),
-                    end_date: ticketData.event?.end_date || undefined,
-                    location: ticketData.event?.location || eventLocation
-                  },
-                  ticket_type: ticketData.ticket_type || "standart",
-                  registration_date: ticketData.registration_date || ticketData.created_at || new Date().toISOString(),
-                  status: ticketData.status || "confirmed",
-                  ticket_number: ticketData.ticket_number || ticketData.id?.toString()
-                };
-                
-                if (isTicketCancelled(processedTicket.status)) {
-                  setUserTicket(null);
-                } else {
-                  setUserTicket(processedTicket);
-                }
-              }
-            } else {
-              setUserTicket(null);
-            }
-          } catch (err) {
-            console.error('EventRegistration: Error refreshing tickets:', err);
-            setUserTicket(null);
-          } finally {
-            setIsCheckingTicket(false);
-          }
-        };
-        
-        fetchTickets();
+  const handleTicketUpdate = useCallback((event: Event) => {
+    // Type guard for CustomEvent
+    if (!(event instanceof CustomEvent)) return;
+
+    const detail = event.detail as { 
+      eventId?: number; 
+      newTicket?: UserTicket | null; 
+      action?: 'register' | 'update' | 'cancel';
+      source?: string; // Optional: to identify the source
+    };
+
+    // Check if the update is relevant to this event instance
+    if (detail && detail.eventId === parseInt(eventId.toString())) {
+      console.log('EventRegistration: Received relevant ticket update event', detail);
+
+      // If the source is this component itself (internal update), ignore it
+      // to prevent loops, unless it's the final server data update.
+      // We check if 'isServerData' flag exists and is true.
+      if (detail.source === 'event-registration' && !(detail as any).isServerData) {
+        console.log('EventRegistration: Ignoring internal ticket update event.');
+        return;
       }
-    }, 150);
-  }, [isAuth, eventId, eventTitle, eventDate, eventLocation]);
-  
-  // Setup the event listener for ticket updates
-  useEffect(() => {
-    // Only add event listener if the user is authenticated
-    if (isAuth) {
-      console.log('EventRegistration: Adding ticket-update event listener');
-      window.addEventListener('ticket-update', handleTicketUpdate);
-      
-      return () => {
-        console.log('EventRegistration: Removing ticket-update event listener');
-        window.removeEventListener('ticket-update', handleTicketUpdate);
-      };
+
+      if (detail.action === 'cancel') {
+        console.log('EventRegistration: Ticket cancelled via event, resetting userTicket.');
+        setUserTicket(null);
+      } else if (detail.newTicket) {
+        console.log('EventRegistration: Updating userTicket with data from event.');
+        setUserTicket(detail.newTicket);
+      } else if (detail.newTicket === null) {
+        // Explicitly handle null to reset the ticket
+        console.log('EventRegistration: Received null ticket via event, resetting userTicket.');
+        setUserTicket(null);
+      }
     }
-  }, [handleTicketUpdate, isAuth]);
+  }, [eventId]); // Dependency on eventId to ensure we compare against the correct one
+
+  useEffect(() => {
+    // Add event listener when component mounts and isAuth changes
+    if (isAuth) {
+      window.addEventListener('ticket-update', handleTicketUpdate as EventListener);
+      console.log('EventRegistration: Added ticket update event listener');
+    }
+
+    // Cleanup function to remove event listener
+    return () => {
+      window.removeEventListener('ticket-update', handleTicketUpdate as EventListener);
+      console.log('EventRegistration: Removed ticket update event listener');
+    };
+  }, [handleTicketUpdate, isAuth]); // Depend on the callback and auth state
 
   const handleConfirmBooking = async () => {
     // Set the flag to prevent event handling during booking
@@ -402,10 +310,10 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        data: JSON.stringify({
+        data: {
           event_id: parseInt(eventId.toString()),
           user_id: userData!.id
-        }),
+        },
         bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
       });
 
@@ -420,19 +328,22 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       if ('error' in response) {
         // Обработка конкретных типов ошибок для более дружелюбных сообщений
         const errorResponse = response as unknown as ApiErrorResponse;
+        // Ошибка теперь выводится в лог ниже в catch
         const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при бронировании";
         
         // Пробуем найти понятное сообщение об ошибке в тексте
         if (errorMessage.includes("Превышен лимит отмен регистраций")) {
           throw new Error("Вы уже отменяли регистрацию на это мероприятие 3 раза. Дальнейшая регистрация недоступна.");
         } else if (errorMessage.includes("Вы уже зарегистрированы")) {
-          throw new Error("Вы уже зарегистрированы на это мероприятие.");
+          // Если при явном бронировании получаем эту ошибку, можно ее показать
+          throw new Error("Вы уже зарегистрированы на это мероприятие."); 
         } else if (errorMessage.includes("Билеты на это мероприятие распроданы")) {
           throw new Error("К сожалению, все билеты на это мероприятие уже распроданы.");
         } else if (errorMessage.includes("Регистрация на это мероприятие недоступна")) {
           throw new Error("Регистрация на это мероприятие в данный момент недоступна.");
         } else {
-          throw new Error(errorMessage);
+          // Другие ошибки из errorResponse.error
+          throw new Error(errorMessage); 
         }
       }
 
@@ -450,7 +361,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           title: eventTitle || "Мероприятие",
           start_date: eventDate ? (() => {
             try {
-              // Don't try to convert to ISO string - just return undefined if there's an error
               const date = new Date(eventDate);
               if (isNaN(date.getTime())) {
                 console.warn('Invalid event date for start_date, using current date instead');
@@ -464,8 +374,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           })() : new Date().toISOString(),
           end_date: eventDate ? (() => {
             try {
-              // Don't try to convert to ISO string - just return undefined if there's an error
-              // This prevents the RangeError: Invalid time value
               const date = new Date(eventDate);
               if (isNaN(date.getTime())) {
                 console.warn('Invalid event date for end_date, using undefined');
@@ -482,7 +390,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         ticket_type: data?.ticket_type || "standart",
         registration_date: new Date().toISOString(),
         status: "confirmed", 
-        ticket_number: data?.ticket_number || `Загрузка...`, // Show loading indicator instead of random number
+        ticket_number: data?.ticket_number || `Загрузка...`, 
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -505,7 +413,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         window.dispatchEvent(ticketEvent);
         console.log('EventRegistration: Dispatched ticket update event with temporary ticket data');
         
-        // Store the registration in sessionStorage to help detect navigation to profile page
         sessionStorage.setItem('recent_registration', JSON.stringify({
           event_id: parseInt(eventId.toString()),
           ticket_id: tempTicket.id,
@@ -546,7 +453,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 'Pragma': 'no-cache',
                 'Expires': '0'
               },
-              bypassLoadingStageCheck: true // Обходим проверку стадии загрузки
+              bypassLoadingStageCheck: true 
             });
             
             if ('aborted' in actualTicketResponse) {
@@ -562,9 +469,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             const actualTicketData = actualTicketResponse;
             
             if (actualTicketData) {
-              // Use our helper function to parse the response
               const allTickets = parseTicketResponse(actualTicketData);
-              
               const currentEventId = parseInt(eventId.toString());
               const actualTicket = allTickets.find((t: UserTicket) => 
                 t.event.id === currentEventId && !isTicketCancelled(t.status)
@@ -572,10 +477,8 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               
               if (actualTicket) {
                 console.log('EventRegistration: Found actual ticket data', actualTicket);
-                // Update the ticket with actual data from server
                 setUserTicket(actualTicket);
                 
-                // Dispatch another update with the real ticket data
                 const updatedEvent = new CustomEvent('ticket-update', {
                   detail: {
                     source: 'event-registration',
@@ -596,18 +499,20 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           } catch (err) {
             console.error('EventRegistration: Error fetching actual ticket data', err);
           } finally {
-            // Reset the active booking flag no matter what
             console.log('EventRegistration: Resetting active booking flag');
             isActiveBooking.current = false;
-            // Cancel safety timeout since we're done
             clearTimeout(safetyTimeout);
           }
-        }, 500); // Wait a bit after modal closes
+        }, 500); 
       }, 1500);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ошибка при бронировании.");
-      console.error('Booking error:', err);
-      // Clear the active booking flag on error
+      // Улучшенное логирование ошибки (остается)
+      console.error('Booking error in handleConfirmBooking:', err);
+      if (err && typeof err === 'object' && 'detail' in err) {
+        console.error('Error details:', (err as any).detail);
+      }
+      // Используем instanceof Error для более точного сообщения
+      setError(err instanceof Error ? err.message : "Ошибка при бронировании."); 
       isActiveBooking.current = false;
       console.log('EventRegistration: Reset active booking flag to false (error path)');
     }

@@ -227,17 +227,12 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
     { stage: LoadingStage.INITIAL, timestamp: Date.now() }
   ]);
   const [isAuthChecked, setIsAuthChecked] = useState<boolean>(false);
-  const autoProgressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const stageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useIsMounted();
   
   // Очистка таймеров при размонтировании
   useEffect(() => {
     return () => {
-      if (autoProgressTimerRef.current) {
-        clearTimeout(autoProgressTimerRef.current);
-        autoProgressTimerRef.current = null;
-      }
       if (stageTimeoutRef.current) {
         clearTimeout(stageTimeoutRef.current);
         stageTimeoutRef.current = null;
@@ -287,54 +282,6 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
       
       // Отправляем событие изменения стадии
       dispatchStageChangeEvent(stage);
-      
-      // Сбрасываем существующий таймер автоматического прогресса
-      if (autoProgressTimerRef.current) {
-        clearTimeout(autoProgressTimerRef.current);
-        autoProgressTimerRef.current = null;
-      }
-      
-      // Устанавливаем таймер для автоматического перехода к следующей стадии
-      // только если мы в промежуточной стадии
-      if (stage !== LoadingStage.COMPLETED && 
-          stage !== LoadingStage.ERROR && 
-          stage !== LoadingStage.INITIAL) {
-        
-        // Определяем следующую стадию для автоматического перехода
-        let nextStage: LoadingStage;
-        switch (stage) {
-          case LoadingStage.AUTHENTICATION:
-            nextStage = LoadingStage.STATIC_CONTENT;
-            break;
-          case LoadingStage.STATIC_CONTENT:
-            nextStage = LoadingStage.DYNAMIC_CONTENT;
-            break;
-          case LoadingStage.DYNAMIC_CONTENT:
-            nextStage = LoadingStage.COMPLETED;
-            break;
-          default:
-            return stage;
-        }
-        
-        autoProgressTimerRef.current = setTimeout(() => {
-          if (isMounted.current) {
-            stageLogger.info(`Auto-advancing stage: ${stage} -> ${nextStage} (timeout)`);
-            setCurrentStageState(nextStage);
-            
-            // Обновляем историю переходов
-            setStageHistory(prev => {
-              const newHistory = [
-                ...prev,
-                { stage: nextStage, timestamp: Date.now() }
-              ];
-              return newHistory.slice(-MAX_HISTORY_SIZE);
-            });
-            
-            // Отправляем событие изменения стадии
-            dispatchStageChangeEvent(nextStage);
-          }
-        }, AUTO_PROGRESS_INTERVAL);
-      }
       
       return stage;
     });

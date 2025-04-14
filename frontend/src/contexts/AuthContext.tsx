@@ -40,7 +40,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isMounted = useRef(true);
   const lastCheckTime = useRef<number>(0);
   const CHECK_INTERVAL = 5000;
-  const initialAuthCheckTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const tokenRef = useRef<string | null>(null);
 
   const handleAuthFailure = useCallback(() => {
@@ -172,12 +171,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
          setIsAuthCheckedState(true);
          authLogger.info('Initial auth check finished.', { checkSuccessful });
          authLogger.info('Transitioning to STATIC_CONTENT stage after initial check.');
-         setStage(LoadingStage.STATIC_CONTENT);
+         setStage(LoadingStage.STATIC_CONTENT, false);
 
-         if (initialAuthCheckTimeoutRef.current) {
-           clearTimeout(initialAuthCheckTimeoutRef.current);
-           initialAuthCheckTimeoutRef.current = null;
-         }
          if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('auth-check-complete', {
               detail: { isAuthenticated: checkSuccessful }
@@ -187,35 +182,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [setStage, handleAuthFailure, updateUserData, isAuthenticated]);
 
+  // Отключаем правило ESLint для этого useEffect, так как он должен выполняться только при монтировании
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     isMounted.current = true;
     authLogger.info('AuthProvider mounted, starting initial auth check.');
 
     performInitialAuthCheck();
 
-    initialAuthCheckTimeoutRef.current = setTimeout(() => {
-      if (isMounted.current) { 
-        authLogger.warn('Initial auth check timeout! Forcing state and stage.');
-        setIsAuthenticated(false);
-        setUser(null);
-        setIsAuthCheckedState(true);
-        setStage(LoadingStage.STATIC_CONTENT);
-         if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('auth-check-complete', {
-              detail: { isAuthenticated: false, isTimeout: true }
-            }));
-         }
-      }
-    }, 7000);
-
     return () => {
       isMounted.current = false;
       authLogger.info('AuthProvider unmounted.');
-      if (initialAuthCheckTimeoutRef.current) {
-        clearTimeout(initialAuthCheckTimeoutRef.current);
-      }
     };
-  }, [performInitialAuthCheck, setStage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleLoginSuccess = useCallback((token: string, userData: UserData) => {
     authLogger.info('Handling login success with token and user data');
@@ -238,7 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     authLogger.info('Transitioning to STATIC_CONTENT stage after login success');
-    setStage(LoadingStage.STATIC_CONTENT);
+    setStage(LoadingStage.STATIC_CONTENT, false);
 
     return true;
   }, [setStage]);

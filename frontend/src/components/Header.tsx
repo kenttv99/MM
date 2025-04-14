@@ -301,151 +301,27 @@ const Header: React.FC = () => {
   const lastScrollY = useRef<number>(0);
   const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef<boolean>(true);
-  const headerLoadingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [forceShowHeader, setForceShowHeader] = useState(false);
   const loadingRef = useRef<boolean>(authLoading);
   const checkedRef = useRef<boolean>(isAuthChecked);
-  const shouldShowSkeletonRef = useRef<boolean>(false);
-  const hasShownHeaderRef = useRef<boolean>(false);
   const [, forceUpdate] = useState({});
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const logoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastStateRef = useRef<{stage: LoadingStage, isAuthChecked: boolean}>({
-    stage: LoadingStage.INITIAL,
-    isAuthChecked: false
-  });
-
-  // Единый эффект для управления отображением хедера
-  useEffect(() => {
-    // Проверяем, изменилось ли состояние с последнего обновления
-    // Если нет, то пропускаем обновление, чтобы избежать бесконечного цикла
-    if (lastStateRef.current.stage === currentStage && 
-        lastStateRef.current.isAuthChecked === isAuthChecked) {
-      return;
-    }
-    
-    // Обновляем lastStateRef
-    lastStateRef.current = {
-      stage: currentStage,
-      isAuthChecked
-    };
-    
-    // Если хедер уже был показан, сохраняем это состояние
-    if (hasShownHeaderRef.current) {
-      setForceShowHeader(true);
-      return;
-    }
-    
-    // Определяем, нужно ли показывать хедер
-    const shouldShowHeader = isAuthChecked || 
-      currentStage === LoadingStage.STATIC_CONTENT || 
-      currentStage === LoadingStage.DYNAMIC_CONTENT || 
-      currentStage === LoadingStage.DATA_LOADING || 
-      currentStage === LoadingStage.COMPLETED;
-
-    // Если нужно показать хедер, обновляем состояние
-    if (shouldShowHeader) {
-      setForceShowHeader(true);
-      hasShownHeaderRef.current = true;
-      
-      // Очищаем таймаут, если он был установлен
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-        headerLoadingTimeoutRef.current = null;
-      }
-      
-      logInfo('Showing header based on auth check or loading stage', { 
-        isAuthChecked, 
-        currentStage,
-        hasShownHeader: hasShownHeaderRef.current
-      });
-    } else if (authLoading && !hasShownHeaderRef.current) {
-      // Только если header еще не был показан и идет загрузка аутентификации,
-      // устанавливаем таймаут для показа хедера
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-      }
-      
-      headerLoadingTimeoutRef.current = setTimeout(() => {
-        setForceShowHeader(true);
-        hasShownHeaderRef.current = true;
-        logInfo('Showing header after timeout', { 
-          authLoading, 
-          isAuthChecked,
-          currentStage
-        });
-      }, 200);
-    }
-
-    return () => {
-      if (headerLoadingTimeoutRef.current) {
-        clearTimeout(headerLoadingTimeoutRef.current);
-      }
-    };
-  }, [authLoading, isAuthChecked, currentStage]);
 
   // Слушаем события изменения состояния аутентификации
   useEffect(() => {
     const handleAuthStateChange = (event: CustomEvent) => {
       logInfo('Received auth state change event', event.detail);
-      
-      // Обновляем ссылки на текущее состояние
       loadingRef.current = event.detail.isAuth;
       checkedRef.current = true;
-      
-      // Если пользователь аутентифицирован, показываем хедер
       if (event.detail.isAuth) {
-        setForceShowHeader(true);
-        hasShownHeaderRef.current = true;
-        
-        // Принудительно обновляем компонент для отображения данных авторизованного пользователя
         forceUpdate({});
-        
-        // Очищаем таймаут, если он был установлен
-        if (headerLoadingTimeoutRef.current) {
-          clearTimeout(headerLoadingTimeoutRef.current);
-          headerLoadingTimeoutRef.current = null;
-        }
-        
-        // Проверяем состояние локального хранилища
-        const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-        const storedUserData = typeof window !== 'undefined' ? localStorage.getItem('userData') : null;
-        
-        // Проверяем, что у нас есть токен и данные пользователя в localStorage
-        if (!token || !storedUserData) {
-          logInfo('Авторизация: данные не синхронизированы, сохраняем токен и данные пользователя', {
-            hasToken: !!token,
-            hasUserData: !!storedUserData
-          });
-          
-          // Сохраняем данные в localStorage, если их там нет
-          if (typeof window !== 'undefined') {
-            if (!token && event.detail.token) {
-              localStorage.setItem('token', event.detail.token);
-            }
-            if (!storedUserData && event.detail.userData) {
-              localStorage.setItem('userData', JSON.stringify(event.detail.userData));
-            }
-          }
-        }
-        
-        // Для дополнительной уверенности вызываем принудительное обновление через небольшую задержку
-        setTimeout(() => {
-          forceUpdate({});
-          // Принудительное обновление состояния для перерисовки
-          setIsMobileMenuOpen(false);
-          setIsModalOpen(false);
-        }, 100);
-        
         logInfo('Showing header due to authentication', { 
           isAuthenticated: event.detail.isAuth,
-          hasShownHeader: hasShownHeaderRef.current,
           userData: event.detail.userData
         });
       }
     };
-
     window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
     return () => {
       window.removeEventListener('authStateChanged', handleAuthStateChange as EventListener);
@@ -510,10 +386,6 @@ const Header: React.FC = () => {
             
             // Also trigger a React state update to force re-render
             forceUpdate({});
-            
-            // Force a re-render of the entire header
-            setForceShowHeader(prev => !prev);
-            setTimeout(() => setForceShowHeader(prev => !prev), 0);
           }
         };
         
@@ -603,8 +475,7 @@ const Header: React.FC = () => {
           updateUserData(freshUserData, false);
           
           // Force a re-render of the entire header
-          setForceShowHeader(prev => !prev);
-          setTimeout(() => setForceShowHeader(prev => !prev), 0);
+          forceUpdate({});
           
           // Also trigger a React state update to force re-render
           forceUpdate({});
@@ -621,10 +492,6 @@ const Header: React.FC = () => {
               logInfo('Header: New avatar preloaded successfully');
               // Force another update after successful load
               forceUpdate({});
-              
-              // Force a re-render of the entire header again
-              setForceShowHeader(prev => !prev);
-              setTimeout(() => setForceShowHeader(prev => !prev), 0);
             };
           }, 50);
         }
@@ -705,7 +572,6 @@ const Header: React.FC = () => {
     try {
       // Set logging out state and hide header immediately
       setIsLoggingOut(true);
-      setForceShowHeader(false);
       setIsMobileMenuOpen(false);
       setIsModalOpen(false);
       
@@ -749,10 +615,6 @@ const Header: React.FC = () => {
         
         // Immediately show the unauthenticated header without delay
         setIsLoggingOut(false);
-        setForceShowHeader(true);
-        
-        // Reset hasShownHeaderRef to ensure proper state for next auth check
-        hasShownHeaderRef.current = false;
         
         logInfo('Header: Showing unauthenticated header after logout');
         
@@ -792,7 +654,6 @@ const Header: React.FC = () => {
     } catch (error) {
       logError('Header: Logout failed', error);
       setIsLoggingOut(false);
-      setForceShowHeader(true);
       
       // Clear any pending timeouts on error
       if (logoutTimeoutRef.current) {
@@ -825,48 +686,20 @@ const Header: React.FC = () => {
     { label: "Выход", onClick: handleLogout },
   ];
 
-  // Determine if we should show the skeleton
-  const shouldShowSkeleton = (!forceShowHeader && !isAuthChecked && !hasShownHeaderRef.current) || 
-                            (isLoggingOut && !forceShowHeader);
-  
-  // Логируем только при изменении решения о показе скелетона
-  if (shouldShowSkeletonRef.current !== shouldShowSkeleton) {
-    logDebug('Render decision', { 
-      shouldShowSkeleton, 
-      forceShowHeader, 
-      isAuthChecked, 
-      currentStage,
-      hasShownHeader: hasShownHeaderRef.current,
-      isLoggingOut
-    });
-    shouldShowSkeletonRef.current = shouldShowSkeleton;
+  // Упрощенная логика рендеринга
+  if (isLoggingOut) { // Если идет выход, показываем скелетон
+    return <HeaderSkeleton />;
   }
-  
-  // После первого рендеринга полного хедера, всегда показываем его, а не скелетон
-  if (hasShownHeaderRef.current && shouldShowSkeleton && !isLoggingOut) {
-    // Не вызываем компонент рекурсивно, а просто принудительно показываем содержимое
-    return (
-      <header
-        className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${
-          isScrolled ? "bg-white/95 shadow-lg py-2 sm:py-3" : "bg-white/90 py-3 sm:py-4"
-        }`}
-      >
-        <div className="w-full flex items-center">
-          <div className="w-full flex items-center justify-between px-8 sm:px-10">
-            <Link href="/" className="transition-transform duration-300 hover:scale-105 z-40">
-              <Logo />
-            </Link>
-            <div className="opacity-0">Загрузка...</div>
-          </div>
-        </div>
-      </header>
-    );
-  }
-  
+
+  // Определяем, нужно ли показывать скелетон
+  const shouldShowSkeleton = !isAuthChecked || currentStage < LoadingStage.STATIC_CONTENT;
+  logDebug("Render check", { shouldShowSkeleton, isAuthChecked, currentStage });
+
   if (shouldShowSkeleton) {
     return <HeaderSkeleton />;
   }
 
+  // Основной рендер хедера
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${

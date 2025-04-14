@@ -4,7 +4,9 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
-import { useLoading, LoadingStage } from "@/contexts/LoadingContextLegacy";
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { LoadingStage } from '@/contexts/loading/types';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 import { FaUser, FaTelegramPlane, FaWhatsapp, FaCamera, FaPencilAlt, FaLock, FaTrash } from "react-icons/fa";
 import Image from "next/image";
 import InputField from "@/components/common/InputField";
@@ -17,16 +19,14 @@ import { apiFetch } from "@/utils/api";
 import UserEventTickets, { UserEventTicketsRef } from "@/components/UserEventTickets";
 
 const ProfilePage: React.FC = () => {
+  const { currentStage, setStage } = useLoadingStage();
+  console.log(`ProfilePage: Render start, stage: ${currentStage}`);
   const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
-  const { setStage, detectAndFixLoadingInconsistency } = useLoading();
+  const { error: loadingError, setError: setLoadingError } = useLoadingError();
   const router = useRouter();
   
-  // Создаем ref для доступа к методам UserEventTickets
   const ticketsRef = useRef<UserEventTicketsRef>(null);
-  // Создаем ref для обновления билетов
   const needsTicketsRefresh = useRef<boolean>(false);
-  // Счетчик для принудительного обновления
-  const forceUpdateTrigger = 0;
   
   const [formState, setFormState] = useState<FormState>({
     fio: "",
@@ -47,13 +47,14 @@ const ProfilePage: React.FC = () => {
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
   
-  const validateForm = useCallback((state: FormState = formState) => {
+  const validateForm = useCallback((state: FormState = formState): boolean => {
     const errors: ValidationErrors = {};
     if (!state.fio) errors.fio = "ФИО обязательно";
     if (!state.telegram) errors.telegram = "Telegram обязателен";
     else if (!state.telegram.startsWith("@")) errors.telegram = "Должен начинаться с @";
     if (!state.whatsapp) errors.whatsapp = "WhatsApp обязателен";
     else if (!/^\d+$/.test(state.whatsapp)) errors.whatsapp = "Только цифры";
+    
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
   }, [formState]);
@@ -62,75 +63,28 @@ const ProfilePage: React.FC = () => {
     const initProfile = async () => {
       if (hasFetched.current || authLoading) return;
       
-      // More aggressive redirect if not authenticated
-      if (!isAuth) {
-        console.log('ProfilePage: User not authenticated, redirecting to home page');
+      if (!isAuth || !userData) {
+        console.log('ProfilePage: User not authenticated or no userData, redirecting.');
         router.push("/");
         return;
       }
       
-      if (!userData) {
-        console.log('ProfilePage: No user data available, redirecting to home page');
-        router.push("/");
-        return;
-      }
-      
-      // Проверяем данные из localStorage
       const storedData = localStorage.getItem('userData');
       let avatarUrl = userData.avatar_url;
       
       if (storedData) {
         try {
           const parsedData = JSON.parse(storedData);
-          console.log('ProfilePage: Данные из localStorage:', {
-            id: parsedData.id,
-            email: parsedData.email,
-            avatarUrl: parsedData.avatar_url,
-            rawData: parsedData
-          });
-          
-          // If we have an avatar URL in localStorage but not in userData, use the localStorage one
           if (parsedData.avatar_url && !avatarUrl) {
-            console.log('ProfilePage: Using avatar URL from localStorage instead of userData');
             avatarUrl = parsedData.avatar_url;
           }
         } catch (e) {
           console.error('ProfilePage: Ошибка при разборе данных из localStorage:', e);
         }
-      } else {
-        console.log('ProfilePage: Данные в localStorage отсутствуют');
       }
-      
-      // Check for cached avatar URL
       const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
       if (cachedAvatarUrl && !avatarUrl) {
-        console.log('ProfilePage: Using cached avatar URL from localStorage');
         avatarUrl = cachedAvatarUrl;
-      }
-      
-      console.log('ProfilePage: Инициализация профиля с данными пользователя:', { 
-        id: userData.id,
-        email: userData.email,
-        avatarUrl: avatarUrl
-      });
-      
-      // Тестовая загрузка изображения для отладки
-      if (avatarUrl) {
-        console.log('ProfilePage: Тестовая загрузка аватарки:', avatarUrl);
-        // Используем стандартный DOM API вместо Next.js Image
-        const testImg = document.createElement('img');
-        testImg.onload = () => console.log('ProfilePage: Тест загрузки аватарки успешен');
-        testImg.onerror = () => console.error('ProfilePage: Тест загрузки аватарки провален');
-        testImg.src = avatarUrl;
-        
-        // Тест загрузки аватарки через fetch для проверки сетевого доступа
-        fetch(avatarUrl)
-          .then(response => {
-            console.log('ProfilePage: Fetch тест аватарки - статус:', response.status);
-            return response.blob();
-          })
-          .then(() => console.log('ProfilePage: Fetch тест аватарки успешен'))
-          .catch(error => console.error('ProfilePage: Fetch тест аватарки провален:', error));
       }
       
       const initialData = {
@@ -141,20 +95,15 @@ const ProfilePage: React.FC = () => {
         email: userData.email || "",
       };
       
-      console.log('ProfilePage: Установлены начальные данные формы:', {
-        avatarPreview: initialData.avatarPreview,
-        fio: initialData.fio
-      });
-      
       setFormState(initialData);
       setInitialFormState(initialData);
       validateForm(initialData);
       hasFetched.current = true;
+      console.log("ProfilePage: initProfile finished");
     };
     
     initProfile();
     
-    // Add failsafe redirect after a short timeout if we're still loading
     const redirectTimeout = setTimeout(() => {
       if (authLoading || !isAuth) {
         console.log('ProfilePage: Failsafe redirect triggered');
@@ -165,88 +114,29 @@ const ProfilePage: React.FC = () => {
     return () => clearTimeout(redirectTimeout);
   }, [isAuth, userData, authLoading, router, validateForm]);
 
-  // Add a dedicated effect to handle avatar updates
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
     const handleAvatarUpdate = (event: CustomEvent) => {
-      console.log("ProfilePage: Received avatar update event", event.detail);
-      
       if (event.detail && event.detail.newAvatarUrl) {
         const newUrl = event.detail.newAvatarUrl;
-        console.log("ProfilePage: Updating avatar to new URL", newUrl);
-        
-        // Update the form state with the new avatar URL
-        setFormState(prev => ({
-          ...prev,
-          avatarPreview: newUrl
-        }));
-        
-        // Also update the initial form state to maintain consistency
-        setInitialFormState(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            avatarPreview: newUrl
-          };
-        });
+        setFormState(prev => ({ ...prev, avatarPreview: newUrl }));
+        setInitialFormState(prev => prev ? { ...prev, avatarPreview: newUrl } : null);
       }
     };
-    
     const handleUserDataChange = (event: CustomEvent) => {
       const { userData: updatedUserData, avatarRemoved } = event.detail;
-      
       if (!updatedUserData) return;
-      
-      console.log("ProfilePage: Received userDataChanged event", { 
-        hasAvatar: !!updatedUserData.avatar_url,
-        avatarRemoved
-      });
-      
-      // If avatar was removed, clear the avatar preview
       if (avatarRemoved) {
-        console.log("ProfilePage: Avatar removed, clearing display");
-        setFormState(prev => ({
-          ...prev,
-          avatarPreview: null
-        }));
-        
-        // Also update the initial form state
-        setInitialFormState(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            avatarPreview: null
-          };
-        });
-        return;
-      }
-      
-      // If we have a new avatar URL, update the avatar preview
-      if (updatedUserData.avatar_url) {
-        console.log("ProfilePage: New avatar detected in userData", updatedUserData.avatar_url);
-        
-        // Update the form state with the new avatar URL
-        setFormState(prev => ({
-          ...prev,
-          avatarPreview: updatedUserData.avatar_url
-        }));
-        
-        // Also update the initial form state
-        setInitialFormState(prev => {
-          if (!prev) return null;
-          return {
-            ...prev,
-            avatarPreview: updatedUserData.avatar_url
-          };
-        });
+        setFormState(prev => ({ ...prev, avatarPreview: null }));
+        setInitialFormState(prev => prev ? { ...prev, avatarPreview: null } : null);
+      } else if (updatedUserData.avatar_url) {
+        setFormState(prev => ({ ...prev, avatarPreview: updatedUserData.avatar_url }));
+        setInitialFormState(prev => prev ? { ...prev, avatarPreview: updatedUserData.avatar_url } : null);
       }
     };
-    
-    // Add event listeners for avatar updates
     window.addEventListener('avatar-updated', handleAvatarUpdate as EventListener);
     window.addEventListener('userDataChanged', handleUserDataChange as EventListener);
-    
     return () => {
       window.removeEventListener('avatar-updated', handleAvatarUpdate as EventListener);
       window.removeEventListener('userDataChanged', handleUserDataChange as EventListener);
@@ -257,21 +147,19 @@ const ProfilePage: React.FC = () => {
     const { name, value } = e.target;
     let newValue = value;
     const newErrors = { ...validationErrors };
-
     if (name === "telegram") {
-      newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
-      newErrors.telegram = !newValue ? "Telegram обязателен" : !newValue.startsWith("@") ? "Должен начинаться с @" : undefined;
+        newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
+        newErrors.telegram = !newValue ? "Telegram обязателен" : !newValue.startsWith("@") ? "Должен начинаться с @" : undefined;
     } else if (name === "whatsapp") {
-      newValue = value.replace(/\D/g, "");
-      newErrors.whatsapp = !newValue ? "WhatsApp обязателен" : !/^\d+$/.test(newValue) ? "Только цифры" : undefined;
+        newValue = value.replace(/\D/g, ""); 
+        newErrors.whatsapp = !newValue ? "WhatsApp обязателен" : !/^\d+$/.test(newValue) ? "Только цифры" : undefined;
     } else if (name === "fio") {
-      newErrors.fio = !value ? "ФИО обязательно" : undefined;
+        newErrors.fio = !value ? "ФИО обязательно" : undefined;
     }
-
     setFormState((prev) => {
-      const updatedState = { ...prev, [name]: newValue };
-      validateForm(updatedState);
-      return updatedState;
+        const updatedState = { ...prev, [name]: newValue };
+        validateForm(updatedState); 
+        return updatedState;
     });
     setValidationErrors(newErrors);
   }, [validationErrors, validateForm]);
@@ -279,269 +167,47 @@ const ProfilePage: React.FC = () => {
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) {
-      setSelectedFile(null);
-      setFormState((prev) => ({ ...prev, avatarPreview: initialFormState?.avatarPreview || null }));
-      return;
+        setSelectedFile(null);
+        setFormState((prev) => ({ ...prev, avatarPreview: initialFormState?.avatarPreview || null })); 
+        return;
     }
-    
-    // Проверка типа файла
     const validImageTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
     if (!validImageTypes.includes(file.type)) {
-      setFetchError("Пожалуйста, выберите изображение в формате JPEG, PNG, GIF или WebP.");
-      return;
+        setFetchError("Пожалуйста, выберите изображение в формате JPEG, PNG, GIF или WebP.");
+        return;
     }
-    
-    // Проверка размера файла (ограничение 5MB)
-    const maxSize = 5 * 1024 * 1024; // 5MB
+    const maxSize = 5 * 1024 * 1024; 
     if (file.size > maxSize) {
-      setFetchError("Размер изображения не должен превышать 5MB.");
-      return;
+        setFetchError("Размер изображения не должен превышать 5MB.");
+        return;
     }
-    
     setSelectedFile(file);
-    
+    setShouldDeleteAvatar(false); 
     const reader = new FileReader();
     reader.onloadend = () => setFormState((prev) => ({ ...prev, avatarPreview: reader.result as string }));
     reader.onerror = () => {
-      console.error("Ошибка чтения файла аватарки");
-      setFetchError("Не удалось прочитать выбранный файл.");
-      setSelectedFile(null);
+        setFetchError("Не удалось прочитать выбранный файл.");
+        setSelectedFile(null);
     };
     reader.readAsDataURL(file);
   }, [initialFormState, setFetchError]);
 
   const handleRemoveAvatar = useCallback(() => {
-    // Save the original avatar URL before removing it
-    if (formState.avatarPreview && typeof window !== 'undefined') {
-      console.log("ProfilePage: Saving original avatar URL before deletion:", formState.avatarPreview);
-      localStorage.setItem('original_avatar_url', formState.avatarPreview);
-    }
-    
-    setSelectedFile(null);
-    setFormState((prev) => ({ ...prev, avatarPreview: null }));
-    if (fileInputRef.current) fileInputRef.current.value = "";
-    // Set flag to indicate avatar should be deleted on save
-    setShouldDeleteAvatar(true);
-    console.log("ProfilePage: Marked avatar for deletion");
+      if (formState.avatarPreview && typeof window !== 'undefined') {
+          localStorage.setItem('original_avatar_url', formState.avatarPreview);
+      }
+      setSelectedFile(null);
+      setFormState((prev) => ({ ...prev, avatarPreview: null }));
+      if (fileInputRef.current) fileInputRef.current.value = ""; 
+      setShouldDeleteAvatar(true);
   }, [formState.avatarPreview]);
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (isSubmitting.current || !validateForm()) return;
-
-    isSubmitting.current = true;
-    setFetchError(null);
-    setUpdateSuccess(null);
-
-    try {
-      detectAndFixLoadingInconsistency();
-      
-      setStage(LoadingStage.STATIC_CONTENT);
-      
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Получаем токен из localStorage
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setFetchError("Токен авторизации не найден. Пожалуйста, войдите в систему снова.");
-        isSubmitting.current = false;
-        return;
-      }
-      
-      // Убедимся, что у нас есть userData с id
-      if (!userData || !userData.id) {
-        setFetchError("Данные пользователя не найдены.");
-        isSubmitting.current = false;
-        return;
-      }
-
-      // Формируем полные данные пользователя для обновления
-      const userDataToUpdate = {
-        id: userData.id,
-        fio: formState.fio,
-        telegram: formState.telegram,
-        whatsapp: formState.whatsapp,
-        email: userData.email, // Сохраняем текущий email, чтобы не потерять его
-        remove_avatar: shouldDeleteAvatar // Добавляем флаг для удаления аватарки
-      };
-      
-      console.log("Отправляемые данные профиля:", userDataToUpdate);
-      
-      const profileResponse = await apiFetch<UserData>("/user_edits/me", {
-        method: "PUT",
-        headers: { 
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        data: userDataToUpdate,
-        bypassLoadingStageCheck: true
-      });
-      
-      let updatedUser = profileResponse;
-      
-      // If we requested avatar deletion, make sure it's processed correctly
-      if (shouldDeleteAvatar && updatedUser && !('aborted' in updatedUser) && 'id' in updatedUser) {
-        console.log("ProfilePage: Avatar deletion requested, ensuring avatar is removed from user data");
-        
-        // Force remove avatar from the updatedUser object
-        updatedUser.avatar_url = undefined;
-        
-        // We don't need a separate explicit request - the remove_avatar flag in the initial request 
-        // should handle it, but the backend might not properly process it.
-        // We'll force the avatar to be null locally to ensure UI consistency.
-        
-        // Create a timestamp to bust cache for any future avatar loads
-        const avatarCacheBuster = Date.now();
-        localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
-        
-        // Also update the userData in localStorage to ensure it reflects the avatar removal
-        const storedUserData = localStorage.getItem('userData');
-        if (storedUserData) {
-          try {
-            const parsedUserData = JSON.parse(storedUserData);
-            parsedUserData.avatar_url = null; // Make sure avatar is null
-            localStorage.setItem('userData', JSON.stringify(parsedUserData));
-            console.log("ProfilePage: Updated localStorage userData to remove avatar");
-            
-            // Force the browser to reload any cached images by attempting to access the image
-            // with cache busting and then canceling the request
-            const originalAvatarUrl = localStorage.getItem('original_avatar_url');
-            if (originalAvatarUrl) {
-              const invalidateUrl = `${originalAvatarUrl}?clear=${Date.now()}`;
-              const img = document.createElement('img');
-              img.src = invalidateUrl;
-              setTimeout(() => {
-                img.src = '';  // Cancel the request after a brief timeout
-              }, 100);
-              console.log("ProfilePage: Attempted to invalidate avatar cache for:", originalAvatarUrl);
-            }
-          } catch (e) {
-            console.error("ProfilePage: Error updating userData in localStorage:", e);
-          }
-        }
-        
-        // Store the original avatar URL in case we need to make explicit backend requests later
-        if (typeof window !== 'undefined' && userData?.avatar_url) {
-          localStorage.setItem('last_deleted_avatar', userData.avatar_url);
-        }
-        
-        console.log("ProfilePage: Avatar cached data cleared successfully");
-        
-        // Dispatch a custom event to notify other components about the avatar removal
-        if (typeof window !== 'undefined') {
-          const avatarRemovedEvent = new CustomEvent('userDataChanged', {
-            detail: {
-              userData: updatedUser,
-              avatarRemoved: true
-            }
-          });
-          window.dispatchEvent(avatarRemovedEvent);
-          console.log("ProfilePage: Dispatched userDataChanged event for avatar removal");
-        }
-      }
-      
-      // If we have a new avatar file, upload it
-      if (selectedFile) {
-        try {
-          const formData = new FormData();
-          formData.append("file", selectedFile);
-          // Добавляем id пользователя в FormData
-          formData.append("user_id", userData.id.toString());
-          
-          const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
-            method: "POST", 
-            data: formData,
-            headers: {
-              "Authorization": `Bearer ${token}`
-            },
-            bypassLoadingStageCheck: true
-          });
-          
-          // Проверяем наличие ошибок в ответе
-          if ('error' in avatarResponse) {
-            console.error("Ошибка загрузки аватарки:", avatarResponse);
-            // Продолжаем с обновлением профиля, даже если аватарка не загрузилась
-          } else if (!('aborted' in avatarResponse)) {
-            updatedUser = avatarResponse;
-            
-            // Создаем кэш-бастер для обновления аватарки во всех компонентах
-            if (updatedUser.avatar_url) {
-              const avatarCacheBuster = Date.now();
-              localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
-              console.log("ProfilePage: Created cache buster for new avatar:", avatarCacheBuster);
-              
-              // Явно отправляем событие об обновлении аватарки
-              if (typeof window !== 'undefined') {
-                const avatarEvent = new CustomEvent('avatar-updated', {
-                  detail: {
-                    userData: updatedUser,
-                    newAvatarUrl: updatedUser.avatar_url,
-                    timestamp: avatarCacheBuster
-                  }
-                });
-                window.dispatchEvent(avatarEvent);
-                console.log("ProfilePage: Dispatched avatar-updated event");
-                
-                // Also dispatch a userDataChanged event for components that listen to that
-                const userDataEvent = new CustomEvent('userDataChanged', {
-                  detail: {
-                    userData: updatedUser,
-                    avatarRemoved: false
-                  }
-                });
-                window.dispatchEvent(userDataEvent);
-                console.log("ProfilePage: Dispatched userDataChanged event for avatar update");
-              }
-            }
-          }
-        } catch (avatarError) {
-          console.error("Ошибка при загрузке аватарки:", avatarError);
-          // Продолжаем с обновлением профиля, даже если аватарка не загрузилась
-        }
-      }
-
-      if (updatedUser && !('aborted' in updatedUser) && 'fio' in updatedUser) {
-        // Force clear avatar_url if deletion was requested, regardless of server response
-        if (shouldDeleteAvatar) {
-          console.log("ProfilePage: Forcing avatar_url to null in updated user data");
-          updatedUser.avatar_url = undefined;
-          // Cache busting already done earlier in the function
-        }
-        
-        const updatedData = {
-          fio: updatedUser.fio || "",
-          telegram: updatedUser.telegram || "",
-          whatsapp: updatedUser.whatsapp || "",
-          avatarPreview: updatedUser.avatar_url || null,
-          email: updatedUser.email || "",
-        };
-        
-        setFormState(updatedData);
-        setInitialFormState(updatedData);
-        updateUserData(updatedUser as UserData, false);
-        setUpdateSuccess("Профиль успешно обновлен!");
-        setShouldDeleteAvatar(false); // Reset the flag after successful update
-        setTimeout(() => {
-          setSelectedFile(null);
-          setUpdateSuccess(null);
-          setIsEditing(false);
-          isSubmitting.current = false;
-        }, 1500);
-      } else {
-        throw new Error("Не удалось обновить данные профиля. Пожалуйста, попробуйте снова.");
-      }
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : "Ошибка обновления профиля");
-      setTimeout(() => setFetchError(null), 3000); // Увеличено время показа ошибки
-      isSubmitting.current = false;
-    }
-  };
 
   const toggleEdit = useCallback(() => {
     setIsEditing((prev) => {
       if (prev && initialFormState) {
         setFormState(initialFormState);
-        setSelectedFile(null);
+        setSelectedFile(null); 
+        setShouldDeleteAvatar(false);
         validateForm(initialFormState);
       }
       return !prev;
@@ -550,8 +216,185 @@ const ProfilePage: React.FC = () => {
     setFetchError(null);
   }, [initialFormState, validateForm]);
 
-  if (!isAuth) return null;
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (isSubmitting.current || !validateForm()) return;
 
+    isSubmitting.current = true;
+    setFetchError(null);
+    setUpdateSuccess(null);
+    setLoadingError(null);
+
+    setStage(LoadingStage.DYNAMIC_CONTENT); 
+
+    const token = localStorage.getItem('token');
+    if (!token || !userData || !userData.id) {
+        const errorMsg = "Данные авторизации не найдены.";
+        setFetchError(errorMsg);
+        setLoadingError(errorMsg);
+        setStage(LoadingStage.ERROR);
+        isSubmitting.current = false;
+        return;
+    }
+
+    try {
+        const userDataToUpdate = {
+            id: userData.id,
+            fio: formState.fio,
+            telegram: formState.telegram,
+            whatsapp: formState.whatsapp,
+            email: userData.email,
+            remove_avatar: shouldDeleteAvatar
+        };
+        console.log("Отправляемые данные профиля:", userDataToUpdate);
+        const profileResponse = await apiFetch<UserData>("/user_edits/me", {
+            method: "PUT",
+            headers: { 
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${token}`
+            },
+            data: userDataToUpdate, 
+        });
+
+        let updatedUser = profileResponse;
+        if ('error' in updatedUser) {
+             let message = "Ошибка обновления данных профиля";
+             const errorDetails = (updatedUser as unknown as { error?: unknown }).error;
+             if (typeof errorDetails === 'string') {
+                 message = errorDetails;
+             }
+            throw new Error(message);
+        } else if ('aborted' in updatedUser) {
+            throw new Error("Запрос на обновление профиля был прерван.");
+        }
+
+        if (shouldDeleteAvatar) {
+             console.log("ProfilePage: Avatar deletion requested...");
+             if (updatedUser && 'id' in updatedUser) {
+                 updatedUser.avatar_url = undefined;
+             }
+            const avatarCacheBuster = Date.now();
+            localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
+            const storedUserData = localStorage.getItem('userData');
+            if (storedUserData) {
+                try {
+                    const parsedUserData = JSON.parse(storedUserData);
+                    parsedUserData.avatar_url = null;
+                    localStorage.setItem('userData', JSON.stringify(parsedUserData));
+                } catch (e) { console.error("ProfilePage: Error updating userData in localStorage:", e); }
+            }
+            const originalAvatarUrl = localStorage.getItem('original_avatar_url');
+            if (originalAvatarUrl) {
+                const invalidateUrl = `${originalAvatarUrl}?clear=${Date.now()}`;
+                const img = document.createElement('img');
+                img.src = invalidateUrl;
+                setTimeout(() => { img.src = ''; }, 100);
+            }
+             if (typeof window !== 'undefined') {
+                const avatarRemovedEvent = new CustomEvent('userDataChanged', {
+                    detail: { userData: updatedUser, avatarRemoved: true }
+                });
+                window.dispatchEvent(avatarRemovedEvent);
+            }
+        }
+
+        if (selectedFile) {
+            try {
+                const formData = new FormData();
+                formData.append("file", selectedFile);
+                formData.append("user_id", userData.id.toString());
+                const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
+                    method: "POST", 
+                    data: formData,
+                    headers: { "Authorization": `Bearer ${token}` },
+                });
+                if ('error' in avatarResponse) {
+                    console.error("Ошибка загрузки аватарки:", avatarResponse);
+                    setFetchError("Не удалось загрузить аватар. Данные профиля сохранены."); 
+                } else if (!('aborted' in avatarResponse)) {
+                    updatedUser = avatarResponse;
+                    if (updatedUser.avatar_url) {
+                        const avatarCacheBuster = Date.now();
+                        localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
+                         if (typeof window !== 'undefined') {
+                            const avatarEvent = new CustomEvent('avatar-updated', {
+                                detail: { userData: updatedUser, newAvatarUrl: updatedUser.avatar_url, timestamp: avatarCacheBuster }
+                            });
+                            window.dispatchEvent(avatarEvent);
+                            const userDataEvent = new CustomEvent('userDataChanged', {
+                                detail: { userData: updatedUser, avatarRemoved: false }
+                            });
+                            window.dispatchEvent(userDataEvent);
+                        }
+                    }
+                }
+            } catch (avatarError) {
+                console.error("Ошибка при загрузке аватарки:", avatarError);
+                setFetchError("Не удалось загрузить аватар. Данные профиля сохранены."); 
+            }
+        }
+
+        if (updatedUser && 'fio' in updatedUser) { 
+             if (shouldDeleteAvatar) {
+                updatedUser.avatar_url = undefined;
+            }
+            const updatedData = {
+                fio: updatedUser.fio || "",
+                telegram: updatedUser.telegram || "",
+                whatsapp: updatedUser.whatsapp || "",
+                avatarPreview: updatedUser.avatar_url || null,
+                email: updatedUser.email || "",
+            };
+            setFormState(updatedData);
+            setInitialFormState(updatedData);
+            updateUserData(updatedUser, false); 
+            setUpdateSuccess("Профиль успешно обновлен!");
+            setShouldDeleteAvatar(false); 
+            setSelectedFile(null);
+            setIsEditing(false); 
+            if (needsTicketsRefresh.current) {
+                ticketsRef.current?.refreshTickets();
+                needsTicketsRefresh.current = false; 
+            }
+            setStage(LoadingStage.COMPLETED);
+        } else {
+             throw new Error("Не удалось обработать ответ сервера после обновления профиля.");
+        }
+
+    } catch (err) {
+        console.error("Submit Profile Error:", err);
+        const errorMsg = err instanceof Error ? err.message : "Ошибка обновления профиля";
+        setFetchError(errorMsg);
+        setLoadingError(errorMsg);
+        setStage(LoadingStage.ERROR);
+    } finally {
+        isSubmitting.current = false;
+        if (updateSuccess) setTimeout(() => setUpdateSuccess(null), 3000);
+        if (fetchError) setTimeout(() => setFetchError(null), 5000);
+    }
+  };
+
+  if (authLoading || (isAuth && currentStage < LoadingStage.DYNAMIC_CONTENT && currentStage !== LoadingStage.ERROR)) {
+      return (
+          <div className="flex justify-center items-center min-h-screen">
+              <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent"></div>
+          </div>
+      );
+  }
+
+  if (!isAuth) { 
+      return null; 
+  }
+  
+  if (currentStage === LoadingStage.ERROR && loadingError && !fetchError) {
+      return <ErrorDisplay error={`Ошибка загрузки: ${loadingError}`} />;
+  }
+
+  if (!userData) {
+       return <ErrorDisplay error="Данные пользователя не загружены." />;
+  }
+
+  console.log("ProfilePage: Render end");
   return (
     <div className="container mx-auto px-4 py-6 mt-16 min-h-[calc(100vh-4rem)] flex items-center justify-center">
       <div className="w-full max-w-2xl">
@@ -560,52 +403,37 @@ const ProfilePage: React.FC = () => {
           <div className="flex flex-col items-center gap-4 mb-6">
             <div className="relative group w-24 h-24">
               {formState.avatarPreview ? (
-                // Check if the avatar is a data URI (starts with 'data:')
                 formState.avatarPreview.startsWith('data:') ? (
-                  // Use Next.js Image component for data URIs to fix ESLint warning
                   <Image
                     src={formState.avatarPreview}
                     alt="Аватар"
                     width={96}
                     height={96}
                     className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
-                    onLoad={() => {
-                      console.log("ProfilePage: Аватарка (data URI) успешно загружена");
-                    }}
+                    onLoad={() => console.log("ProfilePage: Аватарка (data URI) успешно загружена")}
                     onError={() => {
                       console.error("Ошибка загрузки data URI аватарки в профиле");
                       setFormState((prev) => ({ ...prev, avatarPreview: null }));
                     }}
-                    unoptimized // This ensures data URIs work with Next.js Image
+                    unoptimized 
                     priority
                   />
                 ) : (
-                  // Use Next.js Image for normal URLs
                   <Image
                     src={`${formState.avatarPreview}?t=${localStorage.getItem('avatar_cache_buster') || Date.now()}`}
                     alt="Аватар"
                     width={96}
                     height={96}
                     className="w-full h-full rounded-full object-cover border-2 border-gray-200 group-hover:border-orange-500 transition-colors"
-                    onLoad={() => {
-                      console.log("ProfilePage: Аватарка успешно загружена:", formState.avatarPreview);
-                    }}
+                    onLoad={() => console.log("ProfilePage: Аватарка успешно загружена:", formState.avatarPreview)}
                     onError={() => {
                       console.error("Ошибка загрузки изображения аватарки в профиле:", formState.avatarPreview);
-                      console.error("Текущее состояние формы:", { 
-                        fio: formState.fio,
-                        hasAvatar: !!formState.avatarPreview 
-                      });
-                      
-                      // Try to load from localStorage if direct load fails
                       const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
                       if (cachedAvatarUrl && cachedAvatarUrl !== formState.avatarPreview) {
                         console.log("ProfilePage: Trying to load avatar from cache:", cachedAvatarUrl);
                         setFormState(prev => ({ ...prev, avatarPreview: cachedAvatarUrl }));
                         return;
                       }
-                      
-                      // Пытаемся загрузить изображение напрямую для проверки доступности
                       if (typeof window !== 'undefined' && formState.avatarPreview) {
                         const testImg = document.createElement('img');
                         testImg.onload = () => console.log("Тест прямой загрузки аватарки успешен");
@@ -628,6 +456,7 @@ const ProfilePage: React.FC = () => {
                   <button
                     onClick={() => fileInputRef.current?.click()}
                     className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-40 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Сменить аватар"
                   >
                     <motion.div
                       initial={{ scale: 0 }}
@@ -643,6 +472,7 @@ const ProfilePage: React.FC = () => {
                       className="absolute top-0 right-0 bg-red-500 text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-red-600 z-10"
                       style={{ width: '18px', height: '18px', transform: 'translate(25%, -25%)' }}
                       title="Удалить аватар"
+                      aria-label="Удалить аватар"
                     >
                       <FaTrash style={{ width: '8px', height: '8px' }} />
                     </div>
@@ -664,45 +494,54 @@ const ProfilePage: React.FC = () => {
           </div>
           {isEditing ? (
             <form onSubmit={handleSubmit} className="space-y-4">
-              <InputField
-                type="text"
-                name="fio"
-                value={formState.fio}
-                onChange={handleChange}
-                placeholder="Введите ваше ФИО"
-                icon={FaUser}
-                required
-                className="form-input"
-              />
-              {validationErrors.fio && <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>}
-              <InputField
-                type="text"
-                name="telegram"
-                value={formState.telegram}
-                onChange={handleChange}
-                placeholder="Telegram (например, @username)"
-                icon={FaTelegramPlane}
-                required
-                className="form-input"
-              />
-              {validationErrors.telegram && <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>}
-              <InputField
-                type="text"
-                name="whatsapp"
-                value={formState.whatsapp}
-                onChange={handleChange}
-                placeholder="WhatsApp (только цифры)"
-                icon={FaWhatsapp}
-                required
-                className="form-input"
-              />
-              {validationErrors.whatsapp && <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>}
+              <div>
+                <InputField
+                  type="text"
+                  placeholder="ФИО"
+                  name="fio"
+                  value={formState.fio}
+                  onChange={handleChange}
+                  icon={FaUser}
+                  required
+                />
+                {validationErrors.fio && (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors.fio}</p>
+                )}
+              </div>
+              <div>
+                <InputField
+                  type="text"
+                  placeholder="Telegram (@username)"
+                  name="telegram"
+                  value={formState.telegram}
+                  onChange={handleChange}
+                  icon={FaTelegramPlane}
+                  required
+                />
+                {validationErrors.telegram && (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors.telegram}</p>
+                )}
+              </div>
+              <div>
+                <InputField
+                  type="tel"
+                  placeholder="WhatsApp (только цифры)"
+                  name="whatsapp"
+                  value={formState.whatsapp}
+                  onChange={handleChange}
+                  icon={FaWhatsapp}
+                  required
+                />
+                {validationErrors.whatsapp && (
+                  <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
+                )}
+              </div>
               <button
                 type="submit"
-                disabled={Object.keys(validationErrors).length > 0 || isSubmitting.current}
-                className={`btn btn-primary w-full ${Object.keys(validationErrors).length > 0 || isSubmitting.current ? "opacity-50 cursor-not-allowed" : ""}`}
+                disabled={Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT}
+                className={`btn btn-primary w-full ${Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT ? "opacity-50 cursor-not-allowed" : ""}`}
               >
-                Сохранить
+                 {(isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT) ? "Сохранение..." : "Сохранить"}
               </button>
             </form>
           ) : (
@@ -733,14 +572,13 @@ const ProfilePage: React.FC = () => {
           {updateSuccess && <SuccessDisplay message={updateSuccess} className="mt-4" />}
         </div>
         
-        {/* Заменяем Suspense на простое условное отображение */}
         {isAuth && (
           <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
             <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
+            <>{console.log("ProfilePage: Rendering UserEventTickets component")}</>
             <UserEventTickets 
               ref={ticketsRef} 
               needsRefresh={needsTicketsRefresh}
-              forceUpdateTrigger={forceUpdateTrigger}
             />
           </div>
         )}

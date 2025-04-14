@@ -2,7 +2,9 @@ import React, { useEffect, useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck, FaFilter } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
-import { useLoading } from "@/contexts/LoadingContextLegacy";
+import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
+import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
+import { LoadingStage } from '@/contexts/loading/types';
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -474,78 +476,75 @@ interface UserEventTicketsProps {
 }
 
 export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
-  ({ needsRefresh, forceUpdateTrigger = 0, containerRef }, ref) => {
-  // Упрощенное состояние с использованием кэша
-  const [tickets, setTickets] = useState<UserTicket[]>(globalTicketsCache.data);
-  const [isLoading, setIsLoading] = useState(globalTicketsCache.data.length === 0);
-  const [error, setError] = useState<string | null>(null);
-  const { setDynamicLoading } = useLoading();
-  const { userData } = useAuth();
+  ({ needsRefresh: externalNeedsRefresh, containerRef: externalContainerRef }, ref) => {
+  console.log("UserEventTickets: Component function start"); // Лог 5: Начало функции компонента
+  const { isAuth, userData } = useAuth();
+  const { currentStage, setStage } = useLoadingStage();
+  const { error: loadingError, setError: setLoadingError } = useLoadingError();
   const router = useRouter();
   
-  // Состояние фильтра - по умолчанию "approved"
-  const [activeFilter, setActiveFilter] = useState<TicketFilter>("approved");
-  const [dateRange, setDateRange] = useState({ 
-    startDate: '', 
-    endDate: ''
+  // Инициализация состояний с учетом кэша
+  const [tickets, setTickets] = useState<UserTicket[]>(() => {
+     const cacheIsFresh = Date.now() - globalTicketsCache.lastFetched <= 180000; // 3 минуты
+     if (globalTicketsCache.data.length > 0 && cacheIsFresh) {
+        console.log("UserEventTickets: Initializing tickets state from fresh cache");
+        return globalTicketsCache.data;
+     }
+     console.log("UserEventTickets: Initializing tickets state as empty (no fresh cache)");
+     return [];
   });
-  const [filteredTickets, setFilteredTickets] = useState<UserTicket[]>(tickets);
-  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
-  
-  // Определение фильтров - нужно для отображения названия текущего фильтра в кнопке
-  const filters: { id: TicketFilter; label: string; description: string }[] = [
-    { id: "approved", label: "Подтвержденные", description: "Только подтвержденные билеты" },
-    { id: "cancelled", label: "Отмененные", description: "Только отмененные билеты" },
-    { id: "completed", label: "Завершенные", description: "Билеты мероприятий в статусе завершено" }
-  ];
-  
-  // Базовые флаги
-  const isMounted = useRef(true);
-  const fetchInProgress = useRef(false);
-  const mountCount = useRef(0);
-  
-  // Пагинация
-  const [page, setPage] = useState(globalTicketsCache.currentPage);
-  const [hasMore, setHasMore] = useState(globalTicketsCache.hasMore);
+  const [filteredTickets, setFilteredTickets] = useState<UserTicket[]>(tickets); // Инициализируем отфильтрованные сразу
+  const [page, setPage] = useState(() => globalTicketsCache.currentPage);
+  const [hasMore, setHasMore] = useState(() => globalTicketsCache.hasMore);
+  const [isInitialLoading, setIsInitialLoading] = useState(() => {
+     const cacheIsFresh = Date.now() - globalTicketsCache.lastFetched <= 180000;
+     const shouldUseCache = globalTicketsCache.data.length > 0 && cacheIsFresh;
+     console.log(`UserEventTickets: Initializing isInitialLoading: ${!shouldUseCache} (shouldUseCache: ${shouldUseCache})`);
+     return !shouldUseCache; // Загрузка нужна, только если не используем свежий кэш
+  });
+
+  const [isFetching, setIsFetching] = useState(false); // Флаг активного запроса
+  const [localError, setLocalError] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const internalContainerRef = useRef<HTMLDivElement>(null);
-  const ticketsContainerRef = containerRef || internalContainerRef;
+  const ticketsContainerRef = externalContainerRef || internalContainerRef;
   const ticketsPerPage = 5;
-  
-  // Модальное окно
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<UserTicket | null>(null);
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelError, setCancelError] = useState<string | undefined>(undefined);
   const [cancelSuccess, setCancelSuccess] = useState<string | undefined>(undefined);
   const isTicketBeingCancelled = useRef(false);
-  
-  // Отображение подсказки о длительной загрузке
   const [showLoadingHint, setShowLoadingHint] = useState(false);
-  
-  // Функция для применения фильтров к билетам
+
+  const [activeFilter, setActiveFilter] = useState<TicketFilter>("approved");
+  const [dateRange, setDateRange] = useState({ 
+    startDate: '', 
+    endDate: ''
+  });
+
+  const filters: { id: TicketFilter; label: string; description: string }[] = [
+    { id: "approved", label: "Подтвержденные", description: "Только подтвержденные билеты" },
+    { id: "cancelled", label: "Отмененные", description: "Только отмененные билеты" },
+    { id: "completed", label: "Завершенные", description: "Билеты мероприятий в статусе завершено" }
+  ];
+
   const applyFilter = useCallback((tickets: UserTicket[], filter: TicketFilter) => {
-    // Сначала применяем фильтрацию по статусу
     const filteredByStatus = tickets.filter(ticket => {
-      // Проверяем статус события для фильтра "completed"
       const isEventCompleted = ticket.event.status === "completed";
       
       switch (filter) {
         case "approved":
-          // Подтвержденные билеты
           return ticket.status === "approved";
         case "cancelled":
-          // Отмененные билеты
           return ticket.status === "cancelled";
         case "completed":
-          // Завершенные билеты (мероприятия имеют статус completed)
           return ticket.status === "approved" && isEventCompleted;
         default:
           return true;
       }
     });
     
-    // Затем, если задан диапазон дат, фильтруем по датам
     if (dateRange.startDate && dateRange.endDate) {
       const startFilterDate = new Date(dateRange.startDate);
       startFilterDate.setHours(0, 0, 0, 0);
@@ -562,29 +561,10 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     return filteredByStatus;
   }, [dateRange]);
   
-  // Обновляем отфильтрованные билеты при изменении фильтра или списка билетов
   useEffect(() => {
     setFilteredTickets(applyFilter(tickets, activeFilter));
   }, [tickets, activeFilter, applyFilter]);
 
-  // Отслеживаем монтирование/размонтирование компонента
-  useEffect(() => {
-    mountCount.current += 1;
-    console.log(`UserEventTickets: Component mounted, mount #${mountCount.current}`);
-    isMounted.current = true;
-    
-    return () => {
-      console.log(`UserEventTickets: Component unmounting, mount #${mountCount.current}`);
-      isMounted.current = false;
-      
-      // Сбрасываем состояние загрузки при размонтировании
-      if (isLoading) {
-        setDynamicLoading(false);
-      }
-    };
-  }, [isLoading, setDynamicLoading]);
-
-  // Функции обработки билетов
   const shouldReplaceTicket = useCallback((existing: UserTicket, newTicket: UserTicket): boolean => {
     const statusPriority = { "approved": 0, "pending": 1, "cancelled": 2, "rejected": 3 };
     return statusPriority[newTicket.status] < statusPriority[existing.status];
@@ -614,42 +594,37 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     return sortByStatusAndDate(Array.from(uniqueTicketsMap.values()).filter(t => t.status !== "cancelled"));
   }, [shouldReplaceTicket, sortByStatusAndDate]);
 
-  // Функция загрузки билетов
-  const fetchTickets = useCallback(async () => {
-    if (fetchInProgress.current || !isMounted.current) {
-      console.log("UserEventTickets: Skip fetch - already in progress or unmounted");
+  const fetchTickets = useCallback(async (pageToFetch = 1, abortController?: AbortController) => {
+    if (!isAuth || !userData || !userData.id) {
+      console.log("UserEventTickets: Пользователь не авторизован или нет userData.id, прерывание загрузки билетов.");
       return;
     }
-    
-    fetchInProgress.current = true;
-    setIsLoading(true);
-    setDynamicLoading(true);
-    
+    setStage(LoadingStage.DYNAMIC_CONTENT);
+    setLoadingError(null);
+    setLocalError(null);
+    console.log(`UserEventTickets: Загрузка билетов, страница ${pageToFetch}, userId: ${userData.id}`);
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error("UserEventTickets: Токен не найден.");
+      setLocalError("Ошибка аутентификации.");
+      setStage(LoadingStage.ERROR);
+      setLoadingError("Ошибка аутентификации.");
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.log("UserEventTickets: No token found");
-        setError("Необходима авторизация");
-        setIsLoading(false);
-        setDynamicLoading(false);
-        router.push('/');
-        return;
-      }
-      
-      // Если фильтр не "all", передаем статус в параметры запроса
       const params: Record<string, string | number> = {
         _nocache: Date.now(),
-        page: 1,
+        page: pageToFetch,
         per_page: ticketsPerPage
       };
 
-      // Добавляем фильтр по статусу в зависимости от выбранного фильтра
       if (activeFilter === "approved") {
         params.status = "approved";
       } else if (activeFilter === "completed") {
         params.status = "cancelled,rejected";
       } else {
-        // Для всех остальных случаев получаем все билеты
         params.status = "approved,pending,cancelled,rejected";
       }
       
@@ -661,12 +636,14 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
           'Authorization': `Bearer ${token}`
         },
         bypassLoadingStageCheck: true,
-        params
+        params,
+        signal: abortController?.signal
       });
       
-      if (!isMounted.current) return;
-      
-      console.log('UserEventTickets: Tickets received', response);
+      if (!response || response.aborted) {
+        console.log("UserEventTickets: Запрос на загрузку билетов прерван.");
+        return;
+      }
       
       let ticketsData: UserTicket[] = [];
       if (Array.isArray(response)) {
@@ -685,120 +662,117 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       
       const processedTickets = processTickets(ticketsData);
       
-      // Обновляем локальное состояние
       setTickets(processedTickets);
-      setPage(1);
+      setPage(pageToFetch);
       setHasMore(processedTickets.length >= ticketsPerPage);
-      setIsLoading(false);
-      setDynamicLoading(false);
-      setError(null);
+      setIsLoadingMore(false);
+      setIsFetching(false);
+      setIsInitialLoading(false);
+      setLocalError(null);
       
-      // Обновляем глобальный кэш
       globalTicketsCache.data = processedTickets;
       globalTicketsCache.count = processedTickets.length;
       globalTicketsCache.status = 'success';
       globalTicketsCache.lastFetched = Date.now();
       globalTicketsCache.hasMore = processedTickets.length >= ticketsPerPage;
-      globalTicketsCache.currentPage = 1;
+      globalTicketsCache.currentPage = pageToFetch;
       globalTicketsCache.logCacheUpdate('fetchTickets');
       
       console.log('UserEventTickets: Ticket loading complete');
-    } catch (err) {
-      console.error('UserEventTickets: Error loading tickets', err);
-      if (isMounted.current) {
-        setError(err instanceof Error ? err.message : 'Ошибка при загрузке данных');
-        setIsLoading(false);
-        setDynamicLoading(false);
-        
-        globalTicketsCache.status = 'error';
-        globalTicketsCache.logCacheUpdate('fetchTickets-error');
+      setStage(LoadingStage.COMPLETED);
+    } catch (err: any) {
+      if (err.name === 'AbortError') {
+        console.log("UserEventTickets: Запрос на загрузку билетов прерван.");
+      } else {
+        const errorMsg = err instanceof Error ? err.message : "Не удалось загрузить билеты";
+        console.error("UserEventTickets: Исключение при загрузке билетов:", err);
+        setLocalError(`Критическая ошибка: ${errorMsg}`);
+        setLoadingError(errorMsg);
+        setStage(LoadingStage.ERROR);
       }
     } finally {
-      fetchInProgress.current = false;
+      console.log("UserEventTickets: Завершение fetchTickets finally.");
+      if (currentStage !== LoadingStage.ERROR) {
+         setStage(LoadingStage.COMPLETED);
+      }
+      setIsFetching(false);
+      setIsInitialLoading(false);
     }
-  }, [setDynamicLoading, router, processTickets, ticketsPerPage, activeFilter]);
-  
-  // Загрузка дополнительных билетов при прокрутке
+  }, [setStage, processTickets, ticketsPerPage, activeFilter, dateRange, isAuth, userData, setLoadingError, setLocalError, setTickets, setPage, setHasMore, setIsLoadingMore, setIsFetching, setIsInitialLoading, globalTicketsCache]);
+
+  // --- Новый useEffect для инициализации и проверки кэша ---
+  useEffect(() => {
+    console.log("UserEventTickets: Init useEffect start"); // Лог 6: Начало useEffect инициализации
+    if (!isAuth || !userData) {
+      console.log("UserEventTickets: Init useEffect - waiting for auth");
+      return; // Ждем авторизации
+    }
+
+    const cacheIsStale = Date.now() - globalTicketsCache.lastFetched > 180000; // 3 минуты
+    const cacheIsEmpty = globalTicketsCache.data.length === 0;
+
+    if (cacheIsEmpty || cacheIsStale) {
+       // Только если isInitialLoading все еще true (т.е. мы не загрузились из кэша в useState)
+       if (isInitialLoading) {
+            if (cacheIsEmpty) {
+                console.log('UserEventTickets: Init useEffect - Cache empty, fetching tickets...');
+            } else {
+                console.log('UserEventTickets: Init useEffect - Cache stale, fetching tickets...');
+            }
+            fetchTickets(1); // Запускаем начальную загрузку
+       } else {
+           console.log('UserEventTickets: Init useEffect - Cache stale/empty, but initial load already handled (likely from cache).');
+       }
+    } else {
+      console.log('UserEventTickets: Init useEffect - Using recent cached data.');
+      // Если мы дошли сюда, значит кэш свежий и не пустой.
+      // Убедимся, что isInitialLoading точно false, если вдруг useState не справился
+      if (isInitialLoading) {
+          console.warn("UserEventTickets: Init useEffect - Forcing isInitialLoading to false as cache is fresh.");
+          setIsInitialLoading(false);
+      }
+      // Обновим tickets из кэша на случай, если он изменился с момента инициализации useState
+      // (маловероятно, но для надежности)
+      if (JSON.stringify(tickets) !== JSON.stringify(globalTicketsCache.data)) {
+          console.log("UserEventTickets: Init useEffect - Updating tickets state from fresh cache again.");
+          setTickets(globalTicketsCache.data);
+      }
+    }
+
+    // Страховочный таймер
+    const safetyTimeout = setTimeout(() => {
+      // Проверяем isInitialLoading снова, т.к. fetchTickets мог завершиться
+      if (isInitialLoading) {
+        console.warn("UserEventTickets: Initial load safety timeout reached while still loading.");
+        setIsInitialLoading(false); // Принудительно выключаем лоадер
+        if(currentStage === LoadingStage.DYNAMIC_CONTENT) {
+           setStage(LoadingStage.COMPLETED); // Считаем условно завершенным
+        }
+      }
+    }, 15000);
+
+    return () => {
+      console.log("UserEventTickets: Init useEffect cleanup"); // Лог 7: Очистка useEffect инициализации
+      clearTimeout(safetyTimeout)
+    };
+
+  }, [isAuth, userData, fetchTickets, isInitialLoading]); // Добавляем isInitialLoading в зависимости, чтобы реагировать на его ИЗМЕНЕНИЕ
+
   const loadMoreTickets = useCallback(async () => {
-    if (isLoadingMore || !hasMore || fetchInProgress.current) return;
+    if (isLoadingMore || !hasMore || isFetching) return;
     
     setIsLoadingMore(true);
     const nextPage = page + 1;
     
     try {
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError("Необходима авторизация");
-        setIsLoadingMore(false);
-        return;
-      }
-      
-      const currentTicketIds = new Set(tickets.map(ticket => ticket.id));
-      
-      // Применяем те же параметры фильтрации, что и в основном запросе
-      const params: Record<string, string | number> = {
-        _nocache: Date.now(),
-        page: nextPage,
-        per_page: ticketsPerPage
-      };
-
-      // Добавляем фильтр по статусу в зависимости от выбранного фильтра
-      if (activeFilter === "approved") {
-        params.status = "approved";
-      } else if (activeFilter === "completed") {
-        params.status = "cancelled,rejected";
-      } else {
-        // Для всех остальных случаев получаем все билеты
-        params.status = "approved,pending,cancelled,rejected";
-      }
-      
-      const response = await apiFetch<APIResponse<UserTicket[]>>("/user_edits/my-tickets", {
-        method: "GET",
-        headers: { "Authorization": `Bearer ${token}` },
-        bypassLoadingStageCheck: true,
-        params
-      });
-      
-      let ticketsData: UserTicket[] = [];
-      if (Array.isArray(response)) {
-        ticketsData = response;
-      } else if (response && !("aborted" in response)) {
-        if ("data" in response && response.data) {
-          ticketsData = Array.isArray(response.data) ? response.data : [response.data as UserTicket];
-        } else if ("items" in response && response.items) {
-          ticketsData = Array.isArray(response.items) ? response.items : [response.items as UserTicket];
-        } else if ("tickets" in response && response.tickets) {
-          ticketsData = Array.isArray(response.tickets) ? response.tickets : [response.tickets as UserTicket];
-        }
-      }
-      
-      const processedTickets = processTickets(ticketsData);
-      const newTickets = processedTickets.filter(ticket => !currentTicketIds.has(ticket.id));
-      
-      if (newTickets.length > 0) {
-        const updatedTickets = [...tickets, ...newTickets];
-        setTickets(updatedTickets);
-        setPage(nextPage);
-        setHasMore(newTickets.length >= ticketsPerPage);
-        
-        globalTicketsCache.data = updatedTickets;
-        globalTicketsCache.count = updatedTickets.length;
-        globalTicketsCache.hasMore = newTickets.length >= ticketsPerPage;
-        globalTicketsCache.currentPage = nextPage;
-        globalTicketsCache.logCacheUpdate('loadMoreTickets');
-      } else {
-        setHasMore(false);
-        globalTicketsCache.hasMore = false;
-        globalTicketsCache.logCacheUpdate('loadMoreTickets-no-more');
-      }
+      await fetchTickets(nextPage);
     } catch (err) {
       console.error("UserEventTickets: Error loading more tickets", err);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [isLoadingMore, hasMore, page, tickets, processTickets, setError, setTickets, setPage, setHasMore, ticketsPerPage, activeFilter]);
+  }, [isLoadingMore, hasMore, page, fetchTickets, isFetching]);
 
-  // Слушатель прокрутки для бесконечной загрузки
   useEffect(() => {
     const container = ticketsContainerRef.current;
     if (!container) return;
@@ -814,11 +788,10 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     return () => container.removeEventListener('scroll', handleScroll);
   }, [isLoadingMore, hasMore, loadMoreTickets, ticketsContainerRef]);
   
-  // Отображение подсказки при длительной загрузке
   useEffect(() => {
     let timeout: NodeJS.Timeout | null = null;
     
-    if (isLoading) {
+    if (isFetching) {
       timeout = setTimeout(() => {
         setShowLoadingHint(true);
       }, 3000);
@@ -829,38 +802,34 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     return () => {
       if (timeout) clearTimeout(timeout);
     };
-  }, [isLoading]);
+  }, [isFetching]);
   
-  // Автоматическая попытка восстановления после длительной загрузки
   useEffect(() => {
     const timeout = setTimeout(() => {
-      if (isLoading && tickets.length === 0 && !error && isMounted.current) {
+      if (isFetching && tickets.length === 0 && !localError && isAuth && userData && isInitialLoading) {
         console.log('UserEventTickets: Auto-retry after long loading');
-        fetchInProgress.current = false;
-        fetchTickets();
+        fetchTickets(1);
       }
     }, 10000);
     
     return () => clearTimeout(timeout);
-  }, [isLoading, tickets.length, error, fetchTickets]);
+  }, [isFetching, tickets.length, localError, isAuth, userData, isInitialLoading, fetchTickets]);
 
-  // Метод для обновления билетов из родительского компонента
   React.useImperativeHandle(ref, () => ({
     refreshTickets: () => {
-      if (!fetchInProgress.current && isMounted.current) {
+      if (!isFetching && isAuth && userData && isInitialLoading) {
         console.log('UserEventTickets: Manual refresh via ref');
-        fetchTickets();
+        fetchTickets(1);
       }
     }
-  }), [fetchTickets]);
+  }), [isFetching, isAuth, userData, isInitialLoading, fetchTickets]);
 
-  // Слушатель событий обновления билетов
   useEffect(() => {
     const handleTicketUpdate = (event: Event) => {
-      if (!isMounted.current || isTicketBeingCancelled.current) return;
+      if (!isAuth || isTicketBeingCancelled.current) return;
       
       if (event instanceof CustomEvent && event.detail && event.detail.source === 'user-event-tickets') {
-        return; // Игнорируем собственные события
+        return;
       }
       
       if (event instanceof CustomEvent && event.detail) {
@@ -869,7 +838,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         if (needsRefresh === false) return;
         
         if (source === 'event-registration' && action === 'register' && newTicket) {
-          // Добавляем новый билет
           const updatedTickets = [...tickets];
           if (!updatedTickets.some(t => t.id === newTicket.id)) {
             updatedTickets.push(newTicket);
@@ -882,8 +850,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
           return;
         }
         
-        // Для всех остальных событий делаем полное обновление
-        if (!fetchInProgress.current) {
+        if (!isFetching) {
           fetchTickets();
         }
       }
@@ -891,61 +858,13 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     
     window.addEventListener('ticket-update', handleTicketUpdate);
     return () => window.removeEventListener('ticket-update', handleTicketUpdate);
-  }, [fetchTickets, tickets]);
+  }, [isAuth, isTicketBeingCancelled, tickets, fetchTickets, isFetching]);
 
-  // Основной эффект инициализации
-  useEffect(() => {
-    // У нас уже есть кэшированные данные?
-    if (globalTicketsCache.data.length > 0) {
-      // Проверяем, нужно ли обновить (старше 3 минут)
-      const needsRefresh = Date.now() - globalTicketsCache.lastFetched > 180000;
-      
-      if (needsRefresh && !fetchInProgress.current) {
-        console.log('UserEventTickets: Cached data is stale, refreshing');
-        fetchTickets();
-      } else {
-        console.log('UserEventTickets: Using recent cached data');
-        setIsLoading(false);
-      }
-    } else {
-      // Нет данных - загружаем
-      console.log('UserEventTickets: No cached data, fetching tickets');
-      fetchTickets();
-    }
-    
-    // Безопасный таймаут для сброса состояния загрузки
-    const safetyTimeout = setTimeout(() => {
-      if (isMounted.current && isLoading) {
-        setIsLoading(false);
-        setDynamicLoading(false);
-      }
-    }, 15000);
-    
-    return () => clearTimeout(safetyTimeout);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Обработка forceUpdateTrigger и needsRefresh
-  useEffect(() => {
-    if (!isMounted.current) return;
-    
-    if (forceUpdateTrigger > 0 && !fetchInProgress.current && !isTicketBeingCancelled.current) {
-      console.log(`UserEventTickets: Force update #${forceUpdateTrigger}`);
-      fetchTickets();
-    }
-    
-    if (needsRefresh?.current && !fetchInProgress.current && !isTicketBeingCancelled.current) {
-      console.log('UserEventTickets: needsRefresh is true');
-      needsRefresh.current = false;
-      fetchTickets();
-    }
-  }, [forceUpdateTrigger, needsRefresh, fetchTickets]);
-  
-  // Обработка отмены билета
   const handleCancelClick = useCallback((ticket: UserTicket) => {
     setSelectedTicket(ticket);
     setCancelError(undefined);
     setCancelSuccess(undefined);
-    setIsModalOpen(true);
+    setIsFilterModalOpen(true);
   }, []);
   
   const handleCancelConfirm = async () => {
@@ -958,20 +877,29 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     setCancelError(undefined);
     setCancelSuccess(undefined);
     setCancelLoading(true);
-    
+    setStage(LoadingStage.DYNAMIC_CONTENT);
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setCancelError("Ошибка аутентификации.");
+      setCancelLoading(false);
+      setStage(LoadingStage.ERROR);
+      setLoadingError("Ошибка аутентификации.");
+      return;
+    }
+
     try {
-      if (!userData) throw new Error('Пользователь не авторизован');
-      
-      const response = await apiFetch(`/registration/cancel`, {
+      console.log(`UserEventTickets: Попытка отмены билета ID: ${selectedTicket.id}`);
+      const response = await apiFetch<APIResponse<any>>(`/tickets/${selectedTicket.id}/cancel`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}` 
+          'Authorization': `Bearer ${token}` 
         },
         bypassLoadingStageCheck: true,
         data: {
           event_id: selectedTicket.event.id,
-          user_id: userData.id  // Добавляем user_id в запрос, так как его ожидает бэкенд
+          user_id: userData.id
         }
       });
       
@@ -986,16 +914,13 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       
       setCancelSuccess('Билет успешно отменен!');
       
-      // Обновляем локальное состояние
       const updatedTickets = tickets.filter(ticket => ticket.id !== selectedTicket.id);
       setTickets(updatedTickets);
       
-      // Обновляем глобальный кэш
       globalTicketsCache.data = updatedTickets;
       globalTicketsCache.count = updatedTickets.length;
       globalTicketsCache.logCacheUpdate('handleCancelConfirm');
       
-      // Оповещаем приложение
       window.dispatchEvent(new CustomEvent('ticket-update', {
         detail: {
           source: 'user-event-tickets',
@@ -1006,24 +931,57 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         }
       }));
       
-      // Закрываем модальное окно
       setTimeout(() => {
-        setIsModalOpen(false);
+        setIsFilterModalOpen(false);
         setSelectedTicket(null);
         setCancelLoading(false);
         isTicketBeingCancelled.current = false;
       }, 1500);
-    } catch (err) {
-      setCancelError(err instanceof Error ? err.message : 'Не удалось отменить билет');
+    } catch (err: any) {
+      const errorMsg = err instanceof Error ? err.message : 'Не удалось отменить билет';
+      console.error(`UserEventTickets: Исключение при отмене билета ${selectedTicket?.id}:`, err);
+      setCancelError(errorMsg);
+      setLoadingError(errorMsg);
+      setStage(LoadingStage.ERROR);
+    } finally {
+      console.log(`UserEventTickets: Завершение отмены билета ${selectedTicket?.id} finally.`);
       setCancelLoading(false);
-      isTicketBeingCancelled.current = false;
+      if (currentStage !== LoadingStage.ERROR && !cancelError) {
+          setStage(LoadingStage.COMPLETED);
+      }
+      if (cancelSuccess || cancelError) {
+          setTimeout(() => {
+              if (cancelSuccess) {
+                  handleCancelClick(selectedTicket);
+              }
+          }, cancelSuccess ? 1500 : 3000);
+      } else {
+         handleCancelClick(selectedTicket);
+      }
     }
   };
 
-  if (error) {
+  // Отображение скелетонов во время начальной загрузки или загрузки дополнительных страниц
+  if (isInitialLoading) { // Показываем скелетон строго во время isInitialLoading
+    console.log("UserEventTickets: Rendering skeleton"); // Лог 8: Рендеринг скелетона
+    return (
+      <div className="space-y-4">
+        <TicketSkeleton />
+        {showLoadingHint && (
+          <div className="text-center mt-4 text-gray-500 text-sm animate-pulse">
+            Загрузка билетов может занять некоторое время...
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Отображение ошибки загрузки, если она есть
+  if (loadingError) {
+    console.log("UserEventTickets: Rendering loading error"); // Лог 9: Рендеринг ошибки
     return (
       <div className="text-center py-4">
-        <p className="text-red-500">{error}</p>
+        <p className="text-red-500">{loadingError}</p>
         <button
           onClick={fetchTickets}
           className="mt-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
@@ -1034,10 +992,12 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     );
   }
 
-    return (
-      <div className="h-full overflow-auto" ref={ticketsContainerRef}>
-      {isLoading && tickets.length === 0 ? (
+  console.log(`UserEventTickets: Rendering main content (tickets: ${filteredTickets.length})`); // Лог 10: Рендеринг основного контента
+  return (
+    <div className="h-full overflow-auto" ref={ticketsContainerRef}>
+      {isFetching && tickets.length === 0 ? (
         <div className="p-2">
+          <>{console.log("UserEventTickets: Rendering skeleton (isFetching && no tickets)")}</> {/* Лог 11 */}
           <TicketSkeleton />
           {showLoadingHint && (
             <div className="text-center mt-4 text-gray-500 text-sm animate-pulse">
@@ -1047,7 +1007,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         </div>
       ) : (
         <>
-          {/* Кнопка для открытия модального окна фильтрации */}
           <div className="flex justify-between items-center mb-4">
             <button
               onClick={() => setIsFilterModalOpen(true)}
@@ -1066,9 +1025,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
             </span>
           </div>
           
-          {error && (
+          {localError && tickets.length === 0 && (
             <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">
-              <p className="text-sm font-medium">{error}</p>
+              <p className="text-sm font-medium">{localError}</p>
             </div>
           )}
       
@@ -1084,7 +1043,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                       animate={{ opacity: 1 }}
                       className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
                     >
-                      {/* Top section: Title and Status */}
                       <div className="flex justify-between items-center mb-2">
                         <h3 className="text-lg font-semibold text-gray-800">
                           {ticket.event.title}
@@ -1109,17 +1067,14 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                       </div>
                       
                       <div className="flex h-full">
-                        {/* Вертикальный номер билета */}
                         <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
                           <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
-                            {/* Левая колонка - заголовок */}
                             <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
                               <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
                                 НОМЕР БИЛЕТА
                               </p>
                             </div>
                             
-                            {/* Правая колонка - номер */}
                             <div className="flex-1 flex items-center justify-center pl-1">
                               <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
                                 #{ticket.ticket_number || ticket.id}
@@ -1128,9 +1083,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                           </div>
                         </div>
                         
-                        {/* Основное содержимое */}
                         <div className="flex-1 ml-3">
-                          {/* Информация о событии */}
                           <div className="space-y-2">
                             <div className="flex items-start gap-2 text-sm text-gray-600">
                               <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
@@ -1159,7 +1112,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                               <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
                             </div>
                             
-                            {/* Последний элемент информации */}
                             <div className="flex items-start gap-2 text-sm text-gray-600">
                               <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
                               <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
@@ -1196,23 +1148,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
             </div>
           )}
           
-          {/* Модальное окно для подтверждения отмены билета */}
-          <ConfirmModal
-            isOpen={isModalOpen}
-            onClose={() => {
-              setIsModalOpen(false); 
-              setSelectedTicket(null);
-              isTicketBeingCancelled.current = false;
-            }}
-            onConfirm={handleCancelConfirm}
-            title="Отмена регистрации"
-            message={selectedTicket ? `Вы уверены, что хотите отменить регистрацию на мероприятие "${selectedTicket.event.title}"?` : ''}
-            isLoading={cancelLoading}
-            error={cancelError}
-            success={cancelSuccess}
-          />
-          
-          {/* Модальное окно фильтрации */}
           <FilterModal
             isOpen={isFilterModalOpen}
             onClose={() => setIsFilterModalOpen(false)}
@@ -1229,8 +1164,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
   }
 );
 
-// Добавляем displayName для улучшения отладки
 UserEventTickets.displayName = 'UserEventTickets';
 
-// Экспортируем оригинальный компонент
 export default UserEventTickets;

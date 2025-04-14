@@ -31,8 +31,8 @@ function LoadingStageConnector({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-// Новый компонент, обернутый в React.memo
-const LayoutContent = React.memo(({ children }: { children: React.ReactNode }) => {
+// Убираем React.memo
+const LayoutContent = ({ children }: { children: React.ReactNode }) => {
   return (
     <LoadingStageConnector>
       <AuthProvider>
@@ -42,7 +42,7 @@ const LayoutContent = React.memo(({ children }: { children: React.ReactNode }) =
       </AuthProvider>
     </LoadingStageConnector>
   );
-});
+};
 // Добавляем displayName для отладки
 LayoutContent.displayName = 'LayoutContent';
 

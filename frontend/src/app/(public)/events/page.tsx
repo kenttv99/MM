@@ -466,8 +466,11 @@ const EventsPage = () => {
   }, [activeFilters]);
 
   // Вспомогательная функция для запуска fetchEvents с заданными фильтрами
-  const fetchEventsWithFilters = useCallback(async (filters: DateFilters) => {
-    logger.info('Fetching events data', { page, hasFilters: filters.startDate || filters.endDate });
+  const fetchEventsWithFilters = useCallback(async (filters: DateFilters, forcePage?: number) => {
+    // Используем forcePage если он предоставлен, иначе берем текущее состояние page
+    const targetPage = forcePage !== undefined ? forcePage : page;
+    
+    logger.info('Fetching events data', { page: targetPage, hasFilters: filters.startDate || filters.endDate });
     setIsFetching(true);
 
     // ---> ИЗМЕНЕНИЕ ЗДЕСЬ: Устанавливаем скелетон ТОЛЬКО для первичной загрузки <--- 
@@ -493,14 +496,23 @@ const EventsPage = () => {
         startDate: hasActiveStartDate ? formatDateForAPI(filters.startDate) : '',
         endDate: hasActiveEndDate ? formatDateForAPI(filters.endDate) : ''
       };
+      
+      // Устанавливаем флаг попытки загрузки ТОЛЬКО перед фактическим вызовом API
       hasAttemptedInitialFetch.current = true;
-      fetchEventsService(page, serviceFilters, signal)
+      
+      logger.info('Making API call with filters', { 
+        page: targetPage, 
+        filters: serviceFilters, 
+        hasInitialData: hasInitialData.current 
+      });
+      
+      fetchEventsService(targetPage, serviceFilters, signal) // Используем targetPage здесь
         .then(response => {
           if (!isMounted.current) return;
           if (response.success) {
             const parsedData = {
               data: response.data || [],
-              page: response.page || page,
+              page: response.page || targetPage, // Используем targetPage для согласованности
               totalPages: response.totalPages || 1,
               hasMore: response.hasMore || false
             };
@@ -509,13 +521,15 @@ const EventsPage = () => {
                 const existingData = prev?.data || [];
                 const newData = parsedData?.data || [];
 
-                if (page === 1) {
+                // Если это первая страница (или принудительно задана первая), заменяем данные
+                if (targetPage === 1) {
                    return {
                        ...parsedData,
                        data: newData
                    };
                 }
 
+                // Иначе добавляем уникальные новые данные
                 const existingIds = new Set(existingData.map(e => e.id));
                 const uniqueNewData = newData.filter(event => !existingIds.has(event.id));
 
@@ -554,6 +568,8 @@ const EventsPage = () => {
         })
         .catch(error => {
           if (error instanceof Error && error.name === 'AbortError') {
+            // При отмене запроса НЕ сбрасываем флаг, так как будет новый запрос
+            logger.info('Request was aborted, waiting for new request');
             return;
           }
           logger.error('Error fetching events data', {
@@ -573,7 +589,7 @@ const EventsPage = () => {
           if (isMounted.current) {
             setIsFetching(false);
             lastFetchTime.current = Date.now();
-             // Убрали отсюда setShowInitialSkeleton(false)
+            // Убрали отсюда setShowInitialSkeleton(false)
           }
           if (abortControllerRef.current) {
             abortControllerRef.current = null;
@@ -587,7 +603,7 @@ const EventsPage = () => {
       // Скрываем начальный скелетон при критической ошибке
       setShowInitialSkeleton(false);
     }
-  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]); // Зависимости useCallback
+  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]); // Добавляем page в зависимости, т.к. используем его как fallback
 
   // Функция для сброса фильтров
   const handleResetFilters = useCallback(() => {
@@ -617,12 +633,11 @@ const EventsPage = () => {
     setStage(LoadingStage.DYNAMIC_CONTENT);
     setDynamicLoading(true);
     
-    // Запускаем обновленный запрос с короткой задержкой
-    setTimeout(() => {
-      if (isMounted.current) {
-        fetchEventsWithFilters({ startDate: "", endDate: "" });
-      }
-    }, 50);
+    // Запускаем запрос СРАЗУ после всех подготовительных действий, принудительно для page 1
+    if (isMounted.current) {
+      logger.info('Directly initiating fetch after filter reset for page 1');
+      fetchEventsWithFilters({ startDate: "", endDate: "" }, 1); // Передаем 1
+    }
   }, [activeFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
 
   // Функция для применения фильтров
@@ -645,20 +660,20 @@ const EventsPage = () => {
     
     // Показываем скелетон загрузки и сбрасываем флаги начальных данных
     setShowInitialSkeleton(true);
+    
+    // Сбрасываем флаги ДО запуска запроса
     hasInitialData.current = false;
-    hasAttemptedInitialFetch.current = false; // Сбрасываем флаг попытки загрузки
+    hasAttemptedInitialFetch.current = false;
     
     // Устанавливаем соответствующую стадию загрузки
     setStage(LoadingStage.DYNAMIC_CONTENT);
     setDynamicLoading(true);
     
-    // Запускаем запрос данных с примененными фильтрами
-    setTimeout(() => {
-      if (isMounted.current) {
-        // Напрямую используем актуальные значения tempFilters
-        fetchEventsWithFilters(tempFilters);
-      }
-    }, 50);
+    // Запускаем запрос СРАЗУ после всех подготовительных действий, принудительно для page 1
+    if (isMounted.current) {
+      logger.info('Directly initiating fetch after filter change for page 1');
+      fetchEventsWithFilters(tempFilters, 1); // Передаем 1
+    }
   }, [tempFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
 
   // Обработчик автоматической загрузки следующей страницы при прокрутке
@@ -700,7 +715,8 @@ const EventsPage = () => {
     // initial data is loaded, and we are not already fetching.
     if (page > 1 && hasMore && hasInitialData.current && !isFetching) {
       logger.info('[Page Change Effect] Fetching data for new page', { page, hasMore, activeFilters });
-      fetchEventsWithFilters(activeFilters);
+      // Здесь НЕ передаем forcePage, используем текущее состояние page
+      fetchEventsWithFilters(activeFilters); 
     } else if (page > 1 && !hasMore) {
         logger.info('[Page Change Effect] Page changed, but hasMore is false. No fetch.', { page });
     } else if (page > 1 && isFetching) {
@@ -718,7 +734,8 @@ const EventsPage = () => {
         // Повторная проверка монтирования и статуса загрузки
         if (isMounted.current && !isFetching) {
           logger.info('[Initial Load Effect] Initial fetch timer fired');
-          fetchEventsWithFilters({ startDate: "", endDate: "" }); // page === 1 по умолчанию
+          // Принудительно запрашиваем первую страницу при начальной загрузке
+          fetchEventsWithFilters({ startDate: "", endDate: "" }, 1); // Передаем 1
         }
       }, 50);
       return () => clearTimeout(initialFetchTimer);
@@ -787,7 +804,7 @@ const EventsPage = () => {
               setPage(1);
               hasInitialData.current = false;
               hasAttemptedInitialFetch.current = false;
-              fetchEventsWithFilters({ startDate: "", endDate: "" });
+              fetchEventsWithFilters({ startDate: "", endDate: "" }, 1);
             }}
             className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
           >

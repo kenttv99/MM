@@ -1058,6 +1058,28 @@ export const apiFetch = <T = unknown>(
     } catch (error) {
       // Handle network errors or other exceptions
        const networkError = error as Error;
+       
+       // Обработка AbortError как информационное сообщение, а не ошибку
+       if (networkError.name === 'AbortError') {
+         // Логируем как информацию для запроса, который был намеренно отменен
+         apiLogger.info('Request aborted', {
+           ...logContext,
+           reason: networkError.message || 'Request aborted'
+         });
+         
+         activeRequestCount--;
+         if (typeof window !== 'undefined') {
+           window.__activeRequestCount = activeRequestCount;
+         }
+         
+         // В случае AbortError возвращаем объект с признаком отмены
+         return resolve({
+           aborted: true,
+           reason: networkError.message || 'Request aborted'
+         } as unknown as T);
+       }
+       
+       // Остальные ошибки логируем как обычно
        apiLogger.error('Network or other fetch error', {
            ...logContext,
            errorName: networkError.name,

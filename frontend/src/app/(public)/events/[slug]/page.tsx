@@ -186,6 +186,8 @@ export default function EventPage() {
   const { error: loadingErrorFromContext, setError } = useLoadingError();
   const fetchAbortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(false);
+  const previousSlugRef = useRef<string | null>(null);
+  const eventCacheRef = useRef<Record<string, EventData>>({});
 
   // Функции логирования с разными уровнями
   type LogData = unknown;
@@ -394,6 +396,25 @@ export default function EventPage() {
       return;
     }
 
+    // Проверяем, изменился ли slug с предыдущего рендера
+    const slugChanged = previousSlugRef.current !== slug;
+    previousSlugRef.current = slug;
+
+    // Проверяем кэш перед выполнением нового запроса
+    if (!slugChanged && eventCacheRef.current[slug]) {
+      logInfo(`Using cached event data for slug: ${slug}`);
+      // Используем кэшированные данные вместо нового запроса
+      if (!event) {
+        setEvent(eventCacheRef.current[slug]);
+        
+        // Обновляем стадию загрузки, если нужно
+        if (currentStage === LoadingStage.STATIC_CONTENT) {
+          setStage(LoadingStage.DYNAMIC_CONTENT);
+        }
+      }
+      return;
+    }
+
     // Отменяем предыдущий запрос, если он еще выполняется
     if (fetchAbortControllerRef.current) {
       logInfo(`Aborting previous fetch request for slug: ${slug}`);
@@ -417,10 +438,10 @@ export default function EventPage() {
       }
       
       setError(null); // Сбрасываем предыдущую ошибку
-      // Сбрасываем предыдущие данные только если начинаем новую загрузку (из INITIAL)
-      // Если это повторный вызов (из-за StrictMode), а данные уже есть, не сбрасываем
-      if (currentStage === LoadingStage.INITIAL) {
-         setEvent(null); 
+      
+      // Сбрасываем данные только если изменился slug или это первая загрузка
+      if (slugChanged || !event) {
+        setEvent(null);
       }
 
       try {
@@ -439,26 +460,32 @@ export default function EventPage() {
           return;
         }
 
+        // Проверяем на признак отмены запроса
+        if (response && 'aborted' in response) {
+          logInfo(`Request properly aborted, no error needed for eventId: ${currentEventId}`);
+          return;
+        }
+
         logInfo("Raw response data", response);
 
-        // Обработка ответа от apiFetch
-        if ('aborted' in response) {
-           const abortedReason = (response as ApiAbortedResponse).reason || "Причина неизвестна";
-           logWarn("Request marked as aborted by apiFetch", { reason: abortedReason });
-        } else if ('error' in response) {
-           // Приводим тип через unknown
-           const errorResponse = response as unknown as ApiErrorResponse;
-          logError("API Error fetching event", errorResponse.error);
-          // Используем только errorResponse.error, так как message нет в типе
-          const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка загрузки данных мероприятия";
-          setError(errorMessage);
-          setStage(LoadingStage.ERROR);
-        } else if ('title' in response) {
+        // Проверяем, что ответ содержит нужную структуру данных
+        if (response && 'title' in response) {
           const eventData = response as EventData;
           logInfo(`Fetch successful for eventId: ${currentEventId}. Setting stage to DYNAMIC_CONTENT.`);
+          
+          // Сохраняем данные в кэше
+          eventCacheRef.current[slug] = eventData;
+          
           setEvent(eventData);
           saveEventToLocalStorage(eventData, slug); // Сохраняем в LS
-          setStage(LoadingStage.DYNAMIC_CONTENT); // Или COMPLETED, если нет динамики
+          
+          // Правильная последовательность стадий загрузки согласно документации
+          if (currentStage === LoadingStage.STATIC_CONTENT) {
+            setStage(LoadingStage.DYNAMIC_CONTENT);
+          } else if (currentStage === LoadingStage.DYNAMIC_CONTENT) {
+            // Если мы уже на этапе загрузки динамического контента, можно перейти к COMPLETED
+            setStage(LoadingStage.COMPLETED);
+          }
         } else {
           // Неожиданный формат ответа
           logWarn("Invalid event data received", response);
@@ -466,19 +493,24 @@ export default function EventPage() {
           setStage(LoadingStage.ERROR);
         }
       } catch (err) {
-         // Обработка ошибок fetch или других непредвиденных ошибок
-         if (err instanceof Error && err.name === 'AbortError') {
-           // Используем currentEventId в логе
-           logInfo(`Fetch explicitly aborted for eventId: ${currentEventId}`);
-           // Это ожидаемое поведение при быстрой смене slug или размонтировании, не ошибка
-         } else if (isMountedRef.current) {
-           // Обрабатываем другие ошибки только если компонент все еще смонтирован
-           // Используем currentEventId в логе
-           logError(`Unexpected error fetching event eventId: ${currentEventId}`, err);
-           const errorMessage = err instanceof Error ? err.message : "Неизвестная ошибка при загрузке мероприятия";
-           setError(errorMessage);
-           setStage(LoadingStage.ERROR);
-         }
+        // Обработка ошибок fetch или других непредвиденных ошибок
+        if (err instanceof Error && err.name === 'AbortError') {
+          // Используем currentEventId в логе
+          logInfo(`Fetch explicitly aborted for eventId: ${currentEventId}`);
+          // Это ожидаемое поведение при быстрой смене slug или размонтировании, не ошибка
+        } else if (isMountedRef.current) {
+          // Обрабатываем другие ошибки только если компонент все еще смонтирован
+          // Используем currentEventId в логе
+          logError(`Unexpected error fetching event eventId: ${currentEventId}`, err);
+          
+          // Специальная обработка сетевых ошибок
+          const errorMessage = err instanceof Error 
+            ? (err.message.includes("fetch") ? "Ошибка сети при загрузке мероприятия" : err.message)
+            : "Неизвестная ошибка при загрузке мероприятия";
+          
+          setError(errorMessage);
+          setStage(LoadingStage.ERROR);
+        }
       } finally {
           // Сбрасываем AbortController только если он принадлежит этому запросу
           if (fetchAbortControllerRef.current === controller) {
@@ -503,7 +535,8 @@ export default function EventPage() {
       }
     };
     // Зависимость только от slug (и стабильных функций контекста)
-  }, [slug, currentStage, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, currentStage, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage, event]);
 
   // 1. Сначала проверяем на ошибку
   if (currentStage === LoadingStage.ERROR) {
@@ -565,8 +598,42 @@ export default function EventPage() {
               className="mb-12"
             >
               <EventDetails
-                date={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
-                time={format(new Date(event.start_date), "HH:mm", { locale: ru })}
+                date={(() => {
+                  try {
+                    const dateObj = new Date(event.start_date);
+                    if (isNaN(dateObj.getTime())) {
+                      return "Загрузка...";
+                    }
+                    return format(dateObj, "d MMMM yyyy", { locale: ru });
+                  } catch (e) {
+                    console.error("Error formatting start_date:", e);
+                    return "Загрузка...";
+                  }
+                })()}
+                time={(() => {
+                  try {
+                    const startDate = new Date(event.start_date);
+                    
+                    if (isNaN(startDate.getTime())) {
+                      return "Загрузка...";
+                    }
+
+                    if (event.end_date) {
+                      const endDate = new Date(event.end_date);
+                      
+                      if (isNaN(endDate.getTime())) {
+                        return format(startDate, "HH:mm", { locale: ru });
+                      }
+                      
+                      return `${format(startDate, "HH:mm", { locale: ru })} - ${format(endDate, "HH:mm", { locale: ru })}`;
+                    }
+                    
+                    return format(startDate, "HH:mm", { locale: ru });
+                  } catch (e) {
+                    console.error("Error formatting time interval:", e);
+                    return "Загрузка...";
+                  }
+                })()}
                 location={event.location || "Не указано"}
                 price={event.price}
                 freeRegistration={event.ticket_type.free_registration}
@@ -602,8 +669,16 @@ export default function EventPage() {
                 <EventRegistration
                   eventId={validatedEventId}
                   eventTitle={event.title}
-                  eventDate={format(new Date(event.start_date), "d MMMM yyyy", { locale: ru })}
-                  eventTime={format(new Date(event.start_date), "HH:mm", { locale: ru })}
+                  eventDate={event.start_date}
+                  eventTime={(() => {
+                    try {
+                      const startDate = new Date(event.start_date);
+                      return isNaN(startDate.getTime()) ? "" : format(startDate, "HH:mm", { locale: ru });
+                    } catch (e) {
+                      console.error("Error formatting event time:", e);
+                      return "";
+                    }
+                  })()}
                   eventLocation={event.location || "Не указано"}
                   ticketType={event.ticket_type?.name || "Стандартный"}
                   availableQuantity={event.ticket_type?.available_quantity || 0}

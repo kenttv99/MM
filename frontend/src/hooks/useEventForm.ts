@@ -139,18 +139,40 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     } else if (eventCache[eventId] && !forceRefresh) {
       console.log(`Loading event ${eventId} from cache`);
       const cachedData = eventCache[eventId];
-      const startDate = new Date(cachedData.start_date);
-      const endDate = cachedData.end_date ? new Date(cachedData.end_date) : undefined;
       
-      // Извлекаем слаг без года и ID (формат: slug-год-ID)
+      // Правильно извлекаем дату и время из datetime строк
+      const startDateObj = new Date(cachedData.start_date);
+      let startDate = '';
+      let startTime = '';
+      
+      if (!isNaN(startDateObj.getTime())) {
+        startDate = startDateObj.toISOString().split("T")[0];
+        startTime = startDateObj.toTimeString().slice(0, 5);
+      } else {
+        console.warn('Invalid start date detected in cached data', cachedData.start_date);
+        startDate = new Date().toISOString().split("T")[0];
+        startTime = '00:00';
+      }
+      
+      let endDate = '';
+      let endTime = '';
+      
+      if (cachedData.end_date) {
+        const endDateObj = new Date(cachedData.end_date);
+        if (!isNaN(endDateObj.getTime())) {
+          endDate = endDateObj.toISOString().split("T")[0];
+          endTime = endDateObj.toTimeString().slice(0, 5);
+        } else {
+          console.warn('Invalid end date detected in cached data', cachedData.end_date);
+        }
+      }
+      
       let cleanSlug = '';
       if (cachedData.url_slug) {
-        // Разбиваем по дефисам и удаляем две последние части (год и ID)
         const slugParts = cachedData.url_slug.split('-');
         if (slugParts.length > 2) {
           cleanSlug = slugParts.slice(0, -2).join('-');
         } else {
-          // Если частей меньше 3, используем как есть (возможно, это уже чистый слаг)
           cleanSlug = cachedData.url_slug;
         }
         console.log(`Processing slug: ${cachedData.url_slug} -> ${cleanSlug}`);
@@ -158,10 +180,10 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       
       const mappedData: EventFormData = {
         ...cachedData,
-        start_date: startDate.toISOString().split("T")[0],
-        start_time: startDate.toTimeString().slice(0, 5),
-        end_date: endDate?.toISOString().split("T")[0] || "",
-        end_time: endDate?.toTimeString().slice(0, 5) || "",
+        start_date: startDate,
+        start_time: startTime,
+        end_date: endDate,
+        end_time: endTime,
         ticket_type_name: cachedData.ticket_type?.name || "standart",
         ticket_type_available_quantity: cachedData.ticket_type?.available_quantity || 0,
         ticket_type_sold_quantity: cachedData.ticket_type?.sold_quantity || 0,
@@ -214,9 +236,32 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
             
       if (!mounted.current) return;
       
-      // Маппинг данных остается прежним
-      const startDate = new Date(eventData.start_date);
-      const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
+      // Правильно извлекаем дату и время из datetime строк
+      const startDateObj = new Date(eventData.start_date);
+      let startDate = '';
+      let startTime = '';
+      
+      if (!isNaN(startDateObj.getTime())) {
+        startDate = startDateObj.toISOString().split("T")[0];
+        startTime = startDateObj.toTimeString().slice(0, 5);
+      } else {
+        console.warn('Invalid start date detected from server', eventData.start_date);
+        startDate = new Date().toISOString().split("T")[0];
+        startTime = '00:00';
+      }
+      
+      let endDate = '';
+      let endTime = '';
+      
+      if (eventData.end_date) {
+        const endDateObj = new Date(eventData.end_date);
+        if (!isNaN(endDateObj.getTime())) {
+          endDate = endDateObj.toISOString().split("T")[0];
+          endTime = endDateObj.toTimeString().slice(0, 5);
+        } else {
+          console.warn('Invalid end date detected from server', eventData.end_date);
+        }
+      }
       
       let cleanSlug = '';
       if (eventData.url_slug) {
@@ -231,10 +276,10 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       
       const mappedData: EventFormData = {
         ...eventData,
-        start_date: startDate.toISOString().split("T")[0],
-        start_time: startDate.toTimeString().slice(0, 5),
-        end_date: endDate?.toISOString().split("T")[0] || "",
-        end_time: endDate?.toTimeString().slice(0, 5) || "",
+        start_date: startDate,
+        start_time: startTime,
+        end_date: endDate,
+        end_time: endTime,
         ticket_type_name: eventData.ticket_type?.name || "standart",
         ticket_type_available_quantity: eventData.ticket_type?.available_quantity || 0,
         ticket_type_sold_quantity: eventData.ticket_type?.sold_quantity || 0,
@@ -393,6 +438,33 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
 
     try {
+      // Комбинируем дату и время перед отправкой на сервер
+      const dataToSubmit = { ...formData };
+      
+      // Преобразуем дату и время начала в формат ISO для сервера
+      if (dataToSubmit.start_date && dataToSubmit.start_time) {
+        try {
+          const startDateTime = new Date(`${dataToSubmit.start_date}T${dataToSubmit.start_time}`);
+          if (!isNaN(startDateTime.getTime())) {
+            dataToSubmit.start_date = startDateTime.toISOString();
+          }
+        } catch (err) {
+          console.error("Error formatting start date:", err);
+        }
+      }
+      
+      // Преобразуем дату и время окончания в формат ISO для сервера
+      if (dataToSubmit.end_date && dataToSubmit.end_time) {
+        try {
+          const endDateTime = new Date(`${dataToSubmit.end_date}T${dataToSubmit.end_time}`);
+          if (!isNaN(endDateTime.getTime())) {
+            dataToSubmit.end_date = endDateTime.toISOString();
+          }
+        } catch (err) {
+          console.error("Error formatting end date:", err);
+        }
+      }
+      
       let resultEventData: EventData;
       if (formData.id) {
         // updateEvent ожидает EventUpdateData
@@ -402,8 +474,8 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
           id: formData.id,
           title: formData.title,
           description: formData.description,
-          start_date: formData.start_date,
-          end_date: formData.end_date,
+          start_date: dataToSubmit.start_date,
+          end_date: dataToSubmit.end_date,
           location: formData.location,
           price: Number(formData.price || 0),
           published: Boolean(formData.published),
@@ -420,9 +492,14 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
         // Передаем bypassLoadingStageCheck
         resultEventData = await updateEvent(String(formData.id), updateData, { bypassLoadingStageCheck: true });
       } else {
+        // Для создания нового события подготавливаем данные формы
+        // Изменяем start_date и end_date в formData для отправки
+        const formDataCopy = { ...formData };
+        formDataCopy.start_date = dataToSubmit.start_date;
+        formDataCopy.end_date = dataToSubmit.end_date;
+        
         // Используем адаптированную внутреннюю функцию
-        // createEventInternal уже вызывает createEvent с bypassLoadingStageCheck
-        const createdEvent = await createEventInternal(formData);
+        const createdEvent = await createEventInternal(formDataCopy);
         if (!createdEvent) { // Если createEventInternal вернула null (ошибка)
           // Ошибка уже установлена в setError внутри createEventInternal
           return; // Прерываем выполнение handleSubmit

@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { FaPlus } from "react-icons/fa";
@@ -164,7 +164,7 @@ const DashboardSkeleton = () => (
 
 export default function Dashboard() {
   const router = useRouter();
-  const { currentStage, setStage } = useLoadingStage();
+  const { setStage } = useLoadingStage();
   const { isAuthenticated, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
   
   const [users, setUsers] = useState<User[]>([]);
@@ -175,6 +175,8 @@ export default function Dashboard() {
     users: false,
     events: false
   });
+  // Ref для отслеживания инициации первичной загрузки
+  const initialLoadInitiated = useRef(false);
 
   // Функция для загрузки пользователей
   const fetchUsers = useCallback(async () => {
@@ -188,11 +190,8 @@ export default function Dashboard() {
         throw new ApiError(401, { error: "Токен администратора не найден", authError: true });
       }
       
-      // Добавляем параметр для предотвращения кэширования ответа
-      const cacheBuster = `_ts=${Date.now()}`;
-      
       console.log('Dashboard: Sending request to fetch users');
-      const fetchedUsers = await apiFetch<User[]>(`/admin_edits/users?${cacheBuster}`, {
+      const fetchedUsers = await apiFetch<User[]>(`/admin_edits/users`, {
         bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
         headers: {
           'Authorization': `Bearer ${token}`
@@ -233,11 +232,8 @@ export default function Dashboard() {
         throw new ApiError(401, { error: "Токен администратора не найден", authError: true });
       }
       
-      // Добавляем параметр для предотвращения кэширования ответа
-      const cacheBuster = `_ts=${Date.now()}`;
-      
       console.log('Dashboard: Sending request to fetch events');
-      const fetchedEvents = await apiFetch<Event[]>(`/admin_edits/events?${cacheBuster}`, {
+      const fetchedEvents = await apiFetch<Event[]>(`/admin_edits/events`, {
         bypassLoadingStageCheck: true,
         headers: {
           'Authorization': `Bearer ${token}`
@@ -272,9 +268,9 @@ export default function Dashboard() {
     setClientReady(true);
     console.log('Dashboard: Client ready set to true');
     
-    // Сразу устанавливаем стадию загрузки COMPLETED для предотвращения блокировки запросов
-    setStage(LoadingStage.COMPLETED);
-    console.log('Dashboard: Setting stage to COMPLETED, current stage =', currentStage);
+    // Убираем преждевременную установку стадии
+    // setStage(LoadingStage.COMPLETED); 
+    // console.log('Dashboard: Setting stage to COMPLETED, current stage =', currentStage); 
     
     // Если мы вернулись с редактирования и нужно обновить данные, сбрасываем состояние загрузки
     if (localStorage.getItem("dashboard_need_refresh") === "true") {
@@ -284,7 +280,7 @@ export default function Dashboard() {
         events: false
       });
     }
-  }, [currentStage, setStage]);
+  }, []); // <-- Изменяем зависимости на пустой массив
 
   // Функция для загрузки данных
   const loadData = useCallback(async () => {
@@ -316,36 +312,34 @@ export default function Dashboard() {
     }
   }, [dataLoaded, setStage, fetchUsers, fetchEvents]);
 
-  // Эффект для проверки авторизации и загрузки данных
+  // Эффект для ПЕРВИЧНОЙ загрузки данных
   useEffect(() => {
-    if (!isAuthChecked) return;
-
-    if (!isAuthenticated) {
-      console.log('Dashboard: Not authenticated, redirecting to login');
-      router.push("/admin-login");
-      return;
+    // Ждем аутентификации и готовности клиента
+    if (!isAuthenticated || !isAuthChecked || !clientReady) return;
+    
+    // Запускаем первичную загрузку ТОЛЬКО ОДИН РАЗ
+    if (!initialLoadInitiated.current) {
+      console.log('Dashboard: Authenticated and client ready, loading initial data...');
+      initialLoadInitiated.current = true; // Помечаем, что загрузка инициирована
+      loadData();
     }
+  // Зависимости: статус аутентификации и готовность клиента
+  }, [isAuthenticated, isAuthChecked, clientReady, loadData]); 
 
-    // Проверяем, нужно ли обновить данные (например, после редактирования пользователя)
+  // Эффект для обработки флага needRefresh
+  useEffect(() => {
     const needRefresh = localStorage.getItem("dashboard_need_refresh") === "true";
     if (needRefresh) {
       console.log('Dashboard: Need refresh flag detected, forcing data reload');
-      // Сбрасываем флаг обновления
       localStorage.removeItem("dashboard_need_refresh");
-      
-      // Принудительно перезагружаем данные (даже если они уже загружены)
-      setDataLoaded({
-        users: false,
-        events: false
-      });
-      loadData();
-      return;
+      // Сбрасываем флаги загрузки И флаг инициации, чтобы разрешить перезагрузку
+      setDataLoaded({ users: false, events: false }); 
+      initialLoadInitiated.current = false; 
+      loadData(); // Запускаем перезагрузку
     }
-
-    if (clientReady && (!dataLoaded.users || !dataLoaded.events)) {
-      loadData();
-    }
-  }, [isAuthenticated, isAuthChecked, clientReady, dataLoaded, router, loadData]);
+  // Этот эффект зависит только от loadData (и неявно от localStorage)
+  // Можно добавить path или другой ключ, если нужно срабатывать при навигации
+  }, [loadData]);
 
   const handleCreateEvent = () => {
     router.push("/edit-events");

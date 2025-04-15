@@ -259,8 +259,58 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
           setFieldValue("end_date", value);
         }
       }
+      
+      // Обновляем полные datetime значения
+      updateDateTimeFields();
     }
   };
+  
+  // Функция для форматирования даты и времени в формат ISO
+  const formatDateTime = (date: string, time: string): string => {
+    if (!date || !time) return '';
+    
+    try {
+      // Создаем объект Date из комбинации даты и времени
+      const dateTime = new Date(`${date}T${time}`);
+      
+      // Проверяем, что дата валидная
+      if (isNaN(dateTime.getTime())) {
+        console.warn('Невалидная дата/время', { date, time });
+        return '';
+      }
+      
+      // Возвращаем в формате ISO
+      return dateTime.toISOString();
+    } catch (e) {
+      console.error('Ошибка при форматировании даты/времени', e);
+      return '';
+    }
+  };
+
+  // Функция для обновления полных datetime полей
+  const updateDateTimeFields = useCallback(() => {
+    // Обновляем значение даты и времени начала
+    if (formData.start_date && formData.start_time) {
+      const startIso = formatDateTime(formData.start_date, formData.start_time);
+      if (startIso) {
+        setFieldValue('start_datetime', startIso);
+      }
+    }
+    
+    // Обновляем значение даты и времени окончания
+    if (formData.end_date && formData.end_time) {
+      const endIso = formatDateTime(formData.end_date, formData.end_time);
+      if (endIso) {
+        setFieldValue('end_datetime', endIso);
+      }
+    }
+  }, [formData.start_date, formData.start_time, formData.end_date, formData.end_time, setFieldValue]);
+
+  // Эффект для обновления полных datetime значений при загрузке формы
+  useEffect(() => {
+    // При первоначальной загрузке или изменении даты/времени
+    updateDateTimeFields();
+  }, [updateDateTimeFields]);
   
   // Отдельные обработчики для каждого поля
   const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -303,6 +353,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     if (!validateDateTime()) {
       setLocalError("Время окончания не может быть раньше времени начала");
       setTimeout(() => setLocalError(null), 3000);
+    } else {
+      // Явно вызываем функцию обновления полных datetime значений
+      updateDateTimeFields();
     }
   };
 

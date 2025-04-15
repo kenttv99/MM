@@ -10,6 +10,7 @@ import { EventRegistrationProps } from "@/types/index";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/utils/api";
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
+import { formatTimeInterval as eventDetailsFormatInterval } from "@/components/EventDetails";
 
 // Интерфейс для билета пользователя с учетом разных вариантов написания статусов
 interface UserTicket {
@@ -36,6 +37,57 @@ interface TicketResponse {
   tickets?: UserTicket[] | UserTicket;
   [key: string]: unknown;
 }
+
+// Функции форматирования для отображения даты и времени
+const formatDateForDisplay = (dateString: string): string => {
+  try {
+    if (!dateString || dateString === "Загрузка...") {
+      return dateString || "";
+    }
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn("EventRegistration: Invalid date in formatDateForDisplay:", dateString);
+      return dateString;
+    }
+    
+    return date.toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" });
+  } catch (error) {
+    console.error("EventRegistration: Error in formatDateForDisplay:", error);
+    return dateString || "";
+  }
+};
+
+// Функция для форматирования времени
+const formatTimeForDisplay = (dateString: string): string => {
+  try {
+    if (!dateString || dateString === "Загрузка...") {
+      return dateString || "";
+    }
+    
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      console.warn("EventRegistration: Invalid date in formatTimeForDisplay:", dateString);
+      return "";
+    }
+    
+    return date.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  } catch (error) {
+    console.error("EventRegistration: Error in formatTimeForDisplay:", error);
+    return "";
+  }
+};
+
+// Функция для форматирования временного интервала
+const formatTimeInterval = (startDate: string, endDate?: string): string => {
+  try {
+    // Используем общий форматировщик из EventDetails
+    return eventDetailsFormatInterval(startDate, endDate);
+  } catch (e) {
+    console.error("EventRegistration: Error formatting time interval:", e);
+    return "";
+  }
+};
 
 // Функции для работы с билетами
 const isTicketCancelled = (status: string): boolean => {
@@ -89,6 +141,53 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   const [isCheckingTicket, setIsCheckingTicket] = useState(false);
   // Add a flag to track active booking state
   const isActiveBooking = useRef(false);
+  
+  // Обработка начальной и конечной даты мероприятия
+  let startDateTime: Date | null = null;
+  let endDateTime: Date | null = null;
+  
+  try {
+    if (eventDate && eventDate !== "Загрузка...") {
+      startDateTime = new Date(eventDate);
+      if (isNaN(startDateTime.getTime())) {
+        console.warn('EventRegistration: Invalid event date format, using current date instead:', eventDate);
+        startDateTime = null;
+      }
+    }
+  } catch (e) {
+    console.warn('EventRegistration: Invalid event date format, using current date instead:', e);
+    startDateTime = null;
+  }
+
+  try {
+    // Если время передано как строка, создаем конечную дату, прибавляя 2 часа к начальной
+    if (startDateTime && eventTime) {
+      // Проверяем, что eventTime - строка вида "HH:MM"
+      if (typeof eventTime === 'string' && /^\d{2}:\d{2}$/.test(eventTime)) {
+        // Разбиваем время на часы и минуты
+        const [hours, minutes] = eventTime.split(':').map(Number);
+        
+        // Устанавливаем время начала
+        startDateTime.setHours(hours, minutes);
+        
+        // Создаем конечную дату, прибавляя 2 часа (если не передана явно)
+        endDateTime = new Date(startDateTime);
+        endDateTime.setHours(endDateTime.getHours() + 2);
+      } else if (eventTime !== "Загрузка...") {
+        console.warn('EventRegistration: Event time is not in expected format:', eventTime);
+      }
+    }
+  } catch (e) {
+    console.error("EventRegistration: Error parsing event time:", e);
+  }
+  
+  // Форматируем интервал для отображения
+  const formattedInterval = startDateTime 
+    ? (endDateTime 
+        ? formatTimeInterval(startDateTime.toISOString(), endDateTime.toISOString())
+        : formatTimeForDisplay(startDateTime.toISOString())
+      )
+    : eventTime || "";
 
   const remainingQuantity = availableQuantity - soldQuantity;
   const maxVisibleSeats = 10;
@@ -693,24 +792,30 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             {eventTitle}
           </motion.h3>
           <div className="space-y-3 text-gray-600">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.1 }}
-              className="flex items-center"
-            >
-              <FaCalendarAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
-              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{eventDate}</span>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.2 }}
-              className="flex items-center"
-            >
-              <FaClock className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
-              <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>{eventTime}</span>
-            </motion.div>
+            <div className="py-4 px-3 bg-white rounded-lg border border-orange-100 shadow-sm flex flex-col gap-3">
+              <motion.div
+                className="flex items-center"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+              >
+                <FaCalendarAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+                <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
+                  {formatDateForDisplay(eventDate)}
+                </span>
+              </motion.div>
+              <motion.div
+                className="flex items-center"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.3 }}
+              >
+                <FaClock className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
+                <span className="text-sm sm:text-base" style={{ fontSize: "clamp(0.875rem, 2vw, 1rem)" }}>
+                  {formattedInterval}
+                </span>
+              </motion.div>
+            </div>
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}

@@ -7,6 +7,7 @@ import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
 import { LoadingStage } from "@/contexts/loading/types";
 import { checkAdminSession } from "@/utils/eventAdminService";
 import { createLogger } from "@/utils/logger";
+import { ApiError } from "@/utils/api";
 
 // Create a namespace-specific logger
 const adminAuthLogger = createLogger('AdminAuthContext');
@@ -19,7 +20,6 @@ interface AdminProfile {
 
 interface AdminAuthContextType {
   isAuthenticated: boolean;
-  loading: boolean;
   adminData: AdminProfile | null;
   login: (token: string, userData: AdminProfile) => void;
   logout: () => void;
@@ -86,13 +86,14 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const isInitialized = useRef(false);
   const isMounted = useRef(false);
   const lastCheckTimeRef = useRef<number>(0);
+  // Добавляем ref для отслеживания текущей проверки АВТОРИЗАЦИИ
+  const checkingAuthRef = useRef(false);
 
   // Initialize state with data from localStorage if available and token is valid locally
   const initialToken = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN) : null;
   const initialAdminData = initialToken && validateTokenLocally(initialToken) ? getStoredAdminData() : null;
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!initialAdminData);
-  const [loading, setLoading] = useState<boolean>(true);
   const [adminData, setAdminData] = useState<AdminProfile | null>(initialAdminData);
   const [isAuthChecked, setIsAuthChecked] = useState<boolean>(false);
 
@@ -103,7 +104,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Проверка auth статуса на сервере
   const checkAuth = useCallback(async (forceCheck = false) => {
-    setLoading(true);
     try {
       const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
       // Use the callback version for consistency within useCallback dependencies
@@ -120,48 +120,26 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return false;
       }
 
-      // Restore admin data from local storage if authenticated state is potentially incorrect
-      const storedData = getStoredAdminData();
-      if (storedData && !adminData) {
-          adminAuthLogger.info("Restoring admin data from storage during checkAuth");
-          setAdminData(storedData);
-      }
+      // Проверяем авторизацию на сервере и ПОЛУЧАЕМ ПРОФИЛЬ
+      adminAuthLogger.info("AdminAuth: Checking auth on server and fetching profile");
+      const profile = await checkAdminSession(); // Эта функция теперь возвращает AdminProfile
 
-      // Проверяем авторизацию на сервере
-      adminAuthLogger.info("AdminAuth: Checking auth on server");
-      const isSessionValid = await checkAdminSession();
-
-      if (isSessionValid) {
-        adminAuthLogger.info("AdminAuth: Session is valid");
-        setIsAuthenticated(true);
-        // Ensure admin data is loaded if it wasn't already
-        if (!adminData) {
-            const finalStoredData = getStoredAdminData();
-            if (finalStoredData) {
-                adminAuthLogger.info("Restoring admin data after successful server check");
-                setAdminData(finalStoredData);
-            }
-        }
-        setIsAuthChecked(true);
-        return true;
-      } else {
-        adminAuthLogger.info("AdminAuth: Session is invalid according to server");
-        // Очищаем данные сессии
-        localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
-        localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-
-        setIsAuthenticated(false);
-        setAdminData(null); // Clear admin data state
-        setIsAuthChecked(true);
-
-        if (forceCheck) {
-          router.push('/admin-login');
-        }
-        return false;
-      }
+      // Если профиль получен (сессия валидна)
+      adminAuthLogger.info("AdminAuth: Session is valid, profile received");
+      setIsAuthenticated(true);
+      setAdminData(profile); // Устанавливаем профиль, полученный с сервера
+      // Сохраняем актуальный профиль в localStorage
+      localStorage.setItem(STORAGE_KEYS.ADMIN_DATA, JSON.stringify(profile));
+      setIsAuthChecked(true);
+      return true;
+      
     } catch (error) {
       adminAuthLogger.error("AdminAuth: Error checking auth:", error);
 
+      // Если ошибка от checkAdminSession (ApiError с 401/403), данные уже должны быть очищены
+      // Нам не нужно их здесь дублировать, checkAdminSession уже это делает
+
+      // Обрабатываем другие возможные ошибки (сетевые и т.д.)
       interface ErrorWithStatus extends Error {
         status?: number;
       }
@@ -170,53 +148,48 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         const status = (error as ErrorWithStatus).status;
         adminAuthLogger.info(`AdminAuth: Auth error with status ${status}`);
 
-        if (status === 401 || status === 403) {
-          adminAuthLogger.info("AdminAuth: Auth failed, logging out");
-          localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
-          localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-
-          setIsAuthenticated(false);
-          setAdminData(null);
-          setIsAuthChecked(true);
-
-          router.push('/admin-login');
-          return false;
-        }
+        // Логика очистки при 401/403 была в checkAdminSession, здесь не нужна
+        // if (status === 401 || status === 403) { ... }
       }
 
-      // Fallback check: If token is still locally valid despite server error
+      // Fallback check: Если произошла НЕ auth ошибка (например, сеть недоступна),
+      // но токен все еще валиден локально
       const token = localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN);
-      if (validateTokenLocallyCallback(token)) {
-          adminAuthLogger.warn("AdminAuth: Server check failed, but token still valid locally. Maintaining auth state.");
+      if (!(error instanceof ApiError && (error.status === 401 || error.status === 403)) && 
+          validateTokenLocallyCallback(token)) {
+          adminAuthLogger.warn("AdminAuth: Server check failed (non-auth error), but token still valid locally. Maintaining auth state.");
           setIsAuthenticated(true); // Keep authenticated state
-          // Ensure adminData is loaded from storage
-          const storedData = getStoredAdminData();
-          if (storedData && !adminData) {
-              setAdminData(storedData);
+          // Пытаемся восстановить данные из хранилища в этом случае
+          const storedDataForFallback = getStoredAdminData();
+          if (storedDataForFallback) {
+              setAdminData(currentAdminData => currentAdminData === null ? storedDataForFallback : currentAdminData);
           }
           setIsAuthChecked(true);
-          setLoading(false); // Ensure loading is false
+          // setLoading(false) вызовется в finally
           return true; // Return true based on local validation
       }
 
-      // If local validation also fails, log out
-      adminAuthLogger.info("AdminAuth: Auth check failed completely, logging out");
-      localStorage.removeItem(STORAGE_KEYS.ADMIN_TOKEN);
-      localStorage.removeItem(STORAGE_KEYS.ADMIN_DATA);
-
+      // Если произошла ошибка (включая 401/403 от checkAdminSession) ИЛИ локальный токен невалиден
+      adminAuthLogger.info("AdminAuth: Auth check failed, ensuring logout state");
+      // Убедимся, что состояние соответствует выходу (токены уже должны быть удалены checkAdminSession)
       setIsAuthenticated(false);
       setAdminData(null);
       setIsAuthChecked(true);
 
+      // Редирект только если проверка была принудительной
       if (forceCheck) {
         router.push('/admin-login');
       }
       return false;
     } finally {
       // Ensure loading is set to false unless it was already handled
-      setLoading(false);
+      // Проверяем, что компонент все еще смонтирован
+      // УБИРАЕМ setLoading(false) отсюда
+      // if (isMounted.current) {
+      //   setLoading(false);
+      // }
     }
-  }, [router, adminData, validateTokenLocallyCallback]); // Use the callback version in dependencies
+  }, [router, validateTokenLocallyCallback]);
 
   const login = useCallback((token: string, userData: AdminProfile) => {
     localStorage.setItem(STORAGE_KEYS.ADMIN_TOKEN, token);
@@ -238,13 +211,18 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Инициализация при монтировании
   useEffect(() => {
-    if (isInitialized.current) return;
+    // Используем checkingAuthRef, определенный вне эффекта
+    if (isInitialized.current || checkingAuthRef.current) return;
     isInitialized.current = true;
     isMounted.current = true; // Set mounted ref here
 
     const initAuth = async () => {
+      // Используем checkingAuthRef
+      if (checkingAuthRef.current) return; // Не запускать, если уже идет проверка
+      checkingAuthRef.current = true; // Устанавливаем флаг
+      
       adminAuthLogger.info("AdminAuthContext: Starting authentication initialization");
-      setLoading(true);
+      // setLoading(true); // УДАЛЯЕМ
 
       const storedLastCheckTime = localStorage.getItem(STORAGE_KEYS.LAST_CHECK_TIME);
       if (storedLastCheckTime) {
@@ -253,18 +231,12 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       try {
         // Initial state is already set based on local storage, now verify with server
+        // checkAuth теперь сама получит и установит adminData при успехе
         const isValid = await checkAuth();
         adminAuthLogger.info(`AdminAuthContext: Initial auth check result: ${isValid}`);
 
-        // If session is valid, ensure adminData is loaded from localStorage
-        // This handles cases where initial state might have been false
-        if (isValid && !adminData) {
-            const storedData = getStoredAdminData();
-            if (storedData) {
-                adminAuthLogger.info("Restoring admin data during init");
-                setAdminData(storedData);
-            }
-        }
+        // Убираем лишнюю попытку восстановления adminData здесь
+        // if (isValid && !adminData) { ... }
 
         // Set stage and dispatch event regardless of auth status after check
         setStage(LoadingStage.STATIC_CONTENT);
@@ -285,9 +257,10 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setStage(LoadingStage.STATIC_CONTENT);
       } finally {
         if (isMounted.current) {
-            setLoading(false);
+            // setLoading(false); // УДАЛЯЕМ
             setIsAuthChecked(true); // Mark auth as checked after init attempt
         }
+        checkingAuthRef.current = false; // Сбрасываем флаг после завершения
         adminAuthLogger.info("AdminAuthContext: Initialization complete");
       }
     };
@@ -300,14 +273,13 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         window.localStorage.removeItem('is_admin_route');
       }
     };
-  }, [checkAuth, setStage, adminData, validateTokenLocallyCallback]); // Use the callback version in dependencies
+  }, [checkAuth, setStage]);
 
   // Removed useEffect for dispatching 'auth-stage-change' on isAuthChecked/isAuthenticated change
   // as it's now handled within initAuth.
 
   const contextValue = React.useMemo(() => ({
     isAuthenticated,
-    loading,
     adminData,
     login,
     logout,
@@ -316,7 +288,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     validateTokenLocally: () => validateTokenLocallyCallback(localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN)),
     isAuthChecked,
   }), [
-    isAuthenticated, loading, adminData, login, logout, checkAuth, validateTokenLocallyCallback, isAuthChecked
+    isAuthenticated, adminData, login, logout, checkAuth, validateTokenLocallyCallback, isAuthChecked
   ]);
 
   return (

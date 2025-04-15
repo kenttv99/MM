@@ -5,12 +5,11 @@ import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { FaPlus } from "react-icons/fa";
-import { apiFetch } from "@/utils/api";
+import { apiFetch, ApiError } from "@/utils/api";
 import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
 import { LoadingStage } from "@/contexts/loading/types";
 import "@/app/globals.css";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
-import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 
 // Storage key constants matching AdminAuthContext
 const ADMIN_STORAGE_KEYS = {
@@ -186,7 +185,7 @@ export default function Dashboard() {
       
       if (!token) {
         console.log('Dashboard: No admin token found');
-        throw new Error("Токен администратора не найден");
+        throw new ApiError(401, { error: "Токен администратора не найден", authError: true });
       }
       
       // Добавляем параметр для предотвращения кэширования ответа
@@ -200,31 +199,24 @@ export default function Dashboard() {
         }
       });
       
-      if ('aborted' in fetchedUsers) {
-        const abortedResponse = fetchedUsers as unknown as ApiAbortedResponse;
-        console.log('Dashboard: Users request was aborted:', abortedResponse.reason);
-        return false;
-      }
-      
-      if ('error' in fetchedUsers) {
-        const errorResponse = fetchedUsers as unknown as ApiErrorResponse;
-        console.error('Dashboard: Error in users response:', errorResponse.error);
-        setError(typeof errorResponse.error === 'string' ? errorResponse.error : 'Ошибка при загрузке пользователей');
-        return false;
-      }
-      
       setUsers(fetchedUsers);
       console.log(`Dashboard: Fetched ${fetchedUsers.length} users`);
       setDataLoaded(prev => ({ ...prev, users: true }));
       return true;
     } catch (error) {
       console.error("Dashboard: Error fetching users:", error);
-      if (error instanceof Error && error.message.includes("Токен")) {
-        console.log('Dashboard: Auth error detected in fetchUsers, redirecting');
-        // Если ошибка связана с токеном, очищаем данные и перенаправляем
+      if (error instanceof ApiError && (error.status === 401 || error.body?.authError)) {
+        console.log('Dashboard: Auth error detected in fetchUsers (ApiError), redirecting...');
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
         router.push("/admin-login");
+      } else if (error instanceof Error && error.message.includes("Токен администратора не найден")) {
+        console.log('Dashboard: Auth error detected in fetchUsers (Error message), redirecting...');
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
+        router.push("/admin-login");
+      } else {
+        setError("Не удалось загрузить пользователей.");
       }
       return false;
     }
@@ -238,7 +230,7 @@ export default function Dashboard() {
       
       if (!token) {
         console.log('Dashboard: No admin token found for events');
-        throw new Error("Токен администратора не найден");
+        throw new ApiError(401, { error: "Токен администратора не найден", authError: true });
       }
       
       // Добавляем параметр для предотвращения кэширования ответа
@@ -252,31 +244,24 @@ export default function Dashboard() {
         }
       });
       
-      if ('aborted' in fetchedEvents) {
-        const abortedResponse = fetchedEvents as unknown as ApiAbortedResponse;
-        console.log('Dashboard: Events request was aborted:', abortedResponse.reason);
-        return false;
-      }
-      
-      if ('error' in fetchedEvents) {
-        const errorResponse = fetchedEvents as unknown as ApiErrorResponse;
-        console.error('Dashboard: Error in events response:', errorResponse.error);
-        setError(typeof errorResponse.error === 'string' ? errorResponse.error : 'Ошибка при загрузке мероприятий');
-        return false;
-      }
-      
       setEvents(fetchedEvents);
       console.log(`Dashboard: Fetched ${fetchedEvents.length} events`);
       setDataLoaded(prev => ({ ...prev, events: true }));
       return true;
     } catch (error) {
       console.error("Dashboard: Error fetching events:", error);
-      if (error instanceof Error && error.message.includes("Токен")) {
-        console.log('Dashboard: Auth error detected in fetchEvents, redirecting');
-        // Если ошибка связана с токеном, очищаем данные и перенаправляем
+      if (error instanceof ApiError && (error.status === 401 || error.body?.authError)) {
+        console.log('Dashboard: Auth error detected in fetchEvents (ApiError), redirecting...');
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
         router.push("/admin-login");
+      } else if (error instanceof Error && error.message.includes("Токен администратора не найден")) {
+        console.log('Dashboard: Auth error detected in fetchEvents (Error message), redirecting...');
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
+        router.push("/admin-login");
+      } else {
+        setError("Не удалось загрузить мероприятия.");
       }
       return false;
     }

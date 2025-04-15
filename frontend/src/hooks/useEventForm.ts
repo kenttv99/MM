@@ -1,13 +1,39 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { EventFormData, EventData } from '@/types/events';
 import {
   updateEvent,
   fetchEvent,
   ensureAdminSession,
-  prepareEventFormData,
   EventUpdateData,
 } from "@/utils/eventAdminService";
-import { apiFetch } from '@/utils/api';
+import { createEvent } from "@/utils/eventAdminService";
+import { ApiError } from '@/utils/api';
+
+// Интерфейс для детализации ошибок валидации FastAPI
+interface ValidationErrorDetail {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+}
+
+// Определяем EventCreateData локально (как и в eventAdminService)
+// TODO: Вынести общие типы в отдельный файл
+interface EventCreateData {
+  title: string;
+  description?: string;
+  start_date: string;
+  end_date?: string;
+  location?: string;
+  price: number;
+  published: boolean;
+  status: string;
+  ticket_type_name: string;
+  ticket_type_available_quantity: number;
+  remove_image?: boolean;
+  url_slug?: string;
+  image_file?: File | null;
+}
 
 const eventCache: Record<string, EventData> = {};
 
@@ -23,6 +49,8 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(initialValues.image_url || null);
+  
+  const router = useRouter();
   
   const mounted = useRef(true);
   const isFetching = useRef(false);
@@ -175,54 +203,27 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       // Check admin session validity before loading
       const isSessionValid = await ensureAdminSession();
       if (!isSessionValid) {
-        throw new Error("Сессия администратора истекла. Выполняется перенаправление на страницу входа...");
+        throw new ApiError(401, { error: "Сессия администратора истекла. Обновите страницу или войдите заново.", authError: true });
       }
       
       console.log(`Fetching event with ID: ${eventId}`);
-      const response = await fetchEvent(eventId);
+      const eventData = await fetchEvent(eventId, { bypassLoadingStageCheck: true });
       
-      if (!response.success) {
-        console.error(`Error fetching event: ${response.message || 'Unknown error'}`);
-        if ('authError' in response && response.authError) {
-          throw new Error("Сессия администратора истекла. Выполняется перенаправление на страницу входа...");
-        } else {
-          throw new Error('message' in response && response.message ? response.message : "Событие не найдено");
-        }
-      }
-      
-      if (!response.event) {
-        throw new Error("Событие не найдено");
-      }
-      
-      // Проверяем, что response.event имеет структуру EventData перед сохранением в кэш
-      if ('title' in response.event && 
-          'start_date' in response.event && 
-          'price' in response.event && 
-          'published' in response.event &&
-          'created_at' in response.event &&
-          'updated_at' in response.event) {
-        // Приводим тип к EventData
-        eventCache[eventId] = response.event as EventData;
-      } else {
-        console.warn('useEventForm: Received event data has unexpected structure');
-        throw new Error("Полученные данные события имеют неверный формат");
-      }
-      
+      // Сохраняем в кеш
+      eventCache[eventId] = eventData;
+            
       if (!mounted.current) return;
       
-      const eventData = response.event;
+      // Маппинг данных остается прежним
       const startDate = new Date(eventData.start_date);
       const endDate = eventData.end_date ? new Date(eventData.end_date) : undefined;
       
-      // Извлекаем слаг без года и ID (формат: slug-год-ID)
       let cleanSlug = '';
       if (eventData.url_slug) {
-        // Разбиваем по дефисам и удаляем две последние части (год и ID)
         const slugParts = eventData.url_slug.split('-');
         if (slugParts.length > 2) {
           cleanSlug = slugParts.slice(0, -2).join('-');
         } else {
-          // Если частей меньше 3, используем как есть (возможно, это уже чистый слаг)
           cleanSlug = eventData.url_slug;
         }
         console.log(`Processing slug from server: ${eventData.url_slug} -> ${cleanSlug}`);
@@ -259,11 +260,45 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       
       if (!mounted.current) return;
       
-      const errorMessage = err instanceof Error ? err.message : "Ошибка загрузки мероприятия";
-      setError(errorMessage);
+      let errorMessage = "Ошибка загрузки мероприятия";
+      let errorToReport: Error = new Error(errorMessage);
+
+      if (err instanceof ApiError) {
+        errorToReport = err;
+        // Пытаемся извлечь детализированное сообщение
+        if (err.body?.detail) {
+          if (Array.isArray(err.body.detail)) {
+            // Указываем тип для e
+            errorMessage = err.body.detail.map((e: ValidationErrorDetail) => `${e.loc?.join('.') || 'field'}: ${e.msg}`).join('; ');
+          } else if (typeof err.body.detail === 'string') {
+            errorMessage = err.body.detail;
+          } else {
+             errorMessage = JSON.stringify(err.body.detail); // Если detail не строка/массив
+          }
+        } else {
+           // Фоллбэк на другие поля или стандартное сообщение
+           errorMessage = err.body?.message || err.body?.error || err.message || errorMessage;
+        }
+        
+        if (err.body?.authError) {
+           console.warn("Auth error during loadEvent, redirecting...");
+           router.push('/admin-login'); 
+           return; 
+        }
+      } else if (err instanceof Error) {
+        errorMessage = err.message;
+        errorToReport = err;
+      } else {
+        // Для неизвестных типов ошибок
+        errorMessage = "Произошла неизвестная ошибка при загрузке.";
+        errorToReport = new Error(errorMessage);
+      }
+
+      // Убедимся, что устанавливаем строку
+      setError(String(errorMessage)); 
       
       if (onError) {
-        onError(err instanceof Error ? err : new Error(errorMessage));
+        onError(errorToReport);
       }
     } finally {
       if (mounted.current) {
@@ -273,9 +308,9 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
       isFetching.current = false;
       controller.current = null;
     }
-  }, [onError]);
+  }, [onError, router]);
 
-  const createEvent = useCallback(async (data: EventFormData) => {
+  const createEventInternal = useCallback(async (data: EventFormData) => {
     setIsLoading(true);
     setError(null);
     setSuccess(null);
@@ -283,36 +318,61 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     try {
       const isSessionValid = await ensureAdminSession();
       if (!isSessionValid) {
-        throw new Error("Сессия администратора истекла.");
+        throw new ApiError(401, { error: "Сессия администратора истекла.", authError: true });
       }
 
-      const preparedData = prepareEventFormData(data);
-
-      // Используем apiFetch для создания
-      const result = await apiFetch<EventData>("/admin_edits/", {
-        method: "POST",
-        data: preparedData,
-        isAdminRequest: true, // Указываем, что это админский запрос
-      });
+      // ВАЖНО: eventAdminService.createEvent отправляет JSON, а не FormData
+      // eventAdminService.createEvent был импортирован отдельно
+      // Передаем bypassLoadingStageCheck
+      const createdEventData = await createEvent(data as unknown as EventCreateData, { bypassLoadingStageCheck: true }); 
 
       if (mounted.current) {
         setSuccess("Мероприятие успешно создано");
-        if (onSuccess) onSuccess(result);
+        if (onSuccess) onSuccess(createdEventData);
       }
-      return result;
+      return createdEventData; // Возвращаем EventData
     } catch (err) {
       if (mounted.current) {
-        const errorMessage = (err as Error).message || "Ошибка при создании мероприятия";
-        setError(errorMessage);
-        if (onError) onError(err as Error);
+        let errorMessage = "Ошибка при создании мероприятия";
+        let errorToReport: Error = new Error(errorMessage);
+
+        if (err instanceof ApiError) {
+          errorToReport = err;
+           if (err.body?.detail) {
+            if (Array.isArray(err.body.detail)) {
+              // Указываем тип для e
+              errorMessage = err.body.detail.map((e: ValidationErrorDetail) => `${e.loc?.join('.') || 'field'}: ${e.msg}`).join('; ');
+            } else if (typeof err.body.detail === 'string') {
+              errorMessage = err.body.detail;
+            } else {
+              errorMessage = JSON.stringify(err.body.detail); 
+            }
+          } else {
+             errorMessage = err.body?.message || err.body?.error || err.message || errorMessage;
+          }
+          
+          if (err.body?.authError) {
+             console.warn("Auth error during createEventInternal, redirecting...");
+             router.push('/admin-login'); 
+             return null; 
+          }
+        } else if (err instanceof Error) {
+          errorMessage = err.message;
+          errorToReport = err;
+        } else {
+          errorMessage = "Произошла неизвестная ошибка при создании.";
+          errorToReport = new Error(errorMessage);
+        }
+        setError(String(errorMessage)); 
+        if (onError) onError(errorToReport);
       }
-      return null;
+      return null; 
     } finally {
       if (mounted.current) {
         setIsLoading(false);
       }
     }
-  }, [onSuccess, onError]);
+  }, [onSuccess, onError, router]); // Добавляем eventAdminService.createEvent в зависимости, если нужно
 
   const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -320,7 +380,7 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     setError(null);
     setSuccess(null);
 
-    // Добавляем валидацию URL slug перед отправкой
+    // Валидация URL
     if (formData.url_slug && formData.url_slug.length < 3) {
       setError("URL мероприятия должен содержать не менее 3 символов.");
       setIsLoading(false);
@@ -333,52 +393,93 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
 
     try {
-      let response;
+      let resultEventData: EventData;
       if (formData.id) {
-        // Используем updateEvent из eventAdminService
-        // Передаем данные, убедившись, что image_file не null и исключив image_url
-        const { image_url, ...restFormData } = formData; // Исключаем image_url
+        // updateEvent ожидает EventUpdateData
+        // Явно создаем объект updateData с нужными полями и типами
         const updateData: EventUpdateData = {
-           ...restFormData,
-           image_file: formData.image_file || undefined // Заменяем null на undefined
+          // Обязательные и опциональные поля из EventUpdateData
+          id: formData.id,
+          title: formData.title,
+          description: formData.description,
+          start_date: formData.start_date,
+          end_date: formData.end_date,
+          location: formData.location,
+          price: Number(formData.price || 0),
+          published: Boolean(formData.published),
+          status: formData.status,
+          ticket_type_name: formData.ticket_type_name,
+          ticket_type_available_quantity: Number(formData.ticket_type_available_quantity || 0),
+          image_file: formData.image_file || undefined, // Передаем File или undefined
+          remove_image: formData.remove_image,
+          url_slug: formData.url_slug,
+          // Не включаем: start_time, end_time, image_url, ticket_type_sold_quantity, registrations_count, url_slug_changed
+          // т.к. их нет в определении EventUpdateData в eventAdminService.ts
         };
-        response = await updateEvent(String(formData.id), updateData);
+
+        // Передаем bypassLoadingStageCheck
+        resultEventData = await updateEvent(String(formData.id), updateData, { bypassLoadingStageCheck: true });
       } else {
-        // Используем createEvent (уже использует apiFetch)
-        // createEvent теперь возвращает EventData
-        const createdEventData = await createEvent(formData);
-        // Передаем созданные данные в response для единообразия
-        response = { success: true, message: "Мероприятие успешно создано", event: createdEventData };
+        // Используем адаптированную внутреннюю функцию
+        // createEventInternal уже вызывает createEvent с bypassLoadingStageCheck
+        const createdEvent = await createEventInternal(formData);
+        if (!createdEvent) { // Если createEventInternal вернула null (ошибка)
+          // Ошибка уже установлена в setError внутри createEventInternal
+          return; // Прерываем выполнение handleSubmit
+        }
+        resultEventData = createdEvent;
       }
 
       if (!mounted.current) return;
 
-      if (response.success) {
-        setSuccess(response.message || (formData.id ? "Мероприятие обновлено" : "Мероприятие создано"));
-        // Если есть данные события в ответе, передаем их в onSuccess
-        if (response.event && typeof response.event === 'object' && 'id' in response.event) {
-          // Убедимся, что передаем EventData
-          if (onSuccess) onSuccess(response.event as EventData);
-        } else {
-           // Этот случай больше не должен происходить, так как createEvent возвращает EventData
-           console.warn("onSuccess called without event data after creation/update");
-           if (onSuccess) onSuccess(null as unknown as EventData); // Передаем null, если данных нет
-        }
-      } else {
-        setError(response.message || "Произошла ошибка");
-        if (onError) onError(new Error(response.message || "Произошла ошибка"));
+      // Успех
+      setSuccess(formData.id ? "Мероприятие успешно обновлено" : "Мероприятие успешно создано");
+      if (onSuccess) {
+        onSuccess(resultEventData); // Передаем полученные EventData
       }
+
     } catch (err) {
       if (mounted.current) {
-        setError((err as Error).message || "Произошла неизвестная ошибка");
-        if (onError) onError(err as Error);
+        let errorMessage = formData.id ? "Ошибка при обновлении мероприятия" : "Ошибка при создании мероприятия";
+        let errorToReport: Error = new Error(errorMessage);
+
+         if (err instanceof ApiError) {
+          errorToReport = err;
+           if (err.body?.detail) {
+            if (Array.isArray(err.body.detail)) {
+              // Указываем тип для e
+              errorMessage = err.body.detail.map((e: ValidationErrorDetail) => `${e.loc?.join('.') || 'field'}: ${e.msg}`).join('; ');
+            } else if (typeof err.body.detail === 'string') {
+              errorMessage = err.body.detail;
+            } else {
+              errorMessage = JSON.stringify(err.body.detail);
+            }
+          } else {
+            errorMessage = err.body?.message || err.body?.error || err.message || errorMessage;
+          }
+          
+           if (err.body?.authError) {
+             console.warn("Auth error during handleSubmit, redirecting...");
+             router.push('/admin-login'); 
+             return; 
+          }
+        } else if (err instanceof Error) {
+          errorMessage = err.message;
+          errorToReport = err;
+        } else {
+          errorMessage = "Произошла неизвестная ошибка при сохранении.";
+          errorToReport = new Error(errorMessage);
+        }
+        setError(String(errorMessage)); 
+        if (onError) onError(errorToReport);
       }
     } finally {
       if (mounted.current) {
         setIsLoading(false);
       }
     }
-  }, [formData, onSuccess, onError, createEvent]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, onSuccess, onError, createEventInternal, updateEvent, router]); // Добавили updateEvent
 
   const resetForm = useCallback(() => {
     if (!mounted.current) return;

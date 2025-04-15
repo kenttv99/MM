@@ -1967,3 +1967,15 @@ DETAIL:  На ключ (id)=(3) всё ещё есть ссылки в таблице "notification_templates"
 2025-04-15 12:16:59,415 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-15 12:16:59,431 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-15 12:16:59,492 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-15 13:57:28,182 - root - ERROR - Unexpected error in update_event: 'ChunkedIteratorResult' object has no attribute 'scalar_one_or_null'
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\api\admin_edit_routers.py", line 335, in update_event
+    event = result.scalar_one_or_null()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ChunkedIteratorResult' object has no attribute 'scalar_one_or_null'. Did you mean: 'scalar_one_or_none'?
+2025-04-15 13:59:14,376 - root - ERROR - Unexpected error in update_event: 'ChunkedIteratorResult' object has no attribute 'scalar_one_or_null'
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\api\admin_edit_routers.py", line 335, in update_event
+    event = result.scalar_one_or_null()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'ChunkedIteratorResult' object has no attribute 'scalar_one_or_null'. Did you mean: 'scalar_one_or_none'?

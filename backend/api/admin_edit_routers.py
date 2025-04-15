@@ -1,5 +1,5 @@
 # backend/api/admin_edit_routers.py
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request, Body
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
 from backend.config.auth import get_current_admin, log_admin_activity
@@ -14,7 +14,7 @@ import os
 import uuid
 from typing import Optional
 import inspect
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import re
 
 router = APIRouter()
@@ -102,36 +102,6 @@ async def process_image(image_file: Optional[UploadFile], remove_image: bool, ol
     
     return old_image_url
 
-async def prepare_event_data(form_data: EventFormData):
-    try:
-        price_float = float(form_data.price)
-        available_quantity = int(form_data.ticket_type_available_quantity)
-        
-        if available_quantity <= 0:
-            raise HTTPException(status_code=422, detail="Количество мест должно быть больше 0")
-            
-        remove_image = form_data.remove_image.lower() == "true"
-        
-        start_date_dt = make_naive(datetime.fromisoformat(form_data.start_date.replace("Z", "+00:00")))
-        end_date_dt = None
-        if form_data.end_date:
-            end_date_dt = make_naive(datetime.fromisoformat(form_data.end_date.replace("Z", "+00:00")))
-            
-        created_at_dt = make_naive(datetime.fromisoformat(form_data.created_at.replace("Z", "+00:00")))
-        updated_at_dt = make_naive(datetime.fromisoformat(form_data.updated_at.replace("Z", "+00:00")))
-        
-        return {
-            "price_float": price_float,
-            "available_quantity": available_quantity,
-            "remove_image": remove_image,
-            "start_date_dt": start_date_dt,
-            "end_date_dt": end_date_dt,
-            "created_at_dt": created_at_dt,
-            "updated_at_dt": updated_at_dt
-        }
-    except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-
 async def send_notifications(db: AsyncSession, event: Event, message: str, notification_type: str):
     # Создаем шаблон уведомления
     template = NotificationTemplate(
@@ -177,62 +147,125 @@ async def send_notifications(db: AsyncSession, event: Event, message: str, notif
 
     await db.commit()
 
+# НОВАЯ модель Pydantic для обновления данных (только изменяемые поля)
+class EventUpdatePayload(BaseModel):
+    title: str
+    description: Optional[str] = None
+    start_date: str # Ожидаем строку ISO формата YYYY-MM-DDTHH:MM:SS
+    end_date: Optional[str] = None # Ожидаем строку ISO формата YYYY-MM-DDTHH:MM:SS
+    location: Optional[str] = None
+    price: float # Используем float для цены
+    published: bool = False
+    status: str = "draft"
+    ticket_type_name: str = "standart"
+    ticket_type_available_quantity: int # Используем int
+    remove_image: bool = False # Используем bool
+    url_slug: Optional[str] = None
+
+    @field_validator('start_date', 'end_date')
+    def validate_iso_format(cls, value):
+        if value is None: return value
+        try:
+            # Пробуем парсить как дату-время
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            return value
+        except ValueError:
+            raise ValueError("Date must be in ISO 8601 format (e.g., YYYY-MM-DDTHH:MM:SS)")
+
+    @field_validator('status')
+    def validate_status(cls, value):
+        allowed_statuses = [s.value for s in EventStatus]
+        if value not in allowed_statuses:
+            raise ValueError(f"Invalid status. Allowed values: {allowed_statuses}")
+        return value
+
+    class Config:
+        from_attributes = True
+
 @router.post("/", response_model=EventCreate)
 async def create_event(
-    form_data: EventFormData = Depends(),
+    # Используем Form(...) для явного указания полей формы
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    start_date: str = Form(...), # Ожидаем строку YYYY-MM-DDTHH:MM:SS
+    end_date: Optional[str] = Form(None), # Ожидаем строку YYYY-MM-DDTHH:MM:SS
+    location: Optional[str] = Form(None),
+    price: str = Form(...), # Цена как строка
+    published: bool = Form(False),
+    event_status: str = Form("draft"),
+    ticket_type_name: str = Form("standart"),
+    ticket_type_available_quantity: str = Form(...), # Количество как строка
+    remove_image: str = Form("false"), # Как строка
+    url_slug: Optional[str] = Form(None),
     image_file: Optional[UploadFile] = File(None),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     try:
-        # Логируем запрос и заголовки для отладки
         logger.info(f"Create event request received. Auth header: {request.headers.get('Authorization')[:20] if request.headers.get('Authorization') else 'None'}")
-        
         token = credentials.credentials
-        logger.info(f"Token extracted: {token[:20]}...")
-        
         current_admin = await get_current_admin(token, db)
         logger.info(f"Admin authenticated: {current_admin.email}")
-        
-        processed_data = await prepare_event_data(form_data)
-        
-        image_url = await process_image(image_file, processed_data["remove_image"])
-        
+
+        # Валидация и подготовка данных вручную
+        try:
+            price_float = float(price)
+            available_quantity = int(ticket_type_available_quantity)
+            if available_quantity <= 0:
+                raise HTTPException(status_code=422, detail="Количество мест должно быть больше 0")
+            remove_image_bool = remove_image.lower() == "true"
+            start_date_dt = make_naive(datetime.fromisoformat(start_date.replace("Z", "+00:00")))
+            end_date_dt = None
+            if end_date:
+                end_date_dt = make_naive(datetime.fromisoformat(end_date.replace("Z", "+00:00")))
+            # created_at/updated_at устанавливаются автоматически
+            created_at_dt = datetime.utcnow()
+            updated_at_dt = datetime.utcnow()
+
+            # Валидация статуса
+            allowed_statuses = [s.value for s in EventStatus]
+            if event_status not in allowed_statuses:
+                 raise HTTPException(status_code=422, detail=f"Invalid status. Allowed: {allowed_statuses}")
+
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Invalid data format: {e}")
+
+        image_url = await process_image(image_file, remove_image_bool)
+
         event = Event(
-            title=form_data.title,
-            description=form_data.description,
-            start_date=processed_data["start_date_dt"],
-            end_date=processed_data["end_date_dt"],
-            location=form_data.location,
+            title=title,
+            description=description,
+            start_date=start_date_dt,
+            end_date=end_date_dt,
+            location=location,
             image_url=image_url,
-            price=processed_data["price_float"],
-            published=form_data.published,
-            created_at=processed_data["created_at_dt"],
-            updated_at=processed_data["updated_at_dt"],
-            status=form_data.status
+            price=price_float,
+            published=published,
+            created_at=created_at_dt, # Устанавливаем текущее время
+            updated_at=updated_at_dt, # Устанавливаем текущее время
+            status=event_status
         )
         db.add(event)
-        await db.flush()
-        
+        await db.flush() # Получаем ID события
+
         # Генерация и сохранение url_slug после получения id
-        if form_data.url_slug:
-            event.url_slug = generate_slug_with_id(form_data.url_slug, event.id, processed_data["start_date_dt"])
-        
+        if url_slug:
+            event.url_slug = generate_slug_with_id(url_slug, event.id, start_date_dt)
+
         ticket = TicketType(
             event_id=event.id,
-            name=form_data.ticket_type_name,
-            price=processed_data["price_float"],
-            available_quantity=processed_data["available_quantity"],
-            free_registration=False,
+            name=ticket_type_name,
+            price=price_float,
+            available_quantity=available_quantity,
+            free_registration=False, # По умолчанию
             sold_quantity=0
         )
         db.add(ticket)
-        
+
         await db.commit()
         await db.refresh(event, attribute_names=["tickets"])
-        
-        # Send notifications only if event is published and not in draft
+
         if event.published and event.status != EventStatus.draft:
             await send_notifications(
                 db,
@@ -240,170 +273,145 @@ async def create_event(
                 f"Новое мероприятие '{event.title}' опубликовано!",
                 "publication"
             )
-        
+
         await log_admin_activity(db, current_admin.id, request, action=f"create_event_{event.id}")
-        
-        response_data = EventCreate(
-            id=event.id,
-            title=event.title,
-            description=event.description,
-            start_date=event.start_date,
-            end_date=event.end_date,
-            location=event.location,
-            image_url=event.image_url,
-            price=float(event.price),
-            published=event.published,
-            created_at=event.created_at,
-            updated_at=event.updated_at,
-            status=event.status,
-            url_slug=event.url_slug,
-            ticket_type=TicketTypeCreate(
-                name=ticket.name,
-                price=float(ticket.price),
-                available_quantity=ticket.available_quantity,
-                sold_quantity=ticket.sold_quantity
-            )
-        )
-        
-        logger.info(f"Admin {current_admin.email} created event {event.id}")
+
+        response_data = EventCreate.from_orm(event)
         return response_data
-        
-    except ValueError as e:
-        logger.error(f"Validation error in create_event: {str(e)}")
-        await db.rollback()
-        raise HTTPException(status_code=422, detail=str(e))
+
+    except HTTPException as http_exc:
+        logger.error(f"HTTPException in create_event: {http_exc.detail}")
+        raise http_exc
     except Exception as e:
-        logger.error(f"Error creating event: {str(e)}")
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Не удалось создать мероприятие: {str(e)}"
-        )
+        logger.exception(f"Unexpected error in create_event: {e}")
+        await db.rollback() # Откат транзакции при ошибке
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 @router.put("/{event_id}", response_model=EventCreate)
 async def update_event(
     event_id: int,
-    form_data: EventFormData = Depends(),
+    title: str = Form(...),
+    description: Optional[str] = Form(None),
+    start_date: str = Form(...), # Ожидаем строку ISO формата
+    end_date: Optional[str] = Form(None), # Ожидаем строку ISO формата
+    location: Optional[str] = Form(None),
+    price: float = Form(...), # Цена как float
+    published: bool = Form(False),
+    event_status: str = Form("draft"),
+    ticket_type_name: str = Form("standart"),
+    ticket_type_available_quantity: int = Form(...), # Количество как int
+    remove_image: bool = Form(False), # Как bool
+    url_slug: Optional[str] = Form(None),
     image_file: Optional[UploadFile] = File(None),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None,
     db: AsyncSession = Depends(get_async_db)
 ):
     try:
+        logger.info(f"Update event request received for ID: {event_id}. Auth header: {request.headers.get('Authorization')[:20] if request.headers.get('Authorization') else 'None'}")
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
-        
-        processed_data = await prepare_event_data(form_data)
-        
-        event = await db.get(Event, event_id, options=[selectinload(Event.tickets)])
+        logger.info(f"Admin authenticated: {current_admin.email}")
+
+        # ВАЖНО: Создаем объект payload ИЗ полей формы для валидации
+        try:
+            payload_data = {
+                "title": title, "description": description, "start_date": start_date,
+                "end_date": end_date, "location": location, "price": price,
+                "published": published, "status": event_status, "ticket_type_name": ticket_type_name,
+                "ticket_type_available_quantity": ticket_type_available_quantity,
+                "remove_image": remove_image, "url_slug": url_slug
+            }
+            # Валидируем данные с помощью Pydantic модели
+            payload = EventUpdatePayload(**payload_data)
+        except Exception as validation_error: # Ловим ошибки валидации Pydantic
+             logger.error(f"Validation error creating payload from form data: {validation_error}")
+             # Можно вернуть более детальное сообщение об ошибке, если нужно
+             raise HTTPException(status_code=422, detail=f"Invalid form data: {validation_error}")
+
+        # Ищем существующее событие
+        stmt = select(Event).where(Event.id == event_id).options(selectinload(Event.tickets))
+        result = await db.execute(stmt)
+        event = result.scalar_one_or_none()
+
         if not event:
-            raise HTTPException(status_code=404, detail="Мероприятие не найдено")
-        
-        old_status = event.status
-        old_published = event.published
-        
-        image_url = await process_image(
-            image_file, 
-            processed_data["remove_image"], 
-            event.image_url
-        )
-        
-        event.title = form_data.title
-        event.description = form_data.description
-        event.start_date = processed_data["start_date_dt"]
-        event.end_date = processed_data["end_date_dt"]
-        event.location = form_data.location
-        event.image_url = image_url
-        event.price = processed_data["price_float"]
-        event.published = form_data.published
-        event.created_at = processed_data["created_at_dt"]
-        event.updated_at = processed_data["updated_at_dt"]
-        event.status = form_data.status
-        
-        # Обновление url_slug при каждом запросе
-        if form_data.url_slug:
-            event.url_slug = generate_slug_with_id(form_data.url_slug, event_id, processed_data["start_date_dt"])
-        
-        # Update ticket status to "completed" when event status is changed to "completed"
-        if form_data.status == EventStatus.completed and old_status != EventStatus.completed:
-            logger.info(f"Event {event_id} status changed to completed, updating ticket statuses")
-            # Get all registrations for this event
-            registrations_query = select(Registration).where(Registration.event_id == event_id)
-            registrations = (await db.execute(registrations_query)).scalars().all()
-            
-            # Update status for all registrations
-            for registration in registrations:
-                registration.status = Status.completed.name
-                logger.info(f"Updated registration {registration.id} status to completed")
-        
-        ticket_query = select(TicketType).where(TicketType.event_id == event_id)
-        ticket = (await db.execute(ticket_query)).scalar_one_or_none()
-        
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+
+        # Валидация дат ИЗ payload (уже провалидированного)
+        try:
+            start_date_dt = make_naive(datetime.fromisoformat(payload.start_date.replace("Z", "+00:00")))
+            end_date_dt = None
+            if payload.end_date:
+                end_date_dt = make_naive(datetime.fromisoformat(payload.end_date.replace("Z", "+00:00")))
+                if end_date_dt < start_date_dt:
+                    raise ValueError("End date cannot be earlier than start date")
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"Invalid date format or logic: {e}")
+
+        # Обработка изображения
+        old_image_url = event.image_url
+        # Используем payload.remove_image (уже bool)
+        new_image_url = await process_image(image_file, payload.remove_image, old_image_url)
+
+        # Обновляем поля события данными из payload
+        event.title = payload.title
+        event.description = payload.description
+        event.start_date = start_date_dt
+        event.end_date = end_date_dt
+        event.location = payload.location
+        event.image_url = new_image_url
+        event.price = payload.price
+        event.published = payload.published
+        event.status = payload.status
+        event.updated_at = datetime.utcnow() # Обновляем время изменения
+
+        # Обработка URL slug
+        original_slug = event.url_slug
+        new_base_slug = None
+        if payload.url_slug:
+            new_base_slug = generate_slug_with_id(payload.url_slug, event.id, start_date_dt)
+            if new_base_slug != original_slug:
+                event.url_slug = new_base_slug
+                logger.info(f"URL slug updated for event {event_id} from '{original_slug}' to '{new_base_slug}'")
+
+        # Обновляем или создаем тип билета
+        ticket = event.tickets[0] if event.tickets else None
         if ticket:
-            ticket.name = form_data.ticket_type_name
-            ticket.price = processed_data["price_float"]
-            ticket.available_quantity = processed_data["available_quantity"]
-            ticket.free_registration = False
+            ticket.name = payload.ticket_type_name
+            ticket.price = payload.price # Используем float из payload
+            ticket.available_quantity = payload.ticket_type_available_quantity # Используем int из payload
+            # sold_quantity не обновляется здесь
         else:
+            # Создаем новый билет, если его не было
             ticket = TicketType(
-                event_id=event_id,
-                name=form_data.ticket_type_name,
-                price=processed_data["price_float"],
-                available_quantity=processed_data["available_quantity"],
+                event_id=event.id,
+                name=payload.ticket_type_name,
+                price=payload.price,
+                available_quantity=payload.ticket_type_available_quantity,
                 free_registration=False,
-                sold_quantity=0,
+                sold_quantity=0
             )
             db.add(ticket)
-        
-        await db.flush()
-        
-        # Send notifications only for status changes (excluding draft) or new publication
-        if (old_status != form_data.status and form_data.status != EventStatus.draft) or (not old_published and form_data.published):
-            message = (
-                f"Новое мероприятие '{event.title}' опубликовано!"
-                if (not old_published and form_data.published)
-                else f"Статус мероприятия '{event.title}' изменен на '{form_data.status}'"
-            )
-            notification_type = "publication" if (not old_published and form_data.published) else "status_change"
-            await send_notifications(db, event, message, notification_type)
-        
+
         await db.commit()
-        await db.refresh(event)
-        
-        ticket_data = event.tickets[0] if event.tickets else ticket
-        response_data = EventCreate(
-            id=event.id,
-            title=event.title,
-            description=event.description,
-            start_date=event.start_date,
-            end_date=event.end_date,
-            location=event.location,
-            image_url=event.image_url,
-            price=float(event.price),
-            published=event.published,
-            created_at=event.created_at,
-            updated_at=event.updated_at,
-            status=event.status,
-            url_slug=event.url_slug,
-            ticket_type=TicketTypeCreate(
-                name=ticket_data.name,
-                price=float(ticket_data.price),
-                available_quantity=ticket_data.available_quantity,
-                sold_quantity=ticket_data.sold_quantity
-            ) if ticket_data else None,
-        )
-        
-        await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event_id}")
-        
+        await db.refresh(event, attribute_names=["tickets"])
+
+        # Логика уведомлений (если нужна)
+
+        await log_admin_activity(db, current_admin.id, request, action=f"update_event_{event.id}")
+
+        # Возвращаем данные в формате EventCreate
+        response_data = EventCreate.from_orm(event)
         return response_data
-    except ValueError as e:
-        logger.error(f"Validation error in update_event: {str(e)}")
-        await db.rollback()
-        raise HTTPException(status_code=422, detail=str(e))
+
+    except HTTPException as http_exc:
+        logger.error(f"HTTPException in update_event: {http_exc.detail}")
+        await db.rollback() # Добавляем откат при HTTPException
+        raise http_exc
     except Exception as e:
-        logger.error(f"Error updating event {event_id}: {str(e)}")
+        logger.exception(f"Unexpected error in update_event: {e}")
         await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Не удалось обновить мероприятие: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
 # Маршрут для создания мероприятия (переработанный)
 @router.get("/events", response_model=list[EventCreate])

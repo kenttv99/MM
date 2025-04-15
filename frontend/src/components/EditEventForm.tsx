@@ -243,16 +243,68 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     alert("Функция предварительного просмотра находится в разработке.");
   };
 
-  useEffect(() => {
-    if (formData.start_date && formData.end_date) {
-      const start = new Date(`${formData.start_date}T${formData.start_time || "00:00"}`);
-      const end = new Date(`${formData.end_date}T${formData.end_time || "23:59"}`);
-      if (end < start) {
-        setFieldValue("end_date", formData.start_date);
-        setFieldValue("end_time", formData.start_time);
+  // Обработчики для даты и времени
+  const handleDateTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    
+    // Проверяем, является ли имя поля допустимым ключом для EventFormData
+    if (name === "start_date" || name === "start_time" || name === "end_date" || name === "end_time") {
+      // Сначала обновляем значение в форме
+      setFieldValue(name as keyof EventFormData, value);
+      
+      // Проверка только для изменения даты начала
+      if (name === "start_date") {
+        // Если дата окончания не задана или меньше даты начала, устанавливаем её равной дате начала
+        if (!formData.end_date || new Date(value) > new Date(formData.end_date)) {
+          setFieldValue("end_date", value);
+        }
       }
     }
-  }, [formData.start_date, formData.end_date, formData.start_time, formData.end_time, setFieldValue]);
+  };
+  
+  // Отдельные обработчики для каждого поля
+  const handleStartDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleDateTimeChange(e);
+  };
+  
+  const handleEndDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleDateTimeChange(e);
+  };
+  
+  const handleStartTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleDateTimeChange(e);
+  };
+  
+  const handleEndTimeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleDateTimeChange(e);
+  };
+
+  // Проверка валидности времени (вызывается, когда пользователь переключается на другое поле)
+  const validateDateTime = () => {
+    if (!formData.start_date || !formData.end_date || !formData.start_time || !formData.end_time) {
+      return true; // Если какое-то из полей не заполнено, валидация не требуется
+    }
+    
+    // Создаём объекты Date для корректного сравнения
+    const startDateTime = new Date(`${formData.start_date}T${formData.start_time}`);
+    const endDateTime = new Date(`${formData.end_date}T${formData.end_time}`);
+    
+    // Если даты разные, сравниваем даты целиком
+    if (formData.start_date !== formData.end_date) {
+      return startDateTime <= endDateTime;
+    }
+    
+    // Если даты одинаковые, сравниваем только времена
+    return startDateTime <= endDateTime;
+  };
+
+  // Обработчик потери фокуса для полей даты и времени
+  const handleDateTimeBlur = () => {
+    if (!validateDateTime()) {
+      setLocalError("Время окончания не может быть раньше времени начала");
+      setTimeout(() => setLocalError(null), 3000);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -473,8 +525,36 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     };
   }, [isPageLoading, setIsPageLoading]);
 
+  // Модифицируем обработчик отправки формы для корректного форматирования даты и времени
+  const onSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    
+    try {
+      // Обрабатываем дату и время начала
+      if (formData.start_date && formData.start_time) {
+        // Создаем корректную строку даты-времени для API
+        const startDateTime = `${formData.start_date}T${formData.start_time}:00`;
+        setFieldValue("start_datetime", startDateTime);
+      }
+      
+      // Обрабатываем дату и время окончания, если они заданы
+      if (formData.end_date && formData.end_time) {
+        // Создаем корректную строку даты-времени для API
+        const endDateTime = `${formData.end_date}T${formData.end_time}:00`;
+        setFieldValue("end_datetime", endDateTime);
+      }
+      
+      // Вызываем оригинальный обработчик с существующими данными формы
+      // Так как setFieldValue обновляет formData, все новые значения уже будут в handleSubmit
+      await handleSubmit(e);
+    } catch (error) {
+      console.error("Error processing form submission:", error);
+      setLocalError("Ошибка при обработке формы. Пожалуйста, проверьте введенные данные.");
+    }
+  };
+
   if (isLoading) {
-    return <div className="text-center py-10">Загрузка данных мероприятия...</div>;
+    return <FormSkeleton />;
   }
 
   return (
@@ -580,7 +660,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
+          <form onSubmit={onSubmit} className="bg-white p-4 sm:p-6 rounded-xl shadow-lg border border-gray-100 mb-8">
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Название мероприятия*</label>
               <input
@@ -742,7 +822,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                     type="date"
                     name="start_date"
                     value={formData.start_date}
-                    onChange={handleChange}
+                    onChange={handleStartDateChange}
+                    onBlur={handleDateTimeBlur}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
                     required
                   />
@@ -754,7 +835,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   type="time"
                   name="start_time"
                   value={formData.start_time || ""}
-                  onChange={handleChange}
+                  onChange={handleStartTimeChange}
+                  onBlur={handleDateTimeBlur}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
                   required
                 />
@@ -770,7 +852,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                     type="date"
                     name="end_date"
                     value={formData.end_date || ""}
-                    onChange={handleChange}
+                    onChange={handleEndDateChange}
+                    onBlur={handleDateTimeBlur}
                     min={formData.start_date}
                     className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
                   />
@@ -782,7 +865,8 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                   type="time"
                   name="end_time"
                   value={formData.end_time || ""}
-                  onChange={handleChange}
+                  onChange={handleEndTimeChange}
+                  onBlur={handleDateTimeBlur}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px]"
                 />
               </div>
@@ -1040,6 +1124,69 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
           </form>
         </motion.div>
+      </main>
+    </div>
+  );
+};
+
+export const FormSkeleton: React.FC = () => {
+  return (
+    <div className="min-h-screen bg-gray-100">
+      <main className="container mx-auto px-4 pt-24 pb-12">
+        <div className="max-w-4xl mx-auto">
+          <div className="bg-white p-8 rounded-lg shadow-md">
+            {/* Заголовок */}
+            <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+              <div className="h-8 bg-gray-300 rounded w-64 mb-4 animate-pulse"></div>
+              <div className="flex gap-4">
+                <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
+                <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
+              </div>
+            </div>
+            
+            {/* Основная форма */}
+            <div className="bg-white p-8 rounded-lg mb-6">
+              {/* Поля формы */}
+              <div className="mb-8">
+                <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
+                <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
+              </div>
+              
+              <div className="flex flex-col md:flex-row gap-6 mb-8">
+                <div className="flex-1">
+                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
+                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
+                </div>
+                <div className="flex-1">
+                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
+                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
+                </div>
+              </div>
+              
+              <div className="mb-8">
+                <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
+                <div className="h-36 bg-gray-200 rounded w-full animate-pulse"></div>
+              </div>
+              
+              <div className="flex flex-col md:flex-row gap-6 mb-8">
+                <div className="flex-1">
+                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
+                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
+                </div>
+                <div className="flex-1">
+                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
+                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
+                </div>
+              </div>
+              
+              {/* Кнопки внизу */}
+              <div className="flex justify-end gap-4">
+                <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
+                <div className="h-10 bg-blue-300 rounded w-28 animate-pulse"></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   );

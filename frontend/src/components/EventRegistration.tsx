@@ -200,7 +200,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
         // Обработка непредвиденных ошибок (сеть и т.п.)
         console.error('Unexpected error fetching user ticket:', err);
         if (err && typeof err === 'object' && 'detail' in err) {
-          console.error('Error details:', (err as any).detail);
+          console.error('Error details:', err.detail);
         }
         setError(err instanceof Error ? err.message : "Ошибка при проверке билета.");
         setUserTicket(null); // Сбрасываем билет при ошибке
@@ -220,7 +220,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       clearTimeout(timeoutId);
     };
   // Зависимости: isAuth, userData, eventId, onReady
-  }, [isAuth, userData?.id, eventId, onReady]); // Добавил userData.id для перезапуска при смене пользователя
+  }, [isAuth, userData, eventId, onReady]); // Заменил userData?.id на userData
   
 
   // Handle ticket update events
@@ -242,7 +242,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       // If the source is this component itself (internal update), ignore it
       // to prevent loops, unless it's the final server data update.
       // We check if 'isServerData' flag exists and is true.
-      if (detail.source === 'event-registration' && !(detail as any).isServerData) {
+      if (detail.source === 'event-registration' && (!('isServerData' in detail) || !detail.isServerData)) {
         console.log('EventRegistration: Ignoring internal ticket update event.');
         return;
       }
@@ -509,7 +509,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       // Улучшенное логирование ошибки (остается)
       console.error('Booking error in handleConfirmBooking:', err);
       if (err && typeof err === 'object' && 'detail' in err) {
-        console.error('Error details:', (err as any).detail);
+        console.error('Error details:', err.detail);
       }
       // Используем instanceof Error для более точного сообщения
       setError(err instanceof Error ? err.message : "Ошибка при бронировании."); 
@@ -556,7 +556,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           <div className="flex items-center mb-2 sm:mb-0">
             <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
             <h3 className="text-lg sm:text-xl font-semibold text-gray-800 text-center sm:text-left">
-              Доступные места: {remainingQuantity}
+              {isRegistrationClosedOrCompleted
+                ? "Места распределены"
+                : `Доступные места: ${remainingQuantity}`}
             </h3>
           </div>
           <motion.button
@@ -627,13 +629,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleButtonClick}
-                disabled={remainingQuantity === 0}
+                disabled={remainingQuantity === 0 || isRegistrationClosedOrCompleted}
                 className={`
                   px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md
                   min-w-[120px] min-h-[44px] text-sm sm:text-base
-                  ${remainingQuantity === 0
-                    ? "bg-gray-200 text-gray-500 cursor-not-allowed"
-                    : "bg-orange-500 text-white hover:bg-orange-600"}
+                  bg-orange-500 text-white hover:bg-orange-600
                 `}
               >
                 Забронировать
@@ -642,7 +642,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             
             {renderDebugButton()}
 
-            {!isRegistrationClosedOrCompleted && remainingQuantity > 0 ? (
+            {remainingQuantity > 0 ? (
               <div className="flex flex-wrap gap-2 justify-center">
                 <AnimatePresence>
                   {seatsArray.map((seat) => (
@@ -661,7 +661,9 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                   ))}
                 </AnimatePresence>
                 {remainingQuantity > maxVisibleSeats && (
-                  <span className="text-gray-500 text-sm mt-2">+{remainingQuantity - maxVisibleSeats} мест</span>
+                  <span className="text-gray-500 text-sm mt-2">
+                    {isRegistrationClosedOrCompleted ? "+ распределено" : `+${remainingQuantity - maxVisibleSeats} мест`}
+                  </span>
                 )}
               </div>
             ) : (

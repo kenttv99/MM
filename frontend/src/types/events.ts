@@ -46,6 +46,8 @@ export interface EventFormData {
   start_time?: string;
   end_date?: string;
   end_time?: string;
+  start_datetime?: string; // ISO-совместимая строка для даты и времени начала
+  end_datetime?: string;   // ISO-совместимая строка для даты и времени окончания
   location?: string;
   image_file?: File | null;
   image_url?: string | null;
@@ -59,6 +61,8 @@ export interface EventFormData {
   remove_image?: boolean;
   url_slug?: string;
   url_slug_changed?: boolean; // Flag to track if URL was manually changed by user
+  created_at: string;
+  updated_at: string;
 }
 
 export type EventStatus = "draft" | "registration_open" | "registration_closed" | "completed";

@@ -7,7 +7,6 @@ import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
 import EventDetails from "@/components/EventDetails";
 import FormattedDescription from "@/components/FormattedDescription";
-import { notFound } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import Image from "next/image";
@@ -232,6 +231,7 @@ export default function EventPage() {
   }, []);
   
   // Функция для получения данных мероприятия
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const fetchEventData = useCallback(async (targetSlug: string): Promise<EventData | null> => {
     if (!isMountedRef.current) {
       logInfo("Component not stable yet, skipping fetch");
@@ -613,6 +613,7 @@ export default function EventPage() {
                   onBookingClick={handleBookingClick}
                   onLoginClick={handleLoginClick}
                   onBookingSuccess={handleBookingSuccess}
+                  displayStatus={event.status === "registration_closed" || event.status === "completed" ? "Регистрация закрыта" : undefined}
                 />
               )}
 

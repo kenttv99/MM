@@ -1,7 +1,7 @@
 // frontend/src/app/(admin)/layout.tsx
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
@@ -19,8 +19,37 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
   const isLoginPage = pathname === "/admin-login";
   const { setStage } = useLoadingStage();
   const { setDynamicLoading } = useLoadingFlags();
-  const { isAuthenticated, isAuthChecked } = useAdminAuth();
+  const { isAuthenticated, isAuthChecked, checkAuth } = useAdminAuth();
   const [adminLoaded, setAdminLoaded] = useState(false);
+  const router = useRouter();
+  
+  // Эффект для принудительной проверки авторизации и защиты маршрутов
+  useEffect(() => {
+    // Пропускаем проверку для страницы входа
+    if (isLoginPage) return;
+    
+    const authCheck = async () => {
+      // Проверяем, авторизован ли пользователь
+      console.log("AdminLayout: Checking authentication for protected route");
+      // Запускаем принудительную проверку на сервере с автоматическим перенаправлением
+      const isValid = await checkAuth(true);
+      
+      if (!isValid) {
+        console.log("AdminLayout: Authentication failed, redirecting to login");
+        router.push("/admin-login");
+      }
+    };
+    
+    // Запускаем проверку при каждом изменении маршрута
+    authCheck();
+    
+    // Создаем интервал для периодической проверки авторизации
+    const intervalId = setInterval(authCheck, 5 * 60 * 1000); // Каждые 5 минут
+    
+    return () => {
+      clearInterval(intervalId);
+    };
+  }, [checkAuth, isLoginPage, router]);
 
   // Эффект для отслеживания состояния аутентификации
   useEffect(() => {
@@ -39,9 +68,11 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
       } else if (!isAuthenticated && pathname !== "/admin-login") {
         console.log("AdminLayout: Not authenticated, setting stage to STATIC_CONTENT");
         setStage(LoadingStage.STATIC_CONTENT);
+        // Перенаправляем на страницу входа, если пользователь не авторизован
+        router.push("/admin-login");
       }
     }
-  }, [isAuthChecked, isAuthenticated, isLoginPage, pathname, setDynamicLoading, setStage, adminLoaded]);
+  }, [isAuthChecked, isAuthenticated, isLoginPage, pathname, setDynamicLoading, setStage, adminLoaded, router]);
 
   // Устанавливаем флаг для админского маршрута
   useEffect(() => {
@@ -55,6 +86,11 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
       }
     };
   }, []);
+
+  // Предотвращаем рендеринг административных страниц для неавторизованных пользователей
+  if (!isLoginPage && isAuthChecked && !isAuthenticated) {
+    return null; // Не рендерим контент, потому что пользователь будет перенаправлен
+  }
 
   return (
     <div className="min-h-screen bg-gray-100">

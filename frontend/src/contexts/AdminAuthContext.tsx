@@ -23,7 +23,7 @@ interface AdminAuthContextType {
   adminData: AdminProfile | null;
   login: (token: string, userData: AdminProfile) => void;
   logout: () => void;
-  checkAuth: () => Promise<boolean>;
+  checkAuth: (forceCheck?: boolean) => Promise<boolean>;
   validateTokenLocally: () => boolean;
   isAuthChecked: boolean;
 }

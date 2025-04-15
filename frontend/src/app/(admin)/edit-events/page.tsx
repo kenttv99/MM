@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useEventForm } from "@/hooks/useEventForm";
 import { EventFormData } from "@/types/events";
-import EditEventForm from "@/components/EditEventForm";
+import EditEventForm, { FormSkeleton } from "@/components/EditEventForm";
 
 function EditEventsPageContent() {
   const searchParams = useSearchParams();
@@ -109,7 +109,7 @@ function EditEventsPageContent() {
 
 function EditEventsPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={<FormSkeleton />}>
       <EditEventsPageContent />
     </Suspense>
   );

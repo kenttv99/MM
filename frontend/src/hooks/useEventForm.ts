@@ -1,6 +1,13 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { EventFormData, EventData } from '@/types/events';
-import { createEvent, updateEvent, fetchEvent, ensureAdminSession } from '@/utils/eventService';
+import {
+  updateEvent,
+  fetchEvent,
+  ensureAdminSession,
+  prepareEventFormData,
+  EventUpdateData,
+} from "@/utils/eventAdminService";
+import { apiFetch } from '@/utils/api';
 
 const eventCache: Record<string, EventData> = {};
 
@@ -268,187 +275,110 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     }
   }, [onError]);
 
-  const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
-    if (isLoading) return;
-
+  const createEvent = useCallback(async (data: EventFormData) => {
     setIsLoading(true);
-    setError('');
-    setSuccess('');
+    setError(null);
+    setSuccess(null);
 
     try {
-      console.log('useEventForm: Starting form submission');
-      
-      // Проверяем токен напрямую вместо вызова ensureAdminSession
-      const token = localStorage.getItem("admin_token");
-      let isValidSession = false;
-      
-      if (token) {
-        try {
-          // Проверяем токен локально
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          const now = Math.floor(Date.now() / 1000);
-          isValidSession = payload && payload.exp && payload.exp > now;
-          console.log(`useEventForm: Token validation: expires ${new Date(payload.exp * 1000).toISOString()}, now ${new Date(now * 1000).toISOString()}`);
-        } catch (e) {
-          console.error('useEventForm: Error validating token locally:', e);
-          isValidSession = false;
-        }
-      }
-      
-      if (!isValidSession) {
-        console.log('useEventForm: Admin session is invalid');
-        setError('Сессия истекла. Перенаправление на страницу входа...');
-        
-        // Store form data for recovery
-        localStorage.setItem('event_form_draft', JSON.stringify(formData));
-        
-        setTimeout(() => {
-          window.location.href = "/admin-login";
-        }, 1500);
-        
-        setIsLoading(false);
-        return;
-      }
-      
-      console.log('useEventForm: Admin session is valid, proceeding with submission');
-      
-      // Store form data in localStorage in case we need to restore it after login
-      localStorage.setItem('event_form_draft', JSON.stringify(formData));
-      
-      // Clean up the URL slug before submission by removing leading/trailing hyphens
-      const cleanedFormData = { ...formData };
-      if (cleanedFormData.url_slug) {
-        cleanedFormData.url_slug = cleanedFormData.url_slug.replace(/^\-|\-$/g, '');
-      }
-      
-      // Убедимся, что URL slug не пустой
-      if (!cleanedFormData.url_slug || cleanedFormData.url_slug.trim() === '') {
-        // Генерируем URL slug из названия, если он не задан
-        const titleSlug = cleanedFormData.title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-') // заменяем все не букво-цифровые символы на дефис
-          .replace(/^\-+|\-+$/g, '');   // убираем начальные и конечные дефисы
-        
-        if (titleSlug) {
-          cleanedFormData.url_slug = titleSlug;
-          console.log('useEventForm: Generated URL slug from title:', titleSlug);
-        } else {
-          cleanedFormData.url_slug = `event-${Date.now()}`;
-          console.log('useEventForm: Generated fallback URL slug:', cleanedFormData.url_slug);
-        }
+      const isSessionValid = await ensureAdminSession();
+      if (!isSessionValid) {
+        throw new Error("Сессия администратора истекла.");
       }
 
-      console.log(`useEventForm: Submitting ${formData.id ? 'update' : 'create'} request`);
-      console.log('useEventForm: FormData keys:', Object.keys(cleanedFormData));
-      console.log('useEventForm: URL slug:', cleanedFormData.url_slug);
-      
-      // Преобразуем null в undefined для соответствия типу EventUpdateData
-      const processedData = {
-        ...cleanedFormData,
-        // Convert null to undefined for image_file and image_url to match the expected type
-        image_file: cleanedFormData.image_file === null ? undefined : cleanedFormData.image_file,
-        image_url: cleanedFormData.image_url === null ? undefined : cleanedFormData.image_url
-      };
-      
-      const result = formData.id
-        ? await updateEvent(String(formData.id), processedData)
-        : await createEvent(processedData);
-      
-      // Handle structured error responses
-      if (!result.success) {
-        console.log('useEventForm: Received error response:', result);
-        
-        if ('authError' in result && result.authError) {
-          // Проверяем сообщение об ошибке 403 Forbidden (недостаточно прав)
-          const isForbiddenError = 'message' in result && result.message && typeof result.message === 'string' && (
-            result.message.includes('недостаточно прав') || 
-            result.message.includes('не авторизованы') ||
-            result.message.includes('нет доступа')
-          );
-          
-          if (isForbiddenError) {
-            // Показываем ошибку о недостатке прав, но не делаем редирект
-            console.log('useEventForm: Forbidden error (403), no redirect needed');
-            setError('message' in result && result.message ? result.message : 'Ошибка доступа');
-            
-            // Сохраняем черновик формы на случай повторной попытки
-            localStorage.setItem('event_form_draft', JSON.stringify(formData));
-            console.log('useEventForm: Form draft saved for later retry');
-            
-            setIsLoading(false);
-            return;
-          }
-          
-          // Проверяем текущий токен, чтобы выяснить статус авторизации
-          const token = localStorage.getItem("admin_token");
-          if (token) {
-            try {
-              const payload = JSON.parse(atob(token.split('.')[1]));
-              console.log('useEventForm: Current token sub:', payload.sub);
-              console.log('useEventForm: Current token exp:', new Date(payload.exp * 1000).toISOString());
-            } catch (e) {
-              console.error('useEventForm: Could not parse current token:', e);
-            }
-          } else {
-            console.log('useEventForm: No token found on auth error');
-          }
-          
-          // Другая ошибка авторизации - сохраняем данные формы и делаем редирект
-          setError(`${('message' in result && result.message ? result.message : 'Ошибка авторизации')} Перенаправление на страницу входа...`);
-          
-          // Wait a moment to show the error message
-          setTimeout(() => {
-            console.log('useEventForm: Redirecting to login due to auth error');
-            window.location.href = "/admin-login";
-          }, 2000);
-          
-          setIsLoading(false);
-          return;
-        } else {
-          // Regular error - just show the message
-          setError('message' in result && result.message ? result.message : 'Ошибка при сохранении формы');
-          setIsLoading(false);
-          return;
-        }
-      }
-      
-      // Success case
-      console.log('useEventForm: Submission successful');
-      if (result.event && result.event.id) {
-        // Ensure the event object has the required EventData properties before caching
-        if ('title' in result.event && 'start_date' in result.event && 
-            'price' in result.event && 'published' in result.event) {
-          eventCache[result.event.id.toString()] = result.event as EventData;
-        } else {
-          console.warn('useEventForm: Event data missing required fields, not caching');
-        }
-        // Clear the draft on success
-        localStorage.removeItem('event_form_draft');
-      }
-      
+      const preparedData = prepareEventFormData(data);
+
+      // Используем apiFetch для создания
+      const result = await apiFetch<EventData>("/admin_edits/", {
+        method: "POST",
+        data: preparedData,
+        isAdminRequest: true, // Указываем, что это админский запрос
+      });
+
       if (mounted.current) {
-        setSuccess(formData.id ? "Мероприятие успешно обновлено" : "Мероприятие успешно создано");
+        setSuccess("Мероприятие успешно создано");
+        if (onSuccess) onSuccess(result);
       }
-      
-      if (onSuccess && result.event) onSuccess(result.event as EventData);
+      return result;
     } catch (err) {
-      console.error('useEventForm: Unhandled error during submission:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Произошла неизвестная ошибка';
-      
-      // Only show error message if component is still mounted
       if (mounted.current) {
+        const errorMessage = (err as Error).message || "Ошибка при создании мероприятия";
         setError(errorMessage);
+        if (onError) onError(err as Error);
       }
-      
-      if (onError) onError(err instanceof Error ? err : new Error(errorMessage));
+      return null;
     } finally {
-      // Only update loading state if component is still mounted
       if (mounted.current) {
         setIsLoading(false);
       }
     }
-  }, [formData, isLoading, onSuccess, onError]);
+  }, [onSuccess, onError]);
+
+  const handleSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    // Добавляем валидацию URL slug перед отправкой
+    if (formData.url_slug && formData.url_slug.length < 3) {
+      setError("URL мероприятия должен содержать не менее 3 символов.");
+      setIsLoading(false);
+      return;
+    }
+    if (formData.url_slug && /[^a-z0-9-]/.test(formData.url_slug)) {
+      setError("URL мероприятия может содержать только латинские буквы, цифры и дефисы.");
+      setIsLoading(false);
+      return;
+    }
+
+    try {
+      let response;
+      if (formData.id) {
+        // Используем updateEvent из eventAdminService
+        // Передаем данные, убедившись, что image_file не null и исключив image_url
+        const { image_url, ...restFormData } = formData; // Исключаем image_url
+        const updateData: EventUpdateData = {
+           ...restFormData,
+           image_file: formData.image_file || undefined // Заменяем null на undefined
+        };
+        response = await updateEvent(String(formData.id), updateData);
+      } else {
+        // Используем createEvent (уже использует apiFetch)
+        // createEvent теперь возвращает EventData
+        const createdEventData = await createEvent(formData);
+        // Передаем созданные данные в response для единообразия
+        response = { success: true, message: "Мероприятие успешно создано", event: createdEventData };
+      }
+
+      if (!mounted.current) return;
+
+      if (response.success) {
+        setSuccess(response.message || (formData.id ? "Мероприятие обновлено" : "Мероприятие создано"));
+        // Если есть данные события в ответе, передаем их в onSuccess
+        if (response.event && typeof response.event === 'object' && 'id' in response.event) {
+          // Убедимся, что передаем EventData
+          if (onSuccess) onSuccess(response.event as EventData);
+        } else {
+           // Этот случай больше не должен происходить, так как createEvent возвращает EventData
+           console.warn("onSuccess called without event data after creation/update");
+           if (onSuccess) onSuccess(null as unknown as EventData); // Передаем null, если данных нет
+        }
+      } else {
+        setError(response.message || "Произошла ошибка");
+        if (onError) onError(new Error(response.message || "Произошла ошибка"));
+      }
+    } catch (err) {
+      if (mounted.current) {
+        setError((err as Error).message || "Произошла неизвестная ошибка");
+        if (onError) onError(err as Error);
+      }
+    } finally {
+      if (mounted.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [formData, onSuccess, onError, createEvent]);
 
   const resetForm = useCallback(() => {
     if (!mounted.current) return;
@@ -474,6 +404,6 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     setFieldValue,
     setImagePreview,
     setError,
-    setSuccess
+    setSuccess,
   };
 };

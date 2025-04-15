@@ -12,6 +12,7 @@ interface WindowWithLoadingStage extends Window {
   __loading_stage__?: LoadingStage;
   __activeRequestCount?: number;
   __loadingErrorHandler?: (error: string) => void;
+  admin_token?: string;
 }
 
 // Configure API module logging
@@ -507,6 +508,7 @@ interface ApiLogContext extends LogContext {
   duplicate?: boolean;
   elapsedTime?: number;
   loadingStage?: LoadingStage;
+  isAdminRequest?: boolean;
 }
 
 // Function to initialize the loading stage listener
@@ -586,6 +588,7 @@ export interface APIOptions {
   bypassLoadingStageCheck?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   transform?: (data: any) => any;
+  isAdminRequest?: boolean;
 }
 
 /**
@@ -730,7 +733,8 @@ export const apiFetch = <T = unknown>(
     signal = undefined,
     bypassLoadingStageCheck = false,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    transform = defaultTransform<T>
+    transform = defaultTransform<T>,
+    isAdminRequest = false
   } = options;
 
   // Create a unique request ID for tracking this request
@@ -739,7 +743,8 @@ export const apiFetch = <T = unknown>(
     endpoint,
     method,
     requestId,
-    loadingStage: currentLoadingStage
+    loadingStage: currentLoadingStage,
+    isAdminRequest
   };
   
   // Create a controller for request cancellation
@@ -775,11 +780,12 @@ export const apiFetch = <T = unknown>(
         });
         
         const error = new Error(`Request to ${endpoint} blocked due to rate limit`);
+        (error as IApiError).status = 429;
         return reject(error);
       }
 
-      // Check for cached response for GET requests
-      if (method === 'GET') {
+      // Check for cached response for GET requests (only for non-admin)
+      if (method === 'GET' && !isAdminRequest) {
         const cacheKey = generateCacheKey(endpoint, params);
         const cachedResponse = responseCache[cacheKey];
         
@@ -800,8 +806,8 @@ export const apiFetch = <T = unknown>(
         }
       }
 
-      // Check for duplicate request for GET requests
-      if (method === 'GET') {
+      // Check for duplicate request for GET requests (only for non-admin)
+      if (method === 'GET' && !isAdminRequest) {
         const existingRequest = findActiveRequest<T>(endpoint, { ...params }, method);
         
         if (existingRequest) {
@@ -845,17 +851,27 @@ export const apiFetch = <T = unknown>(
       }
       
       // Prepare headers
-      const defaultHeaders: Record<string, string> = {}; // Убрали Content-Type по умолчанию
+      const defaultHeaders: Record<string, string> = {};
       if (!(data instanceof FormData)) {
-        defaultHeaders['Content-Type'] = 'application/json'; // Добавляем только если не FormData
+        defaultHeaders['Content-Type'] = 'application/json';
       }
       const effectiveHeaders = { ...defaultHeaders, ...headers };
       
-      // Add Authorization header if token exists
+      // Add Authorization header based on isAdminRequest
       if (typeof window !== 'undefined') {
-        const token = localStorage.getItem('token');
+        const tokenKey = isAdminRequest ? 'admin_token' : 'token';
+        const token = localStorage.getItem(tokenKey);
         if (token) {
+          apiLogger.debug('Using token for authorization', { tokenKey });
           effectiveHeaders['Authorization'] = `Bearer ${token}`;
+        } else {
+           apiLogger.debug('No token found for authorization', { tokenKey });
+           // Если это админский запрос и нет токена, можно сразу отклонить
+           if (isAdminRequest) {
+              const authError = new Error("Admin token not found");
+              (authError as IApiError).status = 401;
+              return reject(authError);
+           }
         }
       }
       
@@ -863,7 +879,8 @@ export const apiFetch = <T = unknown>(
       const requestOptions: RequestInit = {
         method,
         headers: effectiveHeaders,
-        signal: signal || localSignal
+        signal: signal || localSignal,
+        credentials: isAdminRequest ? 'same-origin' : 'include'
       };
       
       // Add body for non-GET requests
@@ -895,7 +912,10 @@ export const apiFetch = <T = unknown>(
       apiLogger.debug(`Sending ${method} request to ${url}`, {
         ...logContext,
         params: method === 'GET' ? params : undefined,
-        data: method !== 'GET' ? data : undefined
+        data: method !== 'GET' ? data : undefined,
+        hasData: data !== undefined,
+        dataType: data instanceof FormData ? 'FormData' : typeof data,
+        credentials: requestOptions.credentials
       });
       
       // Execute the request
@@ -908,44 +928,62 @@ export const apiFetch = <T = unknown>(
       // Handle response based on status
       if (!response.ok) {
         // Log error response
+        let errorBodyText: string | null = null;
+        try {
+            errorBodyText = await response.text(); // Получаем тело ошибки как текст
+        } catch {
+            // Ignore error if body cannot be read
+        }
+
         apiLogger.error(`Error response: ${response.status} ${response.statusText}`, {
-          ...logContext,
-          statusText: response.statusText
+            ...logContext,
+            statusText: response.statusText,
+            errorBody: errorBodyText?.substring(0, 500) // Логируем часть тела ошибки
         });
         
         // Complete performance metric
-        apiLogger.endMetric(metricId, { 
-          success: false, 
+        apiLogger.endMetric(metricId, {
+          success: false,
           statusCode: response.status,
           elapsedTime: endTime - startTime
         });
         
         // Handle 401 Unauthorized error specifically
         if (response.status === 401) {
-          apiLogger.warn('Received 401 Unauthorized response, dispatching auth-unauthorized event', {
+          const eventName = isAdminRequest ? 'admin-auth-unauthorized' : 'auth-unauthorized';
+          apiLogger.warn(`Received 401 Unauthorized, dispatching ${eventName}`, {
             endpoint,
-            method
+            method,
+            isAdminRequest
           });
-          
+
           if (typeof window !== 'undefined') {
-            // Dispatch auth-unauthorized event to trigger authentication reset
-            window.dispatchEvent(new CustomEvent('auth-unauthorized', {
-              detail: { status: 401, endpoint, method }
+            // Dispatch specific event based on isAdminRequest
+            window.dispatchEvent(new CustomEvent(eventName, {
+              detail: { status: 401, endpoint, method, isAdminRequest }
             }));
+            // Дополнительно очищаем токен администратора при 401 для админского запроса
+            if (isAdminRequest) {
+                localStorage.removeItem('admin_token');
+                localStorage.removeItem('admin_data');
+            }
           }
         }
         
         // Create structured error
         let errorData: ApiErrorData;
         try {
-          // Try to parse error response
-          errorData = await response.json();
+            // Пытаемся парсить тело ошибки как JSON
+            errorData = JSON.parse(errorBodyText || '{}');
+            // Добавляем статус, если его нет в теле
+            if (!errorData.status) errorData.status = response.status;
+            if (!errorData.error) errorData.error = response.statusText || 'Unknown error';
         } catch {
-          // If parsing fails, create default error
-          errorData = {
-            error: response.statusText || 'Unknown error',
-            status: response.status
-          };
+            // Если парсинг не удался, создаем ошибку из статуса и текста
+            errorData = {
+                error: response.statusText || 'Unknown error',
+                status: response.status
+            };
         }
         
         // Decrement active request counter
@@ -954,7 +992,9 @@ export const apiFetch = <T = unknown>(
           window.__activeRequestCount = activeRequestCount;
         }
         
-        return reject(errorData);
+        // Reject with structured error object
+        const apiError = new ApiError(errorData.status, errorData);
+        return reject(apiError);
       }
 
       try {
@@ -964,8 +1004,8 @@ export const apiFetch = <T = unknown>(
         // Apply transform if provided
         const data = transform(rawData);
         
-        // Cache the response for GET requests
-        if (method === 'GET') {
+        // Cache the response for GET requests (only for non-admin)
+        if (method === 'GET' && !isAdminRequest) {
           const cacheKey = generateCacheKey(endpoint, params);
           responseCache[cacheKey] = {
             data,
@@ -993,9 +1033,9 @@ export const apiFetch = <T = unknown>(
         return resolve(data);
       } catch (error) {
         // Log JSON parsing errors
-        apiLogger.error('Failed to parse response', {
-          ...logContext,
-          error: error instanceof Error ? error.message : String(error)
+        apiLogger.error('Failed to parse response JSON', {
+            ...logContext,
+            error: error instanceof Error ? error.message : String(error)
         });
         
         // Complete performance metric
@@ -1012,22 +1052,23 @@ export const apiFetch = <T = unknown>(
           window.__activeRequestCount = activeRequestCount;
         }
         
-        return reject(error);
+        // Reject with ApiError, including status code
+        return reject(new ApiError(response.status, { error: 'Failed to parse response' }));
       }
     } catch (error) {
       // Handle network errors or other exceptions
-      apiLogger.error('Request failed', {
-        ...logContext,
-        error: error instanceof Error ? error.message : String(error)
-      });
-      
-      // Decrement active request counter
-      activeRequestCount--;
-      if (typeof window !== 'undefined') {
-        window.__activeRequestCount = activeRequestCount;
-      }
-      
-      return reject(error);
+       const networkError = error as Error;
+       apiLogger.error('Network or other fetch error', {
+           ...logContext,
+           errorName: networkError.name,
+           errorMessage: networkError.message
+       });
+       activeRequestCount--;
+       if (typeof window !== 'undefined') {
+           window.__activeRequestCount = activeRequestCount;
+       }
+       // Reject with ApiError (use status 0 for network errors)
+       return reject(new ApiError(0, { error: networkError.message, name: networkError.name }));
     }
   });
 

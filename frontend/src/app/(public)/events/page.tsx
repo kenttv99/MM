@@ -252,9 +252,9 @@ const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node
     const generatedSlug = generateSlug(event);
     
     return (
-      <div ref={lastCardRef}>
-        <Link href={`/events/${generatedSlug}`}>
-          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 flex flex-col">
+      <div ref={lastCardRef} className="h-full flex flex-col">
+        <Link href={`/events/${generatedSlug}`} className="h-full flex flex-col flex-1">
+          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 flex flex-col h-full">
             <div className="relative h-48">
               {event.image_url ? (
                 <Image 
@@ -281,14 +281,16 @@ const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node
                 {getStatusStyles(event.status).label}
               </span>
             </div>
-            <div className="p-4 flex-grow flex flex-col">
+            <div className="p-4 flex flex-col flex-1">
               <h3 className="text-lg font-semibold mb-2">{event.title}</h3>
-              <FormattedDescription
-                content={event.description || "Описание отсутствует"}
-                className="text-gray-600 text-sm mb-4 line-clamp-3 flex-grow"
-                disableFontSize={true}
-                disableLinks={true}
-              />
+              <div className="flex-1 mb-4 min-h-[4.5rem]">
+                <FormattedDescription
+                  content={event.description || "Описание отсутствует"}
+                  className="text-gray-600 text-sm line-clamp-3"
+                  disableFontSize={true}
+                  disableLinks={true}
+                />
+              </div>
               {/* Добавляем разные стили для разных breakpoints: 
                   - flex-col для экранов < 640px и 640px-768px
                   - flex-row только от 768px и выше */}
@@ -607,8 +609,9 @@ const EventsPage = () => {
     setData(null);
     setShowInitialSkeleton(true);
     
-    // Сбрасываем флаг начальных данных для принудительной перезагрузки
+    // Сбрасываем флаги для принудительной перезагрузки
     hasInitialData.current = false;
+    hasAttemptedInitialFetch.current = false;
     
     // Устанавливаем соответствующую стадию загрузки
     setStage(LoadingStage.DYNAMIC_CONTENT);
@@ -640,9 +643,10 @@ const EventsPage = () => {
     setIsFilterOpen(false);
     setData(null);
     
-    // Показываем скелетон загрузки и сбрасываем флаг начальных данных
+    // Показываем скелетон загрузки и сбрасываем флаги начальных данных
     setShowInitialSkeleton(true);
     hasInitialData.current = false;
+    hasAttemptedInitialFetch.current = false; // Сбрасываем флаг попытки загрузки
     
     // Устанавливаем соответствующую стадию загрузки
     setStage(LoadingStage.DYNAMIC_CONTENT);
@@ -896,7 +900,7 @@ const EventsPage = () => {
               Object.entries(groupedEvents).map(([date, eventsForDate], groupIndex) => (
                 <div key={date} className="mb-8">
                   <h2 className="text-lg font-medium text-gray-700 mb-3">{date}</h2>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 grid-rows-1">
                     {eventsForDate.map((event, index) => {
                       const globalIndex = data.data.findIndex(e => e.id === event.id);
                       const isLastItem = groupIndex === Object.keys(groupedEvents).length - 1 &&

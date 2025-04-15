@@ -16,6 +16,9 @@ from typing import Optional
 import inspect
 from pydantic import BaseModel, field_validator
 import re
+import io
+from PIL import Image as PillowImage
+import glob
 
 router = APIRouter()
 bearer_scheme = HTTPBearer()
@@ -77,30 +80,91 @@ def generate_slug_with_id(slug: str, event_id: int, start_date: datetime) -> str
     return valid_slug
 
 async def process_image(image_file: Optional[UploadFile], remove_image: bool, old_image_url: Optional[str] = None) -> Optional[str]:
-    if remove_image and old_image_url:
-        file_path = old_image_url.replace("/images/", "private_media/")
-        if os.path.exists(file_path):
-            os.remove(file_path)
-        return None
-    
+    """
+    Обрабатывает загруженное изображение, создает оптимизированные WebP версии
+    и сохраняет их. Возвращает путь к оптимизированной версии среднего размера.
+    Удаляет старые файлы при необходимости.
+    """
+    media_dir = "private_media"
+    os.makedirs(media_dir, exist_ok=True)
+
+    # --- Логика удаления старых файлов ---
+    if (remove_image or image_file) and old_image_url:
+        try:
+            # Извлекаем имя файла без пути и расширения (предполагаем формат /images/uuid.ext)
+            old_filename = os.path.basename(old_image_url)
+            old_uuid_base = os.path.splitext(old_filename)[0]
+            # Ищем все файлы с этим UUID в media_dir
+            old_files_pattern = os.path.join(media_dir, f"{old_uuid_base}*")
+            logger.info(f"Searching for old files to delete with pattern: {old_files_pattern}")
+            for old_file_path in glob.glob(old_files_pattern):
+                try:
+                    os.remove(old_file_path)
+                    logger.info(f"Deleted old image file: {old_file_path}")
+                except OSError as e:
+                    logger.error(f"Error deleting old image file {old_file_path}: {e}")
+        except Exception as e:
+            logger.error(f"Error processing old image URL {old_image_url} for deletion: {e}")
+
+        # Если удаляем и нового файла нет, выходим
+        if remove_image and not image_file:
+            return None
+
+    # --- Логика обработки нового файла ---
     if image_file:
-        if old_image_url:
-            file_path = old_image_url.replace("/images/", "private_media/")
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        
-        file_extension = image_file.filename.split('.')[-1]
-        unique_filename = f"{uuid.uuid4()}.{file_extension}"
-        file_path = os.path.join("private_media", unique_filename)
-        
-        os.makedirs("private_media", exist_ok=True)
-        content = await image_file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
-            
-        return f"/images/{unique_filename}"
-    
-    return old_image_url
+        try:
+            content = await image_file.read()
+            img = PillowImage.open(io.BytesIO(content))
+            img = img.convert("RGB") # Конвертируем в RGB для совместимости с WebP/JPEG
+
+            unique_uuid = str(uuid.uuid4())
+
+            # --- Сохранение оригинала ---
+            original_extension = image_file.filename.split('.')[-1].lower()
+            # Разрешаем только распространенные форматы
+            allowed_extensions = ['jpg', 'jpeg', 'png']
+            if original_extension not in allowed_extensions:
+                 raise HTTPException(status_code=400, detail=f"Unsupported image format: {original_extension}. Allowed: {allowed_extensions}")
+
+            original_filename = f"{unique_uuid}_original.{original_extension}"
+            original_path = os.path.join(media_dir, original_filename)
+            with open(original_path, "wb") as f:
+                 f.write(content)
+            logger.info(f"Saved original image: {original_path}")
+
+
+            # --- Оптимизация и сохранение WebP версий ---
+            optimized_paths = {}
+            sizes = {
+                "medium": 600,  # Ширина для карточек
+                "large": 1200  # Ширина для детального просмотра (пример)
+            }
+
+            for size_name, width in sizes.items():
+                img_copy = img.copy()
+                # Рассчитываем высоту, сохраняя пропорции
+                aspect_ratio = img_copy.height / img_copy.width
+                new_height = int(width * aspect_ratio)
+                img_copy.thumbnail((width, new_height)) # Используем thumbnail для сохранения качества
+
+                webp_filename = f"{unique_uuid}_{size_name}.webp"
+                webp_path = os.path.join(media_dir, webp_filename)
+                img_copy.save(webp_path, format="WEBP", quality=80, optimize=True)
+                optimized_paths[size_name] = f"/images/{webp_filename}"
+                logger.info(f"Saved optimized {size_name} WebP image: {webp_path}")
+
+            # Возвращаем путь к оптимизированной версии для карточки (medium)
+            return optimized_paths.get("medium")
+
+        except HTTPException as e:
+             raise e # Перебрасываем HTTP исключения
+        except Exception as e:
+            logger.error(f"Error processing uploaded image: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="Ошибка при обработке изображения.")
+
+    # Если нового файла нет и старый не удалялся, возвращаем старый URL
+    # Или если удаляли старый, но не было нового файла (remove_image=True), то вернется None выше
+    return old_image_url if not remove_image else None
 
 async def send_notifications(db: AsyncSession, event: Event, message: str, notification_type: str):
     # Создаем шаблон уведомления

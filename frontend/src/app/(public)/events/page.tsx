@@ -244,8 +244,9 @@ const getStatusStyles = (status: EventData["status"]) => {
   }
 };
 
-const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | null) => void }> = React.memo(
-  ({ event, lastCardRef }) => {
+// Добавляем проп index
+const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node?: Element | null) => void }> = React.memo(
+  ({ event, index, lastCardRef }) => {
     const isCompleted = event.status === "completed";
     // Генерируем слаг для использования в ссылке
     const generatedSlug = generateSlug(event);
@@ -253,16 +254,30 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | nu
     return (
       <div ref={lastCardRef}>
         <Link href={`/events/${generatedSlug}`}>
-          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 min-h-[300px] flex flex-col">
+          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 flex flex-col">
             <div className="relative h-48">
-              {event.image ? (
-                <Image src={event.image} alt={event.title} fill className="object-cover rounded-t-xl" />
+              {event.image_url ? (
+                <Image 
+                  src={event.image_url} 
+                  alt={event.title} 
+                  fill 
+                  className="object-cover rounded-t-xl" 
+                  sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                  priority={index < 6} // Добавляем priority для первых 6 изображений
+                />
               ) : (
                 <div className="w-full h-full bg-gray-200 flex items-center justify-center rounded-t-xl">
                   <span className="text-gray-500">Нет изображения</span>
                 </div>
               )}
-              <span className={`absolute top-2 right-2 px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status).bgColor} ${getStatusStyles(event.status).textColor}`}>
+              {/* Создаем более сложный градиент с темным сверху и оранжевым снизу */}
+              {event.image_url && (
+                <div className="absolute inset-0 rounded-t-xl" style={{
+                  background: 'linear-gradient(to top, rgba(249, 115, 22, 0.6) 0%, rgba(0, 0, 0, 0.4) 30%, rgba(0, 0, 0, 0.3) 60%, transparent 100%)'
+                }}></div>
+              )}
+              {/* Статус мероприятия теперь будет поверх оверлея */}
+              <span className={`absolute top-2 right-2 px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status).bgColor} ${getStatusStyles(event.status).textColor} z-10`}>
                 {getStatusStyles(event.status).label}
               </span>
             </div>
@@ -274,15 +289,20 @@ const EventCard: React.FC<{ event: EventData; lastCardRef?: (node?: Element | nu
                 disableFontSize={true}
                 disableLinks={true}
               />
-              <div className="text-gray-500 text-sm mt-auto flex flex-col sm:flex-row justify-between">
-                <span className="flex items-center mb-2 sm:mb-0">
+              {/* Добавляем разные стили для разных breakpoints: 
+                  - flex-col для экранов < 640px и 640px-768px
+                  - flex-row только от 768px и выше */}
+              <div className="text-gray-500 text-sm mt-auto flex flex-col items-start gap-1 
+                sm:items-start 
+                md:flex-row md:items-baseline md:justify-between">
+                <span className="flex items-center mb-1 md:mb-0">
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   </svg>
                   {formatDateForDisplay(event.date || event.start_date)}
                 </span>
                 {event.ticket_type && !isCompleted && (
-                  <span className="bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full">
+                  <span className={`bg-orange-100 text-orange-600 text-xs px-2 py-1 rounded-full w-fit`}>
                     {event.status === "registration_open" && event.ticket_type.remaining_quantity !== undefined && event.ticket_type.remaining_quantity > 0
                       ? `Осталось мест: ${event.ticket_type.remaining_quantity}`
                       : "Места распределены"}
@@ -345,6 +365,13 @@ const EventsSkeletonGrid: React.FC = () => {
   );
 };
 
+// Простой компонент спиннера (можно вынести в отдельный файл)
+const LoadingSpinner = () => (
+  <div className="flex justify-center items-center py-8">
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-500"></div>
+  </div>
+);
+
 const EventsPage = () => {
   // Рефы и состояния компонента
   const isMounted = useIsMounted(); // Хук для отслеживания монтирования
@@ -382,8 +409,8 @@ const EventsPage = () => {
 
   // Ref для отслеживания бесконечной прокрутки
   const { ref: lastElementRef, inView } = useInView({
-    threshold: 0.1,
-    rootMargin: '400px'
+    threshold: 0,
+    rootMargin: '0px'
   });
   
   // При монтировании компонента устанавливаем стадию загрузки - УБРАНО ПРИНУДИТЕЛЬНОЕ УПРАВЛЕНИЕ СТАДИЕЙ
@@ -408,39 +435,28 @@ const EventsPage = () => {
     };
   }, [mountId, currentStage, setStage, isMounted]);
   
-  // Функция группировки событий по датам
-  const groupEventsByDate = useCallback((events: EventData[]) => {
+  // Упрощенная группировка без ручного кэширования
+  const groupEventsByDate = (events: EventData[]) => {
     if (!events || events.length === 0) return {};
-    
-    // Создаем ключ на основе ID событий для определения изменений
-    const eventsKey = events.map(e => e.id || '').join('-');
-    
-    // Проверяем, есть ли кэшированный результат
-    if (prevEventsRef.current[eventsKey]) {
-      return prevEventsRef.current[eventsKey] as Record<string, EventData[]>;
-    }
-    
-    // Группируем события по дате
     const grouped: Record<string, EventData[]> = {};
     events.forEach(event => {
+      // Используем start_date для группировки, как и раньше
       const dateKey = formatDateForDisplay(event.start_date);
       if (!grouped[dateKey]) {
         grouped[dateKey] = [];
       }
       grouped[dateKey].push(event);
     });
-    
-    // Кэшируем результат
-    prevEventsRef.current[eventsKey] = grouped;
-    
     return grouped;
-  }, []);
+  };
 
-  // Мемоизируем сгруппированные события
+  // Мемоизация сгруппированных событий - используем data.data напрямую
   const groupedEvents = useMemo(() => {
-    if (!data?.data || !data.data.length) return {};
+    // Проверяем, что data и data.data существуют
+    if (!data?.data) return {};
     return groupEventsByDate(data.data);
-  }, [data?.data, groupEventsByDate]);
+    // Зависимость только от data.data
+  }, [data?.data]); // Убираем groupEventsByDate из зависимостей, т.к. она стабильна
   
   // Вычисляем активность фильтров на основе применённых фильтров
   const isFilterActive = useMemo(() => {
@@ -448,156 +464,128 @@ const EventsPage = () => {
   }, [activeFilters]);
 
   // Вспомогательная функция для запуска fetchEvents с заданными фильтрами
-  const fetchEventsWithFilters = useCallback((filters: DateFilters) => {
-    // Создаем уникальный ID для запроса
-    const localRef = Math.random().toString(36).substring(2, 10);
-    fetchEventsRef.current = localRef;
-    
-    // Минимальное логирование - только важная информация о запросе
+  const fetchEventsWithFilters = useCallback(async (filters: DateFilters) => {
     logger.info('Fetching events data', { page, hasFilters: filters.startDate || filters.endDate });
-    
-    // Устанавливаем состояние загрузки
     setIsFetching(true);
-    
-    // Если это первая загрузка данных, устанавливаем соответствующие флаги загрузки
+
+    // ---> ИЗМЕНЕНИЕ ЗДЕСЬ: Устанавливаем скелетон ТОЛЬКО для первичной загрузки <--- 
     if (!hasInitialData.current) {
       setShowInitialSkeleton(true);
+      // Эти флаги/стадии могут быть нужны для общей системы загрузки,
+      // но showInitialSkeleton отвечает только за первый рендер
       setDynamicLoading(true);
       setStage(LoadingStage.DYNAMIC_CONTENT);
     }
-    
-    // Отменяем предыдущий запрос если он есть
+    // ---> КОНЕЦ ИЗМЕНЕНИЯ <---
+
     if (abortControllerRef.current) {
       abortControllerRef.current.abort('New request started');
       abortControllerRef.current = null;
     }
-    
-    // Создаем новый контроллер для отмены
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
-    
     try {
-      // Проверяем наличие непустых фильтров
       const hasActiveStartDate = filters.startDate && filters.startDate.trim() !== '';
       const hasActiveEndDate = filters.endDate && filters.endDate.trim() !== '';
-      
-      // Всегда передаем фильтры в сервис, даже если они не активны
       const serviceFilters = {
         startDate: hasActiveStartDate ? formatDateForAPI(filters.startDate) : '',
         endDate: hasActiveEndDate ? formatDateForAPI(filters.endDate) : ''
       };
-      
-      // Отмечаем, что была попытка загрузки
       hasAttemptedInitialFetch.current = true;
-      
-      // Делаем запрос с функцией из сервиса
       fetchEventsService(page, serviceFilters, signal)
         .then(response => {
-          // Финальная проверка монтирования перед обновлением состояния
           if (!isMounted.current) return;
-          
-          // Обрабатываем данные
           if (response.success) {
-            // Сокращаем логи - только важная информация о полученных данных
-            if (response.data && response.data.length > 0) {
-              logger.info('Received events data', { count: response.data.length });
-            } else {
-              logger.info('No events data found');
-            }
-            
-            // Используем полученные данные из API
             const parsedData = {
               data: response.data || [],
               page: response.page || page,
               totalPages: response.totalPages || 1,
               hasMore: response.hasMore || false
             };
-            
-            setData(prev => {
-              // Для первой страницы просто возвращаем новые данные
-              if (page === 1) return parsedData;
-              
-              // Для последующих страниц объединяем данные
-              if (prev && parsedData) {
+
+             setData(prev => {
+                const existingData = prev?.data || [];
+                const newData = parsedData?.data || [];
+
+                if (page === 1) {
+                   return {
+                       ...parsedData,
+                       data: newData
+                   };
+                }
+
+                const existingIds = new Set(existingData.map(e => e.id));
+                const uniqueNewData = newData.filter(event => !existingIds.has(event.id));
+
+                if (uniqueNewData.length < newData.length) {
+                    logger.warn('Filtered out duplicate events received from API', {
+                        originalCount: newData.length,
+                        uniqueCount: uniqueNewData.length
+                    });
+                }
+
                 return {
                   ...parsedData,
-                  data: [...(prev.data || []), ...(parsedData.data || [])]
+                  data: [...existingData, ...uniqueNewData]
                 };
-              }
-              
-              return parsedData;
-            });
-            
-            // Обновляем hasMore
+              });
+
             setHasMore(parsedData.hasMore);
-            
-            // Устанавливаем флаг наличия данных и скрываем скелетон
-            hasInitialData.current = true;
-            setShowInitialSkeleton(false);
-            
-            // Сбрасываем флаги загрузки
+            const wasAlreadyInitialized = hasInitialData.current;
+            hasInitialData.current = true; // Устанавливаем ДО проверки
+
+            // ---> ИЗМЕНЕНИЕ ЗДЕСЬ: Скрываем ИМЕННО начальный скелетон при УСПЕШНОЙ загрузке <---
+            // Скрываем только если это была ПЕРВАЯ успешная загрузка
+            if (!wasAlreadyInitialized) {
+               setShowInitialSkeleton(false);
+            }
+            // ---> КОНЕЦ ИЗМЕНЕНИЯ <---
+
             setDynamicLoading(false);
-            
-            // Устанавливаем стадию COMPLETED
             setStage(LoadingStage.COMPLETED);
-            
-            // Сбрасываем ошибку, если она была
             if (loadingErrorFromContext) {
               setError(null);
             }
           } else {
-            // Если получили неуспешный ответ от сервиса, выбрасываем ошибку
             throw new Error(response.error || 'Failed to fetch events data');
           }
         })
         .catch(error => {
-          // Обрабатываем случай отмены запроса
           if (error instanceof Error && error.name === 'AbortError') {
-            // Для отмены запроса упрощаем логирование
             return;
           }
-          
-          // Логируем ошибку - это важно оставить для отладки
           logger.error('Error fetching events data', {
             error: error instanceof Error ? error.message : String(error)
           });
-          
-          // Обновляем состояние ошибки и скрываем скелетон
           if (isMounted.current) {
+            // Скрываем начальный скелетон даже при ошибке, чтобы показать сообщение
             setShowInitialSkeleton(false);
             setStage(LoadingStage.ERROR);
-            setError(error instanceof Error ? 
-              error.message : 
+            setError(error instanceof Error ?
+              error.message :
               'Произошла ошибка при загрузке мероприятий'
             );
           }
         })
         .finally(() => {
-          // Сбрасываем состояние загрузки
           if (isMounted.current) {
             setIsFetching(false);
             lastFetchTime.current = Date.now();
-            
-            // Синхронизируем флаги состояния для корректного рендеринга
-            if (hasInitialData.current) {
-              setShowInitialSkeleton(false);
-            }
+             // Убрали отсюда setShowInitialSkeleton(false)
           }
-          
-          // Очищаем контроллер прерывания
           if (abortControllerRef.current) {
             abortControllerRef.current = null;
           }
         });
     } catch (error) {
-      // Логируем критическую ошибку
       logger.error('Critical error initiating fetch', {
         error: error instanceof Error ? error.message : String(error)
       });
-      // Сбрасываем состояние загрузки в случае ошибки
       setIsFetching(false);
+      // Скрываем начальный скелетон при критической ошибке
+      setShowInitialSkeleton(false);
     }
-  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]);
+  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]); // Зависимости useCallback
 
   // Функция для сброса фильтров
   const handleResetFilters = useCallback(() => {
@@ -669,58 +657,70 @@ const EventsPage = () => {
     }, 50);
   }, [tempFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
 
-  // Эффект для загрузки начальных данных при монтировании
-  useEffect(() => {
-    // Устанавливаем флаг монтирования
-    isMounted.current = true;
-    
-    // Если у нас нет данных и не было попытки загрузки, запускаем запрос
-    if (!hasInitialData.current && !hasAttemptedInitialFetch.current) {
-      // Небольшая задержка для избежания проблем с быстрым монтированием/размонтированием
-      const initialFetchTimer = setTimeout(() => {
-        if (isMounted.current) {
-          fetchEventsWithFilters({ startDate: "", endDate: "" });
-        }
-      }, 50);
-      
-      return () => {
-        clearTimeout(initialFetchTimer);
-      };
-    }
-    
-    return () => {
-      // Ничего не делаем, если уже была загрузка
-    };
-  }, [mountId, currentStage, fetchEventsWithFilters, isMounted]);
-  
   // Обработчик автоматической загрузки следующей страницы при прокрутке
   useEffect(() => {
+    // Этот хук ТОЛЬКО увеличивает номер страницы, когда условия выполнены.
+    // Он НЕ зависит от самого номера страницы.
+    logger.info('[InfiniteScroll Trigger Check]', { inView, hasMore, isFetching, hasInitialData: hasInitialData.current });
+
     if (inView && hasMore && !isFetching && hasInitialData.current) {
-      // Проверяем, прошло ли минимальное время с последнего запроса
       const now = Date.now();
       if (now - lastFetchTime.current >= minFetchInterval) {
-        // Упрощенное логирование при загрузке следующей страницы
-        setPage(prevPage => prevPage + 1);
+        logger.info('[InfiniteScroll Trigger] Threshold met, incrementing page from', { page });
+        setPage(prevPage => prevPage + 1); // Используем функциональное обновление
+        lastFetchTime.current = now; // Обновляем время сразу
       } else {
-        // Если прошло недостаточно времени, откладываем загрузку
+        // Дебаунс
         const delay = minFetchInterval - (now - lastFetchTime.current);
+        logger.info('[InfiniteScroll Trigger] Debounce timer set', { delay });
         const timer = setTimeout(() => {
-          if (isMounted.current && inView) {
-            setPage(prevPage => prevPage + 1);
+          // Повторная проверка условий внутри таймера
+          if (isMounted.current && inView && hasMore && !isFetching) {
+            logger.info('[InfiniteScroll Trigger] Debounce timer fired, incrementing page from', { page });
+            setPage(prevPage => prevPage + 1); // Используем функциональное обновление
+            lastFetchTime.current = Date.now(); // Обновляем время сразу
+          } else {
+            logger.warn('[InfiniteScroll Trigger] Debounce timer fired, but conditions no longer met', { inView, hasMore, isFetching });
           }
         }, delay);
-        
         return () => clearTimeout(timer);
       }
     }
-  }, [inView, hasMore, isFetching, page, minFetchInterval, isMounted]);
-  
-  // Эффект для загрузки данных при изменении номера страницы
+    // Убираем 'page' из зависимостей!
+  }, [inView, hasMore, isFetching, minFetchInterval, isMounted, hasInitialData]); // Добавлен hasInitialData для полноты
+
+  // Эффект для ЗАГРУЗКИ данных при изменении номера страницы (кроме первой)
   useEffect(() => {
-    if (page > 1 && hasInitialData.current && !isFetching) {
+    // Добавляем проверку hasMore!
+    // Fetch only if it's not the first page, we *expect* more data,
+    // initial data is loaded, and we are not already fetching.
+    if (page > 1 && hasMore && hasInitialData.current && !isFetching) {
+      logger.info('[Page Change Effect] Fetching data for new page', { page, hasMore, activeFilters });
       fetchEventsWithFilters(activeFilters);
+    } else if (page > 1 && !hasMore) {
+        logger.info('[Page Change Effect] Page changed, but hasMore is false. No fetch.', { page });
+    } else if (page > 1 && isFetching) {
+       logger.warn('[Page Change Effect] Page changed, but already fetching', { page });
     }
-  }, [page, isFetching, activeFilters, fetchEventsWithFilters]);
+    // Добавляем hasMore в зависимости!
+  }, [page, hasMore, activeFilters, fetchEventsWithFilters, hasInitialData, isFetching]);
+
+  // Эффект для загрузки НАЧАЛЬНЫХ данных при монтировании (page === 1)
+  useEffect(() => {
+    isMounted.current = true;
+    // Загружаем только если нет данных, не было попытки и не идет загрузка
+    if (!hasInitialData.current && !hasAttemptedInitialFetch.current && !isFetching) {
+      const initialFetchTimer = setTimeout(() => {
+        // Повторная проверка монтирования и статуса загрузки
+        if (isMounted.current && !isFetching) {
+          logger.info('[Initial Load Effect] Initial fetch timer fired');
+          fetchEventsWithFilters({ startDate: "", endDate: "" }); // page === 1 по умолчанию
+        }
+      }, 50);
+      return () => clearTimeout(initialFetchTimer);
+    }
+    // Добавлена зависимость от isFetching, чтобы предотвратить запуск, если загрузка уже инициирована
+  }, [mountId, fetchEventsWithFilters, isMounted, isFetching]);
   
   // Эффект для отслеживания стадии загрузки и контроля корректных переходов
   useEffect(() => {
@@ -882,16 +882,14 @@ const EventsPage = () => {
           </div>
         )}
         
+        {/* Показываем ИЗНАЧАЛЬНЫЙ скелетон */} 
         {!data && showInitialSkeleton && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <EventCardSkeleton key={`skeleton-${index}`} />
-            ))}
-          </div>
+          <EventsSkeletonGrid />
         )}
         
-        {/* Показываем данные, когда они загружены */}
-        {!isFetching && (currentStage as LoadingStage) !== LoadingStage.ERROR && data && (
+        {/* Показываем данные, когда они загружены */} 
+        {/* Важно: Не рендерим данные, если активен начальный скелетон */}
+        {data && !showInitialSkeleton && (
           <>
             {data.data.length > 0 ? (
               // Отображаем события, сгруппированные по датам
@@ -900,13 +898,14 @@ const EventsPage = () => {
                   <h2 className="text-lg font-medium text-gray-700 mb-3">{date}</h2>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                     {eventsForDate.map((event, index) => {
-                      // Последний элемент всех событий для бесконечной прокрутки
-                      const isLastItem = groupIndex === Object.keys(groupedEvents).length - 1 && 
+                      const globalIndex = data.data.findIndex(e => e.id === event.id);
+                      const isLastItem = groupIndex === Object.keys(groupedEvents).length - 1 &&
                                          index === eventsForDate.length - 1;
                       return (
-                        <EventCard 
-                          key={event.id} 
-                          event={event} 
+                        <EventCard
+                          key={event.id}
+                          event={event}
+                          index={globalIndex}
                           lastCardRef={isLastItem ? lastElementRef : undefined}
                         />
                       );
@@ -935,20 +934,23 @@ const EventsPage = () => {
             )}
           </>
         )}
-        
-        {/* Для бесконечной прокрутки: показываем скелетоны при подгрузке новых данных */}
-        {isFetching && data && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <EventCardSkeleton key={`more-skeleton-${index}`} />
-            ))}
-          </div>
+
+        {/* Сообщение об ошибке */}
+        {(currentStage as LoadingStage) === LoadingStage.ERROR && !showInitialSkeleton && (
+           <div className="p-8 text-center">
+             <h2 className="text-xl font-semibold text-red-600 mb-4">Произошла ошибка</h2>
+             <p className="text-gray-700 mb-4">{loadingErrorFromContext || "Не удалось загрузить данные."}</p>
+             {/* Кнопка Повторить? */} 
+           </div>
         )}
+        
+        {/* ---> ИЗМЕНЕНИЕ ЗДЕСЬ: Добавляем локальный спиннер при подгрузке <--- */}
+        {isFetching && page > 1 && <LoadingSpinner />}
         
         {/* Элемент для отслеживания бесконечной прокрутки */}
         {hasMore && !isFetching && (
           <div ref={lastElementRef} className="h-20 flex items-center justify-center">
-            <div className="text-gray-400">Прокрутите для загрузки дополнительных мероприятий</div>
+            {/* Убрали текст */}
           </div>
         )}
         
@@ -957,7 +959,6 @@ const EventsPage = () => {
         )}
       </div>
       
-      {/* Добавляем Footer в конец страницы */}
       <Footer />
     </div>
   );

@@ -6,11 +6,11 @@ import { useAuth } from "@/contexts/AuthContext";
 import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
-import { EventRegistrationProps } from "@/types/index";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "@/utils/api";
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 import { formatTimeInterval as eventDetailsFormatInterval } from "@/components/EventDetails";
+import { EventData } from "@/types/events";
 
 // Интерфейс для билета пользователя с учетом разных вариантов написания статусов
 interface UserTicket {
@@ -21,6 +21,7 @@ interface UserTicket {
     start_date: string;
     end_date?: string;
     location?: string;
+    status: string;
   };
   ticket_type: string;
   registration_date: string;
@@ -111,6 +112,26 @@ const parseTicketResponse = (response: TicketResponse | UserTicket[]): UserTicke
   return allTickets;
 };
 
+// Локальный интерфейс для пропсов
+interface EventRegistrationProps {
+  eventId: number;
+  eventTitle: string;
+  eventDate: string;
+  eventTime: string;
+  eventLocation: string;
+  ticketType: string;
+  availableQuantity: number;
+  soldQuantity: number;
+  price: number;
+  freeRegistration: boolean;
+  onBookingClick: () => void;
+  onLoginClick: () => void;
+  onBookingSuccess: () => void;
+  onReady?: () => void;
+  displayStatus?: string;
+  eventStatus?: EventData["status"]; // Теперь EventData импортирован
+}
+
 const EventRegistration: React.FC<EventRegistrationProps> = ({
   eventId,
   eventTitle,
@@ -131,6 +152,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
   onBookingSuccess,
   onReady,
   displayStatus,
+  eventStatus // <-- Получаем eventStatus из пропсов
 }) => {
   const { userData, isAuth } = useAuth();
   const router = useRouter();
@@ -196,8 +218,10 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
     (_, index) => index
   );
 
+  // Определяем флаг на основе eventStatus (или displayStatus как fallback)
   const isRegistrationClosedOrCompleted =
-    displayStatus === "Регистрация закрыта" || displayStatus === "Мероприятие завершено";
+    eventStatus === "registration_closed" || eventStatus === "completed" ||
+    displayStatus === "Регистрация закрыта";
 
   // --- Переработанный useEffect для ПРОВЕРКИ билета при загрузке --- 
   useEffect(() => {
@@ -454,7 +478,7 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       
       // Create a temporary ticket object for immediate UI update
       const tempTicket: UserTicket = {
-        id: data?.id || Math.floor(Math.random() * 10000), 
+        id: data?.id || Math.floor(Math.random() * 10000),
         event: {
           id: parseInt(eventId.toString()),
           title: eventTitle || "Мероприятие",
@@ -484,12 +508,13 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
               return undefined;
             }
           })() : undefined,
-          location: eventLocation || "Не указано"
+          location: eventLocation || "Не указано",
+          status: "registration_open"
         },
         ticket_type: data?.ticket_type || "standart",
         registration_date: new Date().toISOString(),
-        status: "confirmed", 
-        ticket_number: data?.ticket_number || `Загрузка...`, 
+        status: "confirmed",
+        ticket_number: data?.ticket_number || `Загрузка...`,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -506,7 +531,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
             eventId: parseInt(eventId.toString()),
             ticketId: tempTicket.id,
             newTicket: tempTicket,
-            isInternalUpdate: true
           }
         });
         window.dispatchEvent(ticketEvent);
@@ -585,7 +609,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                     eventId: currentEventId,
                     ticketId: actualTicket.id,
                     newTicket: actualTicket,
-                    isInternalUpdate: false,
                     isServerData: true
                   }
                 });
@@ -649,57 +672,55 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
 
   // Рендер компонента, если у пользователя уже есть билет
   if (userTicket) {
+    const currentEventStatus = eventStatus || userTicket.event.status;
+    const isEventCompleted = currentEventStatus === 'completed';
+
     return (
       <div className="flex flex-col items-center space-y-4">
         <div className="flex flex-col sm:flex-row items-center justify-between w-full gap-4">
           <div className="flex items-center mb-2 sm:mb-0">
             <FaTicketAlt className="text-orange-500 mr-2 w-5 h-5 shrink-0" />
             <h3 className="text-lg sm:text-xl font-semibold text-gray-800 text-center sm:text-left">
-              {isRegistrationClosedOrCompleted
-                ? "Места распределены"
-                : `Доступные места: ${remainingQuantity}`}
+              {isEventCompleted ? "Мероприятие завершено" : "У вас есть билет"}
             </h3>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            onClick={handleGoToProfile}
-            className="px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-sm sm:text-base bg-orange-200 text-orange-700 hover:bg-orange-300"
-          >
-            Активная бронь
-          </motion.button>
+          {isEventCompleted ? (
+            <div
+              className="px-4 sm:px-6 py-2 rounded-lg font-medium shadow-md min-w-[120px] min-h-[44px] text-sm sm:text-base bg-gray-200 text-gray-600 flex items-center justify-center"
+              title="Это мероприятие уже прошло"
+            >
+              Завершено
+            </div>
+          ) : (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleGoToProfile}
+              className="px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-sm sm:text-base bg-orange-200 text-orange-700 hover:bg-orange-300"
+            >
+              Активная бронь
+            </motion.button>
+          )}
         </div>
-        
-        {!isRegistrationClosedOrCompleted && (
-          <div className="flex flex-wrap gap-2 justify-center">
-            {/* Горизонтальный номер билета */}
-            <div className="flex-shrink-0 flex items-center justify-center">
-              <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-3 px-5 shadow-sm flex flex-row items-center">
-                {/* Левая часть - заголовок */}
-                <div className="flex items-center justify-center pr-3 border-r border-orange-200">
-                  <p className="text-xs text-gray-500 uppercase font-medium">
-                    НОМЕР БИЛЕТА
-                  </p>
-                </div>
-                
-                {/* Правая часть - номер */}
-                <div className="flex items-center justify-center pl-3">
-                  {userTicket.ticket_number === 'Загрузка...' ? (
-                    <div className="flex items-center justify-center">
-                      <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent"></div>
-                      <span className="ml-2 text-sm text-orange-600">Загрузка номера...</span>
-                    </div>
-                  ) : (
-                    <p className="text-xl font-bold text-orange-600">
-                      #{userTicket.ticket_number || userTicket.id}
-                    </p>
-                  )}
-                </div>
+        <div className="flex flex-wrap gap-2 justify-center">
+          <div className="flex-shrink-0 flex items-center justify-center">
+            <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-3 px-5 shadow-sm flex flex-row items-center">
+              <div className="flex items-center justify-center pr-3 border-r border-orange-200">
+                <p className="text-xs text-gray-500 uppercase font-medium">НОМЕР БИЛЕТА</p>
+              </div>
+              <div className="flex items-center justify-center pl-3">
+                {userTicket.ticket_number === 'Загрузка...' ? (
+                  <div className="flex items-center justify-center">
+                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-solid border-orange-500 border-r-transparent"></div>
+                    <span className="ml-2 text-sm text-orange-600">Загрузка...</span>
+                  </div>
+                ) : (
+                  <p className="text-xl font-bold text-orange-600">#{userTicket.ticket_number || userTicket.id}</p>
+                )}
               </div>
             </div>
           </div>
-        )}
-        
+        </div>
         {renderDebugButton()}
       </div>
     );
@@ -728,48 +749,43 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={handleButtonClick}
-                disabled={remainingQuantity === 0 || isRegistrationClosedOrCompleted}
-                className={`
-                  px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md
-                  min-w-[120px] min-h-[44px] text-sm sm:text-base
-                  bg-orange-500 text-white hover:bg-orange-600
-                `}
+                disabled={remainingQuantity <= 0 || isRegistrationClosedOrCompleted}
+                className={`px-4 sm:px-6 py-2 rounded-lg font-medium transition-all duration-300 shadow-md min-w-[120px] min-h-[44px] text-sm sm:text-base bg-orange-500 text-white hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-gray-400`}
               >
                 Забронировать
               </motion.button>
             </div>
-            
             {renderDebugButton()}
-
-            {remainingQuantity > 0 ? (
-              <div className="flex flex-wrap gap-2 justify-center">
-                <AnimatePresence>
-                  {seatsArray.map((seat) => (
-                    <motion.button
-                      key={seat}
-                      initial={{ opacity: 0, scale: 0.8 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.8 }}
-                      transition={{ duration: 0.3, delay: seat * 0.05 }}
-                      onClick={handleButtonClick}
-                      className="w-10 h-10 rounded-md transition-all duration-200 text-base bg-orange-100 hover:bg-orange-200 text-orange-600 flex items-center justify-center font-medium min-w-[40px] min-h-[40px]"
-                      title={`Место ${seat + 1}`}
-                    >
-                      {seat + 1}
-                    </motion.button>
-                  ))}
-                </AnimatePresence>
-                {remainingQuantity > maxVisibleSeats && (
-                  <span className="text-gray-500 text-sm mt-2">
-                    {isRegistrationClosedOrCompleted ? "+ распределено" : `+${remainingQuantity - maxVisibleSeats} мест`}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <p className="text-gray-500 text-center text-sm sm:text-base">
-                {isRegistrationClosedOrCompleted ? "Места распределены" : "Места закончились"}
-              </p>
-            )}
+            <div className={`flex flex-wrap gap-2 justify-center ${isRegistrationClosedOrCompleted ? 'opacity-50' : ''}`}>
+               {remainingQuantity > 0 ? (
+                 <AnimatePresence>
+                   {seatsArray.map((seat) => (
+                     <motion.button
+                       key={seat}
+                       initial={{ opacity: 0, scale: 0.8 }}
+                       animate={{ opacity: 1, scale: 1 }}
+                       exit={{ opacity: 0, scale: 0.8 }}
+                       transition={{ duration: 0.3, delay: seat * 0.05 }}
+                       onClick={handleButtonClick}
+                       disabled={isRegistrationClosedOrCompleted}
+                       className={`w-10 h-10 rounded-md transition-all duration-200 text-base flex items-center justify-center font-medium min-w-[40px] min-h-[40px] ${isRegistrationClosedOrCompleted ? 'bg-gray-200 text-gray-500 cursor-not-allowed' : 'bg-orange-100 hover:bg-orange-200 text-orange-600'}`}
+                       title={`Место ${seat + 1}`}
+                     >
+                       {seat + 1}
+                     </motion.button>
+                   ))}
+                 </AnimatePresence>
+               ) : (
+                 <p className="text-gray-500 text-center text-sm sm:text-base">
+                   {isRegistrationClosedOrCompleted ? "Места распределены" : "Места закончились"}
+                 </p>
+               )}
+               {remainingQuantity > maxVisibleSeats && (
+                 <span className="text-gray-500 text-sm mt-2">
+                   {isRegistrationClosedOrCompleted ? "+ распределено" : `+${remainingQuantity - maxVisibleSeats} мест`}
+                 </span>
+               )}
+            </div>
           </>
         )}
       </div>

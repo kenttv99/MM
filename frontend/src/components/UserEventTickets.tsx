@@ -15,6 +15,7 @@ interface EventData {
   end_date?: string;
   location?: string;
   status: string; // Статус события
+  published: boolean;
 }
 
 // Define the date formatting function directly
@@ -603,11 +604,17 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     const nonDraftTickets = tickets.filter(ticket => ticket.event.status !== 'draft');
     console.log(`UserEventTickets: Filtered out ${tickets.length - nonDraftTickets.length} tickets for draft events.`);
 
-    // Шаг 2: Убираем отмененные билеты (как и раньше)
-    const nonCancelledTickets = nonDraftTickets.filter(ticket => ticket.status !== "cancelled");
-    console.log(`UserEventTickets: Filtered out ${nonDraftTickets.length - nonCancelledTickets.length} cancelled tickets.`);
+    // Шаг 2: Исключаем билеты неопубликованных мероприятий
+    const publishedTickets = nonDraftTickets.filter(ticket => ticket.event.published === true);
+    console.log(`UserEventTickets: Filtered out ${nonDraftTickets.length - publishedTickets.length} tickets for unpublished events.`);
+
+    // Шаг 3: Убираем отмененные билеты (как и раньше)
+    // Используем publishedTickets вместо nonDraftTickets
+    const nonCancelledTickets = publishedTickets.filter(ticket => ticket.status !== "cancelled");
+    console.log(`UserEventTickets: Filtered out ${publishedTickets.length - nonCancelledTickets.length} cancelled tickets.`);
     
-    // Шаг 3: Убираем дубликаты (как и раньше)
+    // Шаг 4: Убираем дубликаты (как и раньше)
+    // Используем nonCancelledTickets
     const uniqueTicketsMap = new Map<number, UserTicket>();
     nonCancelledTickets.forEach(ticket => {
       const existingTicket = uniqueTicketsMap.get(ticket.id);

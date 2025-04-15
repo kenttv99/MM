@@ -574,12 +574,7 @@ export default function EventPage() {
             animate={{ opacity: 1, y: 0 }}
             className="mb-12"
           >
-            <div className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto ${
-              event.status !== "registration_open" ||
-              (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0
-                ? "opacity-50 pointer-events-none"
-                : ""
-            }`}>
+            <div className={`bg-white p-6 rounded-xl shadow-lg max-w-2xl mx-auto`}>
               <h2 className="text-2xl font-semibold mb-4 text-center">
                 {event.status === "registration_open" &&
                  (event.ticket_type?.available_quantity || 0) - (event.ticket_type?.sold_quantity || 0) <= 0
@@ -617,6 +612,7 @@ export default function EventPage() {
                   onLoginClick={handleLoginClick}
                   onBookingSuccess={handleBookingSuccess}
                   displayStatus={event.status === "registration_closed" || event.status === "completed" ? "Регистрация закрыта" : undefined}
+                  eventStatus={event.status}
                 />
               )}
 

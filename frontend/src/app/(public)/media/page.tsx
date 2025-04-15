@@ -4,10 +4,12 @@ import React from 'react';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import Link from 'next/link';
-import { useLoading } from "@/contexts/LoadingContextLegacy";
+// import { useLoading } from "@/contexts/LoadingContextLegacy"; // Старый импорт
+import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext'; // Новый импорт
 
 export default function MediaPage() {
-  const { setStaticLoading } = useLoading();
+  // const { setStaticLoading } = useLoading(); // Старый хук
+  const { setStaticLoading } = useLoadingFlags(); // Новый хук
 
   React.useEffect(() => {
     setStaticLoading(false); // Статическая страница

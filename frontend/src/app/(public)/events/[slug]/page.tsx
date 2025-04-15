@@ -1,7 +1,7 @@
 // frontend/src/app/(public)/events/[slug]/page.tsx
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
@@ -153,30 +153,9 @@ const EventDetailsSkeleton: React.FC = () => (
   </div>
 );
 
-const extractIdFromSlug = (slug: string): string => {
-  if (!slug) return "";
-  const parts = slug.split("-");
-  const lastPart = parts[parts.length - 1];
-  
-  // Если последняя часть - число, считаем её ID
-  if (lastPart && /^\d+$/.test(lastPart)) {
-    return lastPart;
-  }
-  
-  // Если предпоследняя часть - год (4 цифры), а последняя - ID
-  if (parts.length >= 2) {
-    const preLast = parts[parts.length - 2];
-    if (preLast && /^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
-      return lastPart;
-    }
-  }
-  
-  // Иначе используем весь слаг
-  return slug;
-};
-
 export default function EventPage() {
   const { slug } = useParams<{ slug: string }>();
+  const searchParams = useSearchParams();
   const [event, setEvent] = useState<EventData | null>(null);
   const [validatedEventId, setValidatedEventId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -187,6 +166,7 @@ export default function EventPage() {
   const fetchAbortControllerRef = useRef<AbortController | null>(null);
   const isMountedRef = useRef(false);
   const previousSlugRef = useRef<string | null>(null);
+  const previousIdRef = useRef<string | null>(null);
   const eventCacheRef = useRef<Record<string, EventData>>({});
 
   // Функции логирования с разными уровнями
@@ -244,7 +224,7 @@ export default function EventPage() {
       return null;
     }
 
-    const eventId = extractIdFromSlug(targetSlug);
+    const eventId = targetSlug.split("-").pop();
     logInfo(`Fetching event data for slug: ${targetSlug}, extracted eventId: ${eventId}`);
     fetchAbortControllerRef.current = new AbortController();
 
@@ -367,80 +347,56 @@ export default function EventPage() {
   // Основной useEffect для загрузки данных
   useEffect(() => {
     isMountedRef.current = true;
+    const eventIdParam = searchParams.get('id');
+    const currentSlug = slug;
     let currentEventId: number | null = null;
-    try {
-        const extractedId = extractIdFromSlug(slug);
-        if (extractedId && /^\d+$/.test(extractedId)) {
-            currentEventId = parseInt(extractedId, 10);
-        } else {
-            throw new Error("Invalid ID extracted from slug");
-        }
-    } catch (e) {
-        logError("Failed to parse event ID from slug", { slug, error: e });
-        setError("Некорректный идентификатор мероприятия в URL.");
+
+    if (eventIdParam && /^\d+$/.test(eventIdParam)) {
+        currentEventId = parseInt(eventIdParam, 10);
+    } else {
+        logError("Invalid or missing 'id' query parameter", { eventIdParam });
+        setError("Некорректный или отсутствующий ID мероприятия в URL.");
         setStage(LoadingStage.ERROR);
-        setValidatedEventId(null); // Сбрасываем ID
+        setValidatedEventId(null);
         return;
     }
 
-    setValidatedEventId(currentEventId); // Сохраняем валидный ID в state
-    logInfo(`Effect triggered for slug: '${slug}', eventId: ${currentEventId}`);
+    setValidatedEventId(currentEventId);
+    logInfo(`Effect triggered for slug: '${currentSlug}', eventId: ${currentEventId}`);
 
-    if (!slug || currentEventId === null) { // Проверяем и slug, и ID
-      logWarn("Slug or parsed eventId is missing/invalid, cannot fetch event data.");
-      // Ошибка уже должна быть установлена выше, если ID невалидный
-      if (!loadingErrorFromContext) {
-          setError("Не удалось определить ID мероприятия.");
-          setStage(LoadingStage.ERROR);
-      }
-      return;
-    }
+    const idChanged = previousIdRef.current !== eventIdParam;
+    const slugChanged = previousSlugRef.current !== currentSlug;
+    previousIdRef.current = eventIdParam;
+    previousSlugRef.current = currentSlug;
+    const cacheKey = `${currentSlug}?id=${currentEventId}`;
 
-    // Проверяем, изменился ли slug с предыдущего рендера
-    const slugChanged = previousSlugRef.current !== slug;
-    previousSlugRef.current = slug;
-
-    // Проверяем кэш перед выполнением нового запроса
-    if (!slugChanged && eventCacheRef.current[slug]) {
-      logInfo(`Using cached event data for slug: ${slug}`);
-      // Используем кэшированные данные вместо нового запроса
+    if (!idChanged && !slugChanged && eventCacheRef.current[cacheKey]) {
+      logInfo(`Using cached event data for key: ${cacheKey}`);
       if (!event) {
-        setEvent(eventCacheRef.current[slug]);
-        
-        // Обновляем стадию загрузки, если нужно
-        if (currentStage === LoadingStage.STATIC_CONTENT) {
+        setEvent(eventCacheRef.current[cacheKey]);
+        if (currentStage < LoadingStage.DYNAMIC_CONTENT) {
           setStage(LoadingStage.DYNAMIC_CONTENT);
         }
       }
       return;
     }
 
-    // Отменяем предыдущий запрос, если он еще выполняется
     if (fetchAbortControllerRef.current) {
-      logInfo(`Aborting previous fetch request for slug: ${slug}`);
+      logInfo(`Aborting previous fetch request`);
       fetchAbortControllerRef.current.abort();
     }
 
-    // Создаем новый AbortController для текущего запроса
     const controller = new AbortController();
     fetchAbortControllerRef.current = controller;
     const signal = controller.signal;
 
-    // Асинхронная функция для выполнения запроса
     const fetchData = async () => {
-      // Используем currentEventId, т.к. он точно number здесь
       logInfo(`Starting fetch for eventId: ${currentEventId}`);
-      
-      // Устанавливаем стадию загрузки, только если она еще не началась или ниже
-      // Это предотвратит сброс стадии при перемонтировании в StrictMode
-      if (currentStage < LoadingStage.STATIC_CONTENT) { 
-          setStage(LoadingStage.STATIC_CONTENT); 
+      if (currentStage < LoadingStage.STATIC_CONTENT) {
+          setStage(LoadingStage.STATIC_CONTENT);
       }
-      
-      setError(null); // Сбрасываем предыдущую ошибку
-      
-      // Сбрасываем данные только если изменился slug или это первая загрузка
-      if (slugChanged || !event) {
+      setError(null);
+      if (idChanged || slugChanged || !event) {
         setEvent(null);
       }
 
@@ -450,72 +406,49 @@ export default function EventPage() {
         logInfo(`Making API request`, { url });
 
         const response = await apiFetch<EventData>(url, {
-          signal: signal, // Передаем сигнал для возможности отмены
+          signal: signal,
           bypassLoadingStageCheck: true
         });
 
-        // Если компонент размонтирован или запрос отменен до завершения, выходим
         if (!isMountedRef.current || signal.aborted) {
           logInfo(`Fetch aborted or component unmounted for eventId: ${currentEventId}`);
           return;
         }
-
-        // Проверяем на признак отмены запроса
         if (response && 'aborted' in response) {
           logInfo(`Request properly aborted, no error needed for eventId: ${currentEventId}`);
           return;
         }
 
         logInfo("Raw response data", response);
-
-        // Проверяем, что ответ содержит нужную структуру данных
         if (response && 'title' in response) {
           const eventData = response as EventData;
-          logInfo(`Fetch successful for eventId: ${currentEventId}. Setting stage to DYNAMIC_CONTENT.`);
-          
-          // Сохраняем данные в кэше
-          eventCacheRef.current[slug] = eventData;
-          
+          logInfo(`Fetch successful for eventId: ${currentEventId}. Setting stage.`);
+          eventCacheRef.current[cacheKey] = eventData;
           setEvent(eventData);
-          saveEventToLocalStorage(eventData, slug); // Сохраняем в LS
+          saveEventToLocalStorage(eventData, currentSlug);
           
-          // Правильная последовательность стадий загрузки согласно документации
-          if (currentStage === LoadingStage.STATIC_CONTENT) {
-            setStage(LoadingStage.DYNAMIC_CONTENT);
-          } else if (currentStage === LoadingStage.DYNAMIC_CONTENT) {
-            // Если мы уже на этапе загрузки динамического контента, можно перейти к COMPLETED
+          if (currentStage <= LoadingStage.DYNAMIC_CONTENT) {
             setStage(LoadingStage.COMPLETED);
           }
         } else {
-          // Неожиданный формат ответа
           logWarn("Invalid event data received", response);
           setError("Некорректный ответ от сервера.");
           setStage(LoadingStage.ERROR);
         }
       } catch (err) {
-        // Обработка ошибок fetch или других непредвиденных ошибок
         if (err instanceof Error && err.name === 'AbortError') {
-          // Используем currentEventId в логе
           logInfo(`Fetch explicitly aborted for eventId: ${currentEventId}`);
-          // Это ожидаемое поведение при быстрой смене slug или размонтировании, не ошибка
         } else if (isMountedRef.current) {
-          // Обрабатываем другие ошибки только если компонент все еще смонтирован
-          // Используем currentEventId в логе
           logError(`Unexpected error fetching event eventId: ${currentEventId}`, err);
-          
-          // Специальная обработка сетевых ошибок
-          const errorMessage = err instanceof Error 
+          const errorMessage = err instanceof Error
             ? (err.message.includes("fetch") ? "Ошибка сети при загрузке мероприятия" : err.message)
             : "Неизвестная ошибка при загрузке мероприятия";
-          
           setError(errorMessage);
           setStage(LoadingStage.ERROR);
         }
       } finally {
-          // Сбрасываем AbortController только если он принадлежит этому запросу
           if (fetchAbortControllerRef.current === controller) {
              fetchAbortControllerRef.current = null;
-             // Используем currentEventId в логе
              logInfo(`Fetch process finished for eventId: ${currentEventId}, AbortController cleared.`);
           }
       }
@@ -523,20 +456,15 @@ export default function EventPage() {
 
     fetchData();
 
-    // Функция очистки useEffect
     return () => {
       isMountedRef.current = false;
-      // Используем currentEventId в логе
-      logInfo(`Cleanup effect for slug: '${slug}', eventId: ${currentEventId}. Aborting controller.`);
-      controller.abort(); // Отменяем запрос при размонтировании или смене slug
-      // Обнуляем ref контроллера, если он соответствует текущему
+      logInfo(`Cleanup effect for eventId: ${currentEventId}. Aborting controller.`);
+      controller.abort();
       if (fetchAbortControllerRef.current === controller) {
            fetchAbortControllerRef.current = null;
       }
     };
-    // Зависимость только от slug (и стабильных функций контекста)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slug, currentStage, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage, event]);
+  }, [slug, searchParams, currentStage, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage, event]);
 
   // 1. Сначала проверяем на ошибку
   if (currentStage === LoadingStage.ERROR) {

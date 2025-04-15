@@ -1,175 +1,157 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { FaChevronRight } from "react-icons/fa";
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import { apiFetch } from "@/utils/api";
+import { EventData } from "@/types/events";
 
-const extractIdFromSlug = (slug: string): string => {
-  if (!slug) return "";
-  
-  // Попытка извлечь ID из конца слага (например, some-event-123)
-  const parts = slug.split("-");
-  const lastPart = parts[parts.length - 1];
-  
-  // Если последняя часть - число, считаем её ID
-  if (lastPart && /^\d+$/.test(lastPart)) {
-    return lastPart;
-  }
-  
-  // Если предпоследняя часть - год (4 цифры), а последняя - ID
-  // (формат: some-event-2023-123)
-  if (parts.length >= 2) {
-    const preLast = parts[parts.length - 2];
-    if (preLast && /^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
-      return lastPart;
-    }
-  }
-  
-  // Иначе используем весь слаг (возможно, это кастомный слаг)
-  return slug;
-};
-
-// Функция для получения данных о мероприятии по ID
-const fetchEventData = async (eventId: string) => {
+const fetchEventData = async (eventId: string): Promise<EventData | null> => {
+  if (!eventId) return null;
   try {
-    const response = await fetch(`/api/events/${eventId}`);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch event data: ${response.status}`);
-    }
-    const data = await response.json();
-    
-    if (data.success && data.data) {
-      // Кэшируем название мероприятия в localStorage
+    const response = await apiFetch<EventData>(`/v1/public/events/${eventId}`, {
+      method: "GET",
+      bypassLoadingStageCheck: true
+    });
+
+    if (response && response.id && response.title) {
       try {
-        localStorage.setItem(`event-title-${eventId}`, data.data.title);
-        if (data.data.url_slug) {
-          localStorage.setItem(`event-slug-${eventId}`, data.data.url_slug);
+        localStorage.setItem(`event-title-${eventId}`, response.title);
+        if (response.url_slug) {
+          let startDateStr = "";
+          try {
+            const startDate = new Date(response.start_date);
+            if (!isNaN(startDate.getTime())) {
+              const year = startDate.getFullYear();
+              const month = String(startDate.getMonth() + 1).padStart(2, '0');
+              const day = String(startDate.getDate()).padStart(2, '0');
+              startDateStr = `${year}-${month}-${day}`;
+            } 
+          } catch {}
+          const slugWithDate = `${response.url_slug}${startDateStr ? `-${startDateStr}` : ''}`;
+          localStorage.setItem(`event-slug-${eventId}`, slugWithDate);
         }
       } catch (error) {
-        console.error("Error caching event data in localStorage:", error);
+        console.error("Breadcrumbs: Error caching event data in localStorage:", error);
       }
-      
-      return data.data.title;
+      return response;
     }
     return null;
   } catch (error) {
-    console.error("Error fetching event data:", error);
+    console.error("Breadcrumbs: Error in fetchEventData wrapper:", error);
     return null;
   }
 };
 
 const Breadcrumbs: React.FC = () => {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [breadcrumbs, setBreadcrumbs] = useState<{ href: string; label: string; isLast: boolean }[]>([]);
-  const [eventData, setEventData] = useState<Record<string, string>>({});
+  const [eventDataCache, setEventDataCache] = useState<Record<string, EventData>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const currentEventIdRef = useRef<string | null>(null);
 
-  const generateBreadcrumbs = useCallback(() => {
-    if (pathname === "/") return []; // Не отображаем на главной
+  const generateBreadcrumbs = useCallback((eventId: string | null) => {
+    if (pathname === "/") return [];
 
     const pathSegments = pathname.split("/").filter((segment) => segment);
     const crumbs = [{ href: "/", label: "Главная", isLast: false }];
 
+    let currentPath = "";
     pathSegments.forEach((segment, index) => {
-      const isEventSlug = pathSegments[index - 1] === "events" || pathSegments[index - 1] === "event";
-      let href = "";
+      currentPath += `/${segment}`;
+      const isLast = index === pathSegments.length - 1;
       let label = "";
-      if (index === 0 && !isEventSlug) {
+      let href = currentPath;
+
+      if (segment === "events" && pathSegments[index + 1]) {
+         label = "Мероприятия";
+         href = "/events";
+         crumbs.push({ href, label, isLast: false });
+         return;
+      } else if (segment === "events") {
+         label = "Мероприятия";
+         href = "/events";
+         crumbs.push({ href, label, isLast: true });
+         return;
+      } else if (pathSegments[index - 1] === "events" && eventId) {
+        let eventTitle = eventDataCache[eventId]?.title;
+        if (!eventTitle) {
+            try {
+                eventTitle = localStorage.getItem(`event-title-${eventId}`) || "Загрузка...";
+            } catch { eventTitle = "Загрузка..."; }
+        }
+        href = `${pathname}?id=${eventId}`;
+        crumbs.push({ href, label: eventTitle, isLast: true });
+        return;
+      } else if (index === 0) {
         switch (segment) {
-          case "events": href = "/events"; label = "Мероприятия"; break;
-          case "event": href = "/events"; label = "Мероприятия"; break;
-          case "profile": href = "/profile"; label = "Профиль"; break;
-          case "admin-login": href = "/admin-login"; label = "Вход для администраторов"; break;
-          case "admin-profile": href = "/admin-profile"; label = "Профиль администратора"; break;
-          case "dashboard": href = "/dashboard"; label = "Панель управления"; break;
-          case "edit-events": href = "/edit-events"; label = "Редактирование мероприятия"; break;
-          case "edit-user": href = "/edit-user"; label = "Редактирование пользователя"; break;
-          default: href = `/${segment}`; label = segment.charAt(0).toUpperCase() + segment.slice(1);
+          case "profile": label = "Профиль"; break;
+          case "admin-login": label = "Вход для администраторов"; break;
+          case "admin-profile": label = "Профиль администратора"; break;
+          case "dashboard": label = "Панель управления"; break;
+          case "edit-events": label = "Редактирование мероприятия"; break;
+          case "edit-user": label = "Редактирование пользователя"; break;
+          default: label = segment.charAt(0).toUpperCase() + segment.slice(1);
         }
-        crumbs.push({ href, label, isLast: pathSegments.length - 1 === index });
-      } else if (isEventSlug) {
-        const eventId = extractIdFromSlug(segment);
-        let cachedTitle = eventData[eventId] || `Мероприятие ${eventId}`;
-        let cachedSlug = segment;
-        
-        // Проверяем localStorage на наличие кэшированного названия мероприятия
-        try {
-          const storedTitle = localStorage.getItem(`event-title-${eventId}`);
-          const storedSlug = localStorage.getItem(`event-slug-${eventId}`);
-          
-          if (storedTitle) {
-            console.log(`Breadcrumbs: Found cached title for event ${eventId}: ${storedTitle}`);
-            cachedTitle = storedTitle;
-          } else {
-            console.log(`Breadcrumbs: No cached title found for event ${eventId}, using default`);
-          }
-          
-          if (storedSlug) {
-            cachedSlug = storedSlug;
-          }
-        } catch (error) {
-          console.error("Breadcrumbs: Error accessing localStorage:", error);
-        }
-        
-        // Определяем правильный путь в зависимости от сегмента пути (events или event)
-        const baseRoute = pathSegments[index - 1] === "events" ? "events" : "event";
-        crumbs.push({ 
-          href: `/${baseRoute}/${cachedSlug}`, 
-          label: cachedTitle, 
-          isLast: true 
-        });
+        crumbs.push({ href, label, isLast });
       }
     });
 
     return crumbs;
-  }, [pathname, eventData]);
+  }, [pathname, eventDataCache]);
 
-  // Эффект для определения, нужно ли загружать данные мероприятия
   useEffect(() => {
-    const fetchEventDetails = async () => {
-      const pathSegments = pathname.split("/").filter((segment) => segment);
-      const eventSlugIndex = pathSegments.findIndex(
-        (segment, idx) => idx > 0 && (pathSegments[idx - 1] === "events" || pathSegments[idx - 1] === "event")
-      );
-      
-      if (eventSlugIndex !== -1) {
-        const eventSlug = pathSegments[eventSlugIndex];
-        const eventId = extractIdFromSlug(eventSlug);
-        
-        if (eventId) {
-          // Проверяем, есть ли уже это мероприятие в состоянии или в localStorage
-          const hasInState = eventData[eventId];
-          const hasInStorage = localStorage.getItem(`event-title-${eventId}`);
-          
-          if (!hasInState && !hasInStorage && !isLoading) {
+    const eventId = searchParams.get('id');
+    const isEventPage = pathname.startsWith('/events/') && pathname.split('/').length > 2;
+
+    const hasIdChanged = eventId !== currentEventIdRef.current;
+
+    currentEventIdRef.current = eventId;
+
+    if (!isEventPage || !eventId) {
+        setBreadcrumbs(generateBreadcrumbs(null));
+        return;
+    }
+
+    if (!hasIdChanged && eventDataCache[eventId]) {
+        setBreadcrumbs(generateBreadcrumbs(eventId));
+        return;
+    }
+
+    const fetchNeeded = hasIdChanged || !eventDataCache[eventId];
+
+    setBreadcrumbs(generateBreadcrumbs(eventId));
+
+    if (fetchNeeded && !isLoading) {
+        const fetchEventDetails = async (idToFetch: string) => {
             setIsLoading(true);
-            const title = await fetchEventData(eventId);
+            console.log("Breadcrumbs: Fetching details for ID:", idToFetch);
+            const data = await fetchEventData(idToFetch);
             setIsLoading(false);
-            
-            if (title) {
-              setEventData(prev => ({
-                ...prev,
-                [eventId]: title
-              }));
+
+            if (data) {
+                 console.log("Breadcrumbs: Fetched data successfully for ID:", idToFetch);
+                 setEventDataCache(prev => {
+                     const newCache = { ...prev, [idToFetch]: data };
+                     setBreadcrumbs(generateBreadcrumbs(idToFetch)); 
+                     return newCache;
+                 });
+            } else {
+                 console.warn("Breadcrumbs: Failed to fetch data for ID:", idToFetch);
             }
-          }
-        }
-      }
-    };
-    
-    fetchEventDetails().catch(error => {
-      console.error("Error fetching event details:", error);
-      setIsLoading(false);
-    });
-  }, [pathname, eventData, isLoading]);
+        };
 
-  useEffect(() => {
-    const crumbs = generateBreadcrumbs();
-    setBreadcrumbs(crumbs);
-  }, [pathname, generateBreadcrumbs, eventData]);
+        fetchEventDetails(eventId).catch(error => {
+            console.error("Breadcrumbs: Error in fetchEventDetails effect:", error);
+            setIsLoading(false);
+        });
+    }
 
-  if (breadcrumbs.length === 0) return null;
+  }, [pathname, searchParams, isLoading, generateBreadcrumbs, eventDataCache]);
+
+  if (breadcrumbs.length <= 1) return null;
 
   return (
     <nav className="flex items-center gap-2 text-gray-600 py-2 sm:py-4 container mx-auto px-4 sm:px-5 overflow-x-auto scrollbar-hide">

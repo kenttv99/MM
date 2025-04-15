@@ -989,10 +989,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
                 </div>
               </div>
               <p className="mt-2 text-xs text-gray-500">
-                URL мероприятия будет отображаться на сайте как: 
-                <strong>/events/{formData.url_slug || "kirtan-mela"}</strong>
+                Пример URL на сайте: 
+                <strong>/events/{formData.url_slug || "ваш-слаг"}{formData.start_date ? `-${formData.start_date}` : '-ГГГГ-ММ-ДД'}</strong>
+                <span className="text-gray-600">?id={formData.id || "ID"}</span>
                 <br/>
-                <span className="text-gray-400">Введите только базовую часть URL (без года и ID).</span>
+                <span className="text-gray-400">Введите только базовую часть URL (дата и ID добавляются автоматически).</span>
               </p>
             </div>
 

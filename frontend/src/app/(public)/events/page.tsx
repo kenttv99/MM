@@ -148,50 +148,65 @@ const useIsMounted = () => {
   return isMounted;
 };
 
-const generateSlug = (event: EventData): string => {
-  if (!event || !event.id) return "";
-  
-  const eventId = event.id;
-  const startYear = event.date ? new Date(event.date).getFullYear() : new Date().getFullYear();
-  const idStr = String(eventId);
+// Функция теперь генерирует только базовый слаг с датой (slug-YYYY-MM-DD)
+const generateBaseSlugWithDate = (event: EventData): string => {
+  if (!event) return "";
 
-  // Проверяем url_slug от сервера
-  if (event.url_slug) {
-    // Если url_slug уже содержит правильный формат year-id, возвращаем его как есть
-    if (event.url_slug.endsWith(`-${startYear}-${idStr}`)) {
-      return event.url_slug;
+  let startDateStr = "";
+  try {
+    // Используем start_date и форматируем в YYYY-MM-DD
+    const startDate = new Date(event.start_date);
+    if (!isNaN(startDate.getTime())) {
+        const year = startDate.getFullYear();
+        const month = String(startDate.getMonth() + 1).padStart(2, '0');
+        const day = String(startDate.getDate()).padStart(2, '0');
+        startDateStr = `${year}-${month}-${day}`;
+    } else {
+        throw new Error("Invalid start_date");
     }
-    
-    // Проверяем, не содержит ли url_slug какой-то другой формат year-id
-    const parts = event.url_slug.split('-');
-    if (parts.length >= 2) {
-      const lastPart = parts[parts.length - 1];
-      const preLast = parts[parts.length - 2];
-      
-      // Если слаг уже содержит какой-то год и ID, но не те, которые нам нужны
-      if (/^\d{4}$/.test(preLast) && /^\d+$/.test(lastPart)) {
-        // Извлекаем базовый слаг без года и ID
-        const baseSlug = parts.slice(0, -2).join('-');
-        return `${baseSlug}-${startYear}-${idStr}`;
-      }
-    }
-    
-    // Если url_slug не содержит формат year-id, добавляем его
-    return `${event.url_slug}-${startYear}-${idStr}`;
+  } catch (e) {
+    logger.error("Error formatting start date for slug base", { eventId: event.id, startDate: event.start_date, error: e });
+    // Если дата некорректна, используем текущую дату как fallback
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    startDateStr = `${year}-${month}-${day}`;
   }
-  
-  // Для случаев, когда url_slug не задан
-  // Создаем безопасный слаг из названия
-  const safeSlug = event.title ? 
+
+  const dateSuffix = `-${startDateStr}`;
+
+  // Используем url_slug от сервера, если он есть
+  if (event.url_slug) {
+    // Очищаем от возможного старого формата (-YYYY-MM-DD-id или -YYYY-id)
+    const parts = event.url_slug.split('-');
+    let baseSlug = event.url_slug; // По умолчанию берем как есть
+    if (parts.length >= 3) {
+        const lastPart = parts[parts.length - 1];
+        const looksLikeOldYearId = /^\d{4}$/.test(parts[parts.length - 2]) && /^\d+$/.test(lastPart);
+        const looksLikeDateId = parts.length >= 4 && /^\d{4}$/.test(parts[parts.length - 4]) && /^\d{2}$/.test(parts[parts.length - 3]) && /^\d{2}$/.test(parts[parts.length - 2]) && /^\d+$/.test(lastPart);
+        
+        if (looksLikeDateId) {
+             baseSlug = parts.slice(0, -4).join('-');
+        } else if (looksLikeOldYearId) {
+             baseSlug = parts.slice(0, -2).join('-');
+        }
+    }
+    // Добавляем новую дату к очищенному базовому слагу
+    return `${baseSlug}${dateSuffix}`;
+  }
+
+  // Если url_slug нет, генерируем из названия
+  const safeSlug = event.title ?
     event.title.toLowerCase()
       .replace(/[^a-zA-Z0-9\s-]/g, '')
       .replace(/\s+/g, '-')
       .replace(/-+/g, '-')
       .replace(/^-+|-+$/g, '')
     : 'event';
-    
-  // Формируем канонический URL в формате slug-year-id
-  return `${safeSlug}-${startYear}-${idStr}`;
+
+  // Формируем URL в формате slug-YYYY-MM-DD
+  return `${safeSlug}${dateSuffix}`;
 };
 
 // Вспомогательные функции для работы с датами и слагами
@@ -248,12 +263,14 @@ const getStatusStyles = (status: EventData["status"]) => {
 const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node?: Element | null) => void }> = React.memo(
   ({ event, index, lastCardRef }) => {
     const isCompleted = event.status === "completed";
-    // Генерируем слаг для использования в ссылке
-    const generatedSlug = generateSlug(event);
+    // Генерируем базовый слаг с датой
+    const baseSlugWithDate = generateBaseSlugWithDate(event);
+    // Формируем URL с query параметром ID
+    const eventUrl = `/events/${baseSlugWithDate}?id=${event.id}`;
     
     return (
       <div ref={lastCardRef} className="h-full flex flex-col">
-        <Link href={`/events/${generatedSlug}`} className="h-full flex flex-col flex-1">
+        <Link href={eventUrl} className="h-full flex flex-col flex-1">
           <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 flex flex-col h-full">
             <div className="relative h-48">
               {event.image_url ? (
@@ -706,6 +723,7 @@ const EventsPage = () => {
       }
     }
     // Убираем 'page' из зависимостей!
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inView, hasMore, isFetching, minFetchInterval, isMounted, hasInitialData]); // Добавлен hasInitialData для полноты
 
   // Эффект для ЗАГРУЗКИ данных при изменении номера страницы (кроме первой)

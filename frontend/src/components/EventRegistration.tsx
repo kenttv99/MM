@@ -7,7 +7,7 @@ import AuthModal, { ModalButton } from "./common/AuthModal";
 import { FaTicketAlt, FaCalendarAlt, FaClock, FaMapMarkerAlt, FaRubleSign } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "@/utils/api";
+import { apiFetch, clearCache } from "@/utils/api";
 import { ApiAbortedResponse, ApiErrorResponse } from '@/types/api';
 import { formatTimeInterval as eventDetailsFormatInterval } from "@/components/EventDetails";
 import { EventData } from "@/types/events";
@@ -451,7 +451,6 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
       if ('error' in response) {
         // Обработка конкретных типов ошибок для более дружелюбных сообщений
         const errorResponse = response as unknown as ApiErrorResponse;
-        // Ошибка теперь выводится в лог ниже в catch
         const errorMessage = typeof errorResponse.error === 'string' ? errorResponse.error : "Ошибка при бронировании";
         
         // Пробуем найти понятное сообщение об ошибке в тексте
@@ -469,6 +468,11 @@ const EventRegistration: React.FC<EventRegistrationProps> = ({
           throw new Error(errorMessage); 
         }
       }
+
+      // >>>>> ДОБАВЛЕНО: Очистка кэша после успешной регистрации <<<<<
+      clearCache('/user_edits/my-tickets');
+      console.log('EventRegistration: Cache cleared for /user_edits/my-tickets');
+      // >>>>> КОНЕЦ ДОБАВЛЕНИЯ <<<<<
 
       // Use the response directly
       const data = response;

@@ -8,9 +8,13 @@ from typing import Optional
 from authlib.jose import jwt
 from authlib.jose.errors import JoseError
 from datetime import datetime, timedelta
-from fastapi import HTTPException, Request, status
+from fastapi import HTTPException, Request, status, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError
+from sqlalchemy import delete
 from backend.config.logging_config import logger
-from constants import SECRET_KEY, ALGORITHM
+from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
+from backend.schemas_enums.schemas import TokenData
 
 # Контекст для хэширования паролей
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -71,31 +75,24 @@ async def create_access_token(data: dict, session: AsyncSession, expires_delta: 
     encoded_jwt = jwt.encode(header, to_encode, SECRET_KEY)
     return encoded_jwt
 
-async def get_current_user(token: str, session: AsyncSession) -> User:
+async def get_current_user(token: str, db: AsyncSession = Depends(get_async_db)) -> User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY)
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
-        
-        exp = payload.get("exp")
-        current_time = datetime.utcnow().timestamp()
-        if exp < current_time:
-            raise credentials_exception
-        
-        user = await get_user_by_username(session, email)
-        if user is None:
-            raise credentials_exception
-        
-        return user  # Возвращаем только пользователя
-    except JoseError as e:
-        logger.error(f"JWT decode error: {str(e)}")
+        token_data = TokenData(email=email)
+    except JWTError:
         raise credentials_exception
+    user = await get_user_by_username(db, username=token_data.email)
+    if user is None:
+        raise credentials_exception
+    return user
 
 async def create_admin(session: AsyncSession, fio: str, email: str, password: str) -> Admin:
     """Создание нового администратора с хэшированием пароля."""
@@ -176,70 +173,80 @@ async def get_current_admin(token: str, session: AsyncSession) -> Admin:
 
 async def log_user_activity(
     db: AsyncSession,
-    user_id: int,
-    request: Request,
+    user_id: int | None,
+    request: Request | None,
+    *,
     action: str
-):
-    """Логирование активности пользователя с фингерпринтом устройства, предотвращение дубликатов."""
+) -> None:
+    """
+    Логирование действий пользователя / гостя.
+    - Если `user_id` != None  -> пишем по user_id.
+    - Если `user_id` is None  -> вычисляем fingerprint и пишем по нему.
+    Перед записью удаляем все старые записи (старше 30 дней) соответствующие тому же
+    user_id либо fingerprint.
+    """
     try:
-        ip_address = request.headers.get("X-Forwarded-For", request.client.host)
-        cookies = "; ".join([f"{key}={value}" for key, value in request.cookies.items()]) if request.cookies else None
-        user_agent = request.headers.get("User-Agent", "Unknown")
-        
-        # Используем новую функцию
-        device_fingerprint = generate_device_fingerprint(request)
+        # Определяем идентификатор (user_id или fingerprint)
+        fingerprint: str | None = None
+        if user_id is None and request is not None:
+            fingerprint = generate_device_fingerprint(request)
 
-        result = await db.execute(select(func.now()))
-        now = result.scalar()
-        now_naive = now.replace(tzinfo=None)
+        # Сначала удаляем устаревшие записи ( > 30 дней )
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
 
-        stmt = select(UserActivity).where(
-            UserActivity.user_id == user_id,
-            UserActivity.ip_address == ip_address,
-            UserActivity.device_fingerprint == device_fingerprint,
-            UserActivity.action == action,
-            UserActivity.created_at >= now_naive - timedelta(minutes=5)
-        )
-        result = await db.execute(stmt)
-        existing_activity = result.scalars().first()
-
-        if not existing_activity:
-            activity = UserActivity(
-                user_id=user_id,
-                ip_address=ip_address,
-                cookies=cookies,
-                user_agent=user_agent,
-                action=action,
-                created_at=now_naive,
-                device_fingerprint=device_fingerprint
+        if user_id is not None:
+            delete_stmt = (
+                delete(UserActivity)
+                .where(UserActivity.user_id == user_id)
+                .where(UserActivity.created_at < thirty_days_ago)
             )
-            db.add(activity)
-            await db.commit()
+        elif fingerprint is not None: # Добавлено условие на наличие fingerprint
+            delete_stmt = (
+                delete(UserActivity)
+                .where(UserActivity.device_fingerprint == fingerprint)
+                .where(UserActivity.created_at < thirty_days_ago)
+            )
         else:
-            existing_activity.created_at = now_naive
-            await db.commit()
-            logger.info(f"Duplicate activity ignored for user_id={user_id}, action={action}")
-    except Exception as e:
-        logger.error(f"Error logging user activity: {str(e)}")
-        await db.rollback()
-        raise
+            # Если нет ни user_id, ни fingerprint, удалять нечего
+            delete_stmt = None
 
-async def get_last_user_activity(db: AsyncSession, user_id: int) -> Optional[datetime]:
-    """Получение времени последней активности пользователя из таблицы активностей."""
-    try:
-        stmt = select(UserActivity).where(
-            UserActivity.user_id == user_id
-        ).order_by(UserActivity.created_at.desc()).limit(1)
-        
-        result = await db.execute(stmt)
-        last_activity = result.scalars().first()
-        
-        if last_activity:
-            return last_activity.created_at
-        return None
-    except Exception as e:
-        logger.error(f"Error getting last user activity: {str(e)}")
-        return None
+        if delete_stmt is not None:
+            result = await db.execute(delete_stmt)
+            logger.debug(f"Deleted {result.rowcount} old activity records (user_id={user_id}, fp={fingerprint})")
+
+        # Теперь пишем новую запись
+        ua = UserActivity(
+            user_id=user_id,
+            device_fingerprint=fingerprint,
+            path=request.url.path if request else None,
+            method=request.method if request else None,
+            action=action,
+            created_at=datetime.utcnow(),
+        )
+        db.add(ua)
+        # Убрал commit отсюда, он должен быть во внешнем коде
+        await db.flush() # Используем flush для получения ID, если нужно
+        logger.debug(
+            "Logged activity '%s' (user_id=%s, fp=%s)",
+            action,
+            user_id,
+            fingerprint,
+        )
+    except Exception as exc:
+        logger.error("Failed to log user activity: %s", exc, exc_info=True)
+        await db.rollback() # Откатываем только если была ошибка здесь
+
+async def get_last_user_activity(db: AsyncSession, user_id: int) -> datetime | None:
+    """Получает время последней активности пользователя."""
+    stmt = (
+        select(UserActivity.created_at)
+        .where(UserActivity.user_id == user_id)
+        .order_by(UserActivity.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    last_activity_time = result.scalar_one_or_none()
+    return last_activity_time
 
 async def log_admin_activity(
     db: AsyncSession,

@@ -82,15 +82,42 @@ async def get_current_user(token: str, db: AsyncSession = Depends(get_async_db))
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
+        # payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM]) # Убираем algorithms
+        payload = jwt.decode(token, SECRET_KEY)
+        # email: str = payload.get("sub") # Убедимся, что получаем sub правильно
+        sub = payload.get("sub")
+        if sub is None:
+            logger.warning("User token missing 'sub' claim")
             raise credentials_exception
-        token_data = TokenData(email=email)
-    except JWTError:
+        
+        # Проверка типа sub, если это email
+        if not isinstance(sub, str):
+             logger.warning(f"User token 'sub' claim has unexpected type: {type(sub)}")
+             raise credentials_exception
+             
+        email: str = sub # Теперь email точно строка
+        
+        # Проверка на истекший токен (добавлено для консистентности с get_current_admin)
+        exp = payload.get("exp")
+        if not exp:
+            logger.warning("User token missing 'exp' claim")
+            raise credentials_exception
+            
+        current_time = datetime.utcnow().timestamp()
+        if exp < current_time:
+            logger.warning(f"User token expired at {datetime.fromtimestamp(exp)}, current time: {datetime.utcnow()}")
+            raise credentials_exception
+        
+        # Используем email напрямую
+        token_data = TokenData(sub=email) 
+    except (JWTError, JoseError) as e: # Ловим и JoseError от authlib
+        logger.warning(f"JWT decode/validation error for user token: {str(e)}")
         raise credentials_exception
-    user = await get_user_by_username(db, username=token_data.email)
+        
+    # Используем email из token_data.sub
+    user = await get_user_by_username(db, email=token_data.sub) 
     if user is None:
+        logger.warning(f"User not found for email from token: {token_data.sub}")
         raise credentials_exception
     return user
 
@@ -188,8 +215,15 @@ async def log_user_activity(
     try:
         # Определяем идентификатор (user_id или fingerprint)
         fingerprint: str | None = None
+        ip_address: str | None = None
+        user_agent: str | None = None
         if user_id is None and request is not None:
             fingerprint = generate_device_fingerprint(request)
+       
+        # Получаем IP и User-Agent из запроса, если он есть
+        if request is not None:
+            ip_address = request.headers.get("X-Forwarded-For", request.client.host)
+            user_agent = request.headers.get("User-Agent", "Unknown")
 
         # Сначала удаляем устаревшие записи ( > 30 дней )
         thirty_days_ago = datetime.utcnow() - timedelta(days=30)
@@ -218,8 +252,8 @@ async def log_user_activity(
         ua = UserActivity(
             user_id=user_id,
             device_fingerprint=fingerprint,
-            path=request.url.path if request else None,
-            method=request.method if request else None,
+            ip_address=ip_address,
+            user_agent=user_agent,
             action=action,
             created_at=datetime.utcnow(),
         )
@@ -227,10 +261,11 @@ async def log_user_activity(
         # Убрал commit отсюда, он должен быть во внешнем коде
         await db.flush() # Используем flush для получения ID, если нужно
         logger.debug(
-            "Logged activity '%s' (user_id=%s, fp=%s)",
+            "Logged activity '%s' (user_id=%s, fp=%s, ip=%s)",
             action,
             user_id,
             fingerprint,
+            ip_address,
         )
     except Exception as exc:
         logger.error("Failed to log user activity: %s", exc, exc_info=True)

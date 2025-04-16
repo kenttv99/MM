@@ -5,6 +5,12 @@ from pydantic import BaseModel, EmailStr, validator, root_validator
 from backend.schemas_enums.enums import EventStatus, TicketTypeEnum, Status
 
 #------------------------
+# TOKEN DATA
+#------------------------
+class TokenData(BaseModel):
+    sub: Optional[str] = None
+
+#------------------------
 # ADMINS
 #------------------------
 

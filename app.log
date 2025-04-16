@@ -2132,3 +2132,169 @@ FROM users]
 2025-04-16 22:12:54,466 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-16 22:12:54,522 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-16 22:12:54,549 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-16 23:52:47,623 - root - ERROR - Error fetching user tickets (page 1, per_page 3): JsonWebToken.decode() got an unexpected keyword argument 'algorithms'
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\api\user_tickets_router.py", line 27, in get_user_tickets
+    current_user = await get_current_user(token, db)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\config\auth.py", line 85, in get_current_user
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: JsonWebToken.decode() got an unexpected keyword argument 'algorithms'
+2025-04-16 23:52:47,822 - root - ERROR - Error fetching user tickets (page 1, per_page 3): JsonWebToken.decode() got an unexpected keyword argument 'algorithms'
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\api\user_tickets_router.py", line 27, in get_user_tickets
+    current_user = await get_current_user(token, db)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\config\auth.py", line 85, in get_current_user
+    payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: JsonWebToken.decode() got an unexpected keyword argument 'algorithms'
+2025-04-16 23:55:14,176 - root - ERROR - Failed to log user activity: 'path' is an invalid keyword argument for UserActivity
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\config\auth.py", line 245, in log_user_activity
+    ua = UserActivity(
+         ^^^^^^^^^^^^^
+  File "<string>", line 4, in __init__
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\state.py", line 571, in _initialize_instance
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\state.py", line 569, in _initialize_instance
+    manager.original_init(*mixed[1:], **kwargs)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\decl_base.py", line 2175, in _declarative_constructor
+    raise TypeError(
+TypeError: 'path' is an invalid keyword argument for UserActivity
+2025-04-16 23:55:14,565 - root - ERROR - Error fetching user tickets (page 1, per_page 3): greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\api\user_tickets_router.py", line 55, in get_user_tickets
+    logger.info(f"User {current_user.email} viewed their tickets (page {page}, per_page {per_page})")
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\attributes.py", line 566, in __get__
+    return self.impl.get(state, dict_)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\attributes.py", line 1086, in get
+    value = self._fire_loader_callables(state, key, passive)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\attributes.py", line 1116, in _fire_loader_callables
+    return state._load_expired(state, passive)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\state.py", line 803, in _load_expired
+    self.manager.expired_attribute_loader(self, toload, passive)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 1670, in load_scalar_attributes
+    result = load_on_ident(
+             ^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 509, in load_on_ident
+    return load_on_pk_identity(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 694, in load_on_pk_identity
+    session.execute(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2365, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1416, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1638, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1843, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1983, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
+    raise exc_info[1].with_traceback(exc_info[2])
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 945, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 580, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 123, in await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+2025-04-16 23:55:15,127 - root - ERROR - Failed to log user activity: 'path' is an invalid keyword argument for UserActivity
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\config\auth.py", line 245, in log_user_activity
+    ua = UserActivity(
+         ^^^^^^^^^^^^^
+  File "<string>", line 4, in __init__
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\state.py", line 571, in _initialize_instance
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\state.py", line 569, in _initialize_instance
+    manager.original_init(*mixed[1:], **kwargs)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\decl_base.py", line 2175, in _declarative_constructor
+    raise TypeError(
+TypeError: 'path' is an invalid keyword argument for UserActivity
+2025-04-16 23:55:15,133 - root - ERROR - Error fetching user tickets (page 1, per_page 3): greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+Traceback (most recent call last):
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\backend\api\user_tickets_router.py", line 55, in get_user_tickets
+    logger.info(f"User {current_user.email} viewed their tickets (page {page}, per_page {per_page})")
+                        ^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\attributes.py", line 566, in __get__
+    return self.impl.get(state, dict_)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\attributes.py", line 1086, in get
+    value = self._fire_loader_callables(state, key, passive)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\attributes.py", line 1116, in _fire_loader_callables
+    return state._load_expired(state, passive)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\state.py", line 803, in _load_expired
+    self.manager.expired_attribute_loader(self, toload, passive)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 1670, in load_scalar_attributes
+    result = load_on_ident(
+             ^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 509, in load_on_ident
+    return load_on_pk_identity(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\loading.py", line 694, in load_on_pk_identity
+    session.execute(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2365, in execute
+    return self._execute_internal(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\orm\context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+             ^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1416, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\sql\elements.py", line 523, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1638, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1843, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1983, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2355, in _handle_dbapi_exception
+    raise exc_info[1].with_traceback(exc_info[2])
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1964, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 945, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\dialects\postgresql\asyncpg.py", line 580, in execute
+    self._adapt_connection.await_(
+  File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 123, in await_only
+    raise exc.MissingGreenlet(
+sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)

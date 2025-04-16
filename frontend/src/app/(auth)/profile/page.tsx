@@ -609,15 +609,10 @@ const ProfilePage: React.FC = () => {
         )}
         {/* --- КОНЕЦ УСЛОВНОГО РЕНДЕРИНГА --- */}
 
-        {isAuth && (
-          <div className="card p-6 mt-6 bg-white rounded-xl shadow-md">
-            <h3 className="text-lg font-semibold text-gray-800 mb-3 text-center">Мои билеты</h3>
-            {/* <>{console.log("ProfilePage: Rendering UserEventTickets component")}</> */}
-            <UserEventTickets 
-              ref={ticketsRef} 
-            />
-          </div>
-        )}
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold text-center sm:text-left mb-6">Мои билеты</h2>
+          <UserEventTickets key="user-tickets" />
+        </div>
         
         {isChangePasswordOpen && <ChangePasswordForm
           isOpen={isChangePasswordOpen}

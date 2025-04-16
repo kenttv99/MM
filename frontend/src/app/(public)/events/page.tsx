@@ -19,9 +19,11 @@ import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
 import { fetchEvents as fetchEventsService } from '@/utils/eventService';
 // Импорты для фильтрации
 import { FaCalendarAlt, FaTimes, FaFilter } from "react-icons/fa";
+import { FaTicketAlt } from "react-icons/fa";
 // Импортируем компонент Footer
 import Footer from "@/components/Footer";
 import { LoadingStage } from '@/contexts/loading/types';
+import { useAuth } from "@/contexts/AuthContext";
 
 // Настройка логирования для модуля согласно принципам документации
 configureModuleLogging('EventsPage', {
@@ -260,8 +262,8 @@ const getStatusStyles = (status: EventData["status"]) => {
 };
 
 // Добавляем проп index
-const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node?: Element | null) => void }> = React.memo(
-  ({ event, index, lastCardRef }) => {
+const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node?: Element | null) => void; isReserved?: boolean }> = React.memo(
+  ({ event, index, lastCardRef, isReserved }) => {
     const isCompleted = event.status === "completed";
     // Генерируем базовый слаг с датой
     const baseSlugWithDate = generateBaseSlugWithDate(event);
@@ -271,7 +273,77 @@ const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node
     return (
       <div ref={lastCardRef} className="h-full flex flex-col">
         <Link href={eventUrl} className="h-full flex flex-col flex-1">
-          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 flex flex-col h-full">
+          <div className="bg-white rounded-xl shadow-md hover:shadow-xl transition-all duration-300 flex flex-col h-full relative">
+            {isReserved && (
+              <div className="badge-container">
+                <div className={`badge ${isCompleted ? "" : "animate-badge"}`}>
+                  <FaTicketAlt className="w-3 h-3 sm:w-4 sm:h-4" />
+                </div>
+              </div>
+            )}
+            <style jsx>{`
+              .badge-container {
+                position: absolute;
+                top: -8px;
+                right: -8px;
+                z-index: 10;
+              }
+              
+              .badge {
+                background-color: #f97316;
+                color: white;
+                border-radius: 50%;
+                width: 24px;
+                height: 24px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: bold;
+                transform: rotate(12deg);
+                border: 2px solid white;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                position: relative;
+              }
+              
+              @media (min-width: 640px) {
+                .badge {
+                  width: 28px;
+                  height: 28px;
+                }
+              }
+              
+              .animate-badge::before,
+              .animate-badge::after {
+                content: '';
+                position: absolute;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                border-radius: 50%;
+                background-color: rgba(249, 115, 22, 0.7);
+                z-index: -1;
+              }
+              
+              .animate-badge::before {
+                animation: ripple 2s infinite ease-out;
+              }
+              
+              .animate-badge::after {
+                animation: ripple 2s infinite ease-out 0.5s;
+              }
+              
+              @keyframes ripple {
+                0% {
+                  transform: scale(1);
+                  opacity: 0.6;
+                }
+                100% {
+                  transform: scale(2.5);
+                  opacity: 0;
+                }
+              }
+            `}</style>
             <div className="relative h-48">
               {event.image_url ? (
                 <Image 
@@ -294,7 +366,7 @@ const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node
                 }}></div>
               )}
               {/* Статус мероприятия теперь будет поверх оверлея */}
-              <span className={`absolute top-2 right-2 px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status).bgColor} ${getStatusStyles(event.status).textColor} z-10`}>
+              <span className={`absolute top-2 ${isReserved ? 'right-6' : 'right-2'} px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status).bgColor} ${getStatusStyles(event.status).textColor} z-9`}>
                 {getStatusStyles(event.status).label}
               </span>
             </div>
@@ -391,6 +463,9 @@ const LoadingSpinner = () => (
   </div>
 );
 
+// Тип элемента билета, получаемого из API
+type TicketItem = { status: string; event?: { id: number } };
+
 const EventsPage = () => {
   // Рефы и состояния компонента
   const isMounted = useIsMounted(); // Хук для отслеживания монтирования
@@ -425,6 +500,10 @@ const EventsPage = () => {
   const { setStage, currentStage } = useLoadingStage();
   const { setDynamicLoading, setStaticLoading } = useLoadingFlags(); // Предполагая, что setStaticLoading тоже нужен
   const { setError, error: loadingErrorFromContext } = useLoadingError(); // Возвращаем имя loadingErrorFromContext
+
+  // Список ID мероприятий, на которые у пользователя есть подтвержденные брони
+  const { isAuth, isAuthChecked } = useAuth();
+  const [reservedEventIds, setReservedEventIds] = useState<number[]>([]);
 
   // Ref для отслеживания бесконечной прокрутки
   const { ref: lastElementRef, inView } = useInView({
@@ -809,6 +888,42 @@ const EventsPage = () => {
     };
   }, [isFilterOpen]); // Зависимость только от isFilterOpen
 
+  // Эффект для получения броней при авторизации пользователя
+  useEffect(() => {
+    const fetchReservedEventIds = async () => {
+      if (!isAuthChecked) return;
+      if (!isAuth) {
+        setReservedEventIds([]);
+        return;
+      }
+      try {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+        const response = await fetch('/user_edits/my-tickets?status=approved', {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          }
+        });
+        if (response.ok) {
+          const json = await response.json();
+          // Используем тип TicketItem для безопасной обработки данных
+          const ticketsData: TicketItem[] = Array.isArray(json) 
+            ? (json as TicketItem[]) 
+            : (json.data || json.items || json.tickets) as TicketItem[];
+          const eventIds = ticketsData
+            .filter((ticket) => ticket.status === 'approved' && ticket.event?.id != null)
+            .map((ticket) => ticket.event!.id);
+          setReservedEventIds(eventIds);
+        }
+      } catch (error) {
+        console.error('Ошибка при получении броней:', error);
+      }
+    };
+    fetchReservedEventIds();
+  }, [isAuth, isAuthChecked]);
+
   // Рендер состояния ошибки
   if (currentStage === LoadingStage.ERROR) {
     return (
@@ -946,6 +1061,7 @@ const EventsPage = () => {
                           event={event}
                           index={globalIndex}
                           lastCardRef={isLastItem ? lastElementRef : undefined}
+                          isReserved={event.id != null && reservedEventIds.includes(event.id!)}
                         />
                       );
                     })}

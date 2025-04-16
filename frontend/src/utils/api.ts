@@ -35,12 +35,18 @@ const stageLogger = apiLogger.child('Stage');
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const requestLogger = apiLogger.child('Request');
 
-// Объявляем глобальный тип для счетчика активных запросов и текущей стадии загрузки
+// Модифицируем расширение Window, чтобы добавить поддержку глобального списка контроллеров отмены
 declare global {
   interface Window {
     __activeRequestCount?: number;
     __loading_stage__?: LoadingStage;
+    activeAbortControllers?: AbortController[];
   }
+}
+
+// Инициализируем массив активных контроллеров отмены
+if (typeof window !== 'undefined' && !window.activeAbortControllers) {
+  window.activeAbortControllers = [];
 }
 
 const responseCache: { [key: string]: { data: unknown; timestamp: number } } = {};
@@ -720,6 +726,54 @@ export function findActiveRequest<T>(
   return null;
 }
 
+// Глобальная карта кэшированных 404 ошибок для предотвращения повторных запросов
+const not404FoundCache: Record<string, number> = {};
+
+// Функция для проверки наличия эндпоинта в кэше 404 ошибок
+function is404Cached(endpoint: string): boolean {
+  // Извлекаем базовый URL эндпоинта без параметров запроса
+  const baseEndpoint = endpoint.split('?')[0];
+  
+  // Проверяем все сохраненные 404 эндпоинты на совпадение начальной части URL
+  for (const cachedEndpoint in not404FoundCache) {
+    if (baseEndpoint.includes(cachedEndpoint)) {
+      const timestamp = not404FoundCache[cachedEndpoint];
+      // Если с момента кэширования прошло меньше 60 секунд, считаем 404 актуальным
+      if (Date.now() - timestamp < 60000) {
+        apiLogger.info(`Prevented request to cached 404 endpoint: ${endpoint} (matches ${cachedEndpoint})`, {
+          endpoint,
+          cachedEndpoint,
+          timeSinceCache: Date.now() - timestamp
+        });
+        return true;
+      } else {
+        // Если кэш устарел, удаляем его
+        delete not404FoundCache[cachedEndpoint];
+      }
+    }
+  }
+  return false;
+}
+
+// Функция очистки 404 кэша для указанного эндпоинта
+export function clear404Cache(endpointPattern?: string) {
+  if (endpointPattern) {
+    // Очищаем только конкретный шаблон
+    for (const endpoint in not404FoundCache) {
+      if (endpoint.includes(endpointPattern)) {
+        apiLogger.info(`Clearing 404 cache for endpoint: ${endpoint}`);
+        delete not404FoundCache[endpoint];
+      }
+    }
+  } else {
+    // Очищаем весь кэш
+    apiLogger.info('Clearing all 404 cache');
+    Object.keys(not404FoundCache).forEach(key => {
+      delete not404FoundCache[key];
+    });
+  }
+}
+
 // Исправим функцию apiFetch, чтобы она всегда что-то возвращала
 export const apiFetch = <T = unknown>(
   endpoint: string,
@@ -737,6 +791,21 @@ export const apiFetch = <T = unknown>(
     isAdminRequest = false
   } = options;
 
+  // Проверяем, не является ли этот эндпоинт уже известным 404
+  if (is404Cached(endpoint)) {
+    apiLogger.info(`Blocked request to known 404 endpoint: ${endpoint}`);
+    
+    // Возвращаем предсказуемую ошибку без выполнения запроса
+    const error = new ApiError(404, { 
+      error: 'Endpoint not found (cached)',
+      status: 404 
+    });
+    
+    // Создаем отклоненный промис, который имитирует результат запроса
+    const mockPromise = Promise.reject(error);
+    return createCancellablePromise(mockPromise);
+  }
+
   // Create a unique request ID for tracking this request
   const requestId = generateRequestId(endpoint, { ...params, ...data }, method);
   const logContext: ApiLogContext = {
@@ -747,9 +816,22 @@ export const apiFetch = <T = unknown>(
     isAdminRequest
   };
   
-  // Create a controller for request cancellation
-  const controller = new AbortController();
-  const localSignal = controller.signal;
+  // Создаем собственный AbortController и добавляем его в глобальный список
+  const localController = new AbortController();
+  if (typeof window !== 'undefined' && window.activeAbortControllers) {
+    window.activeAbortControllers.push(localController);
+  }
+  
+  // Объединяем внешний signal с нашим локальным если он предоставлен
+  const combinedSignal = localController.signal;
+  if (signal) {
+    // Если передан внешний signal, слушаем его и привязываем к нашему контроллеру
+    signal.addEventListener('abort', () => {
+      if (!localController.signal.aborted) {
+        localController.abort();
+      }
+    });
+  }
   
   // Prepare the promise
   const promise = new Promise<T>(async (resolve, reject) => {
@@ -879,7 +961,7 @@ export const apiFetch = <T = unknown>(
       const requestOptions: RequestInit = {
         method,
         headers: effectiveHeaders,
-        signal: signal || localSignal,
+        signal: combinedSignal,
         credentials: isAdminRequest ? 'same-origin' : 'include'
       };
       
@@ -966,6 +1048,39 @@ export const apiFetch = <T = unknown>(
             if (isAdminRequest) {
                 localStorage.removeItem('admin_token');
                 localStorage.removeItem('admin_data');
+            }
+          }
+        }
+        
+        // Обработка ошибки 404 Not Found
+        if (response.status === 404) {
+          apiLogger.warn(`Received 404 Not Found, dispatching not-found event`, {
+            endpoint,
+            method,
+            isAdminRequest
+          });
+
+          // Сохраняем эндпоинт в кэш 404 ошибок
+          const baseEndpoint = endpoint.split('?')[0];
+          not404FoundCache[baseEndpoint] = Date.now();
+          apiLogger.info(`Cached 404 for endpoint: ${baseEndpoint}`);
+
+          if (typeof window !== 'undefined') {
+            // Предотвращаем повторные события для одного и того же эндпоинта
+            const last404 = sessionStorage.getItem('last_404_endpoint');
+            const last404Time = sessionStorage.getItem('last_404_timestamp');
+            
+            if (!(last404 === endpoint && last404Time && Date.now() - parseInt(last404Time) < 1000)) {
+              // Отправляем событие 404 только если оно новое
+              window.dispatchEvent(new CustomEvent('api-not-found', {
+                detail: { 
+                  status: 404, 
+                  endpoint, 
+                  method, 
+                  isAdminRequest,
+                  timestamp: Date.now()
+                }
+              }));
             }
           }
         }
@@ -1091,6 +1206,17 @@ export const apiFetch = <T = unknown>(
        }
        // Reject with ApiError (use status 0 for network errors)
        return reject(new ApiError(0, { error: networkError.message, name: networkError.name }));
+    } finally {
+      // Удаляем наш контроллер из глобального списка
+      if (typeof window !== 'undefined' && window.activeAbortControllers) {
+        const index = window.activeAbortControllers.indexOf(localController);
+        if (index !== -1) {
+          window.activeAbortControllers.splice(index, 1);
+        }
+      }
+      
+      // Оригинальный код cleanup
+      // ...
     }
   });
 
@@ -1101,7 +1227,7 @@ export const apiFetch = <T = unknown>(
   cancellablePromise.cancel = (reason = 'Request cancelled by user') => {
     if (!isCancelled) {
       isCancelled = true;
-      controller.abort();
+      localController.abort();
       apiLogger.debug(`Request cancelled: ${reason}`, {
         ...logContext,
         reason

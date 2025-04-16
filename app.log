@@ -2125,3 +2125,7 @@ ConnectionResetError: [WinError 10054] Удаленный хост принудительно разорвал сущ
 2025-04-16 11:35:42,924 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-16 11:35:42,976 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
 2025-04-16 11:35:42,994 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-16 14:48:26,610 - root - ERROR - Error retrieving users for admin: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedColumnError'>: столбец users.last_active не существует
+[SQL: SELECT users.id, users.fio, users.email, users.password_hash, users.avatar_url, users.telegram, users.whatsapp, users.is_blocked, users.is_partner, users.created_at, users.updated_at, users.last_active 
+FROM users]
+(Background on this error at: https://sqlalche.me/e/20/f405)

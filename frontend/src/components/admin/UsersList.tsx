@@ -1,8 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
-import { FaSearch } from "react-icons/fa";
 
 interface User {
   id: number;
@@ -18,18 +17,6 @@ interface UsersListProps {
 
 const UsersList: React.FC<UsersListProps> = ({ users }) => {
   const router = useRouter();
-  const [searchTerm, setSearchTerm] = useState("");
-  
-  // Фильтрация пользователей по поисковому запросу
-  const filteredUsers = users.filter(user => {
-    const searchLower = searchTerm.toLowerCase();
-    return (
-      user.fio?.toLowerCase().includes(searchLower) ||
-      user.email?.toLowerCase().includes(searchLower) ||
-      user.telegram?.toLowerCase().includes(searchLower) ||
-      user.whatsapp?.toLowerCase().includes(searchLower)
-    );
-  });
 
   // Навигация к странице редактирования пользователя
   const handleEditUser = (userId: number) => {
@@ -38,26 +25,10 @@ const UsersList: React.FC<UsersListProps> = ({ users }) => {
 
   return (
     <div>
-      {/* Поиск пользователей */}
-      <div className="mb-4">
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <FaSearch className="text-gray-400" />
-          </div>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
-            className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-          />
-        </div>
-      </div>
-
       {/* Список пользователей для мобильных устройств */}
       <div className="md:hidden space-y-4">
-        {filteredUsers.length > 0 ? (
-          filteredUsers.map((user) => (
+        {users.length > 0 ? (
+          users.map((user) => (
             <div 
               key={user.id} 
               className="p-4 border border-gray-100 rounded-lg shadow-sm hover:shadow transition-shadow"
@@ -89,14 +60,14 @@ const UsersList: React.FC<UsersListProps> = ({ users }) => {
           ))
         ) : (
           <p className="text-center py-4 text-gray-500">
-            {searchTerm ? "Пользователи не найдены" : "Нет доступных пользователей"}
+            Нет доступных пользователей
           </p>
         )}
       </div>
 
       {/* Таблица пользователей для десктопа */}
       <div className="hidden md:block">
-        {filteredUsers.length > 0 ? (
+        {users.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -109,7 +80,7 @@ const UsersList: React.FC<UsersListProps> = ({ users }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredUsers.map((user) => (
+                {users.map((user) => (
                   <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">{user.id}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -141,7 +112,7 @@ const UsersList: React.FC<UsersListProps> = ({ users }) => {
           </div>
         ) : (
           <p className="text-center py-6 text-gray-500">
-            {searchTerm ? "Пользователи не найдены" : "Нет доступных пользователей"}
+            Нет доступных пользователей
           </p>
         )}
       </div>

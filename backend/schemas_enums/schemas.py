@@ -56,6 +56,9 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     is_blocked: bool = False
     is_partner: bool = False
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    last_active: Optional[datetime] = None
 
     class Config:
         from_attributes = True

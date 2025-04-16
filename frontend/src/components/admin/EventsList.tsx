@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FaSearch, FaEdit, FaTrashAlt, FaBell, FaCheck, FaTimes } from "react-icons/fa";
+import { FaEdit, FaTrashAlt, FaBell, FaCheck, FaTimes } from "react-icons/fa";
 
 interface TicketType {
   available_quantity: number;
@@ -25,15 +25,9 @@ interface EventsListProps {
 
 const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
   const router = useRouter();
-  const [searchTerm, setSearchTerm] = useState("");
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [eventToDelete, setEventToDelete] = useState<number | null>(null);
   const [deleting, setDeleting] = useState(false);
-  
-  // Фильтрация мероприятий по поисковому запросу
-  const filteredEvents = events.filter(event => 
-    event.title?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
 
   // Навигация к странице редактирования мероприятия
   const handleEditEvent = (eventId: number) => {
@@ -132,26 +126,10 @@ const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
 
   return (
     <div>
-      {/* Поиск мероприятий */}
-      <div className="mb-4">
-        <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <FaSearch className="text-gray-400" />
-          </div>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Поиск по названию..."
-            className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-          />
-        </div>
-      </div>
-
       {/* Список мероприятий для мобильных устройств */}
       <div className="md:hidden space-y-4">
-        {filteredEvents.length > 0 ? (
-          filteredEvents.map((event) => {
+        {events.length > 0 ? (
+          events.map((event) => {
             const availableQuantity = event.ticket_type?.available_quantity || 0;
             const soldQuantity = event.ticket_type?.sold_quantity || 0;
             const remainingQuantity = availableQuantity - soldQuantity;
@@ -220,14 +198,14 @@ const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
           })
         ) : (
           <p className="text-center py-4 text-gray-500">
-            {searchTerm ? "Мероприятия не найдены" : "Нет доступных мероприятий"}
+            Нет доступных мероприятий
           </p>
         )}
       </div>
 
       {/* Таблица мероприятий для десктопа */}
       <div className="hidden md:block">
-        {filteredEvents.length > 0 ? (
+        {events.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -241,7 +219,7 @@ const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredEvents.map((event) => {
+                {events.map((event) => {
                   const availableQuantity = event.ticket_type?.available_quantity || 0;
                   const soldQuantity = event.ticket_type?.sold_quantity || 0;
                   const remainingQuantity = availableQuantity - soldQuantity;
@@ -310,7 +288,7 @@ const EventsList: React.FC<EventsListProps> = ({ events, onEventDeleted }) => {
           </div>
         ) : (
           <p className="text-center py-6 text-gray-500">
-            {searchTerm ? "Мероприятия не найдены" : "Нет доступных мероприятий"}
+            Нет доступных мероприятий
           </p>
         )}
       </div>

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { FaPlus } from "react-icons/fa";
+import { FaPlus, FaSearch } from "react-icons/fa";
 import { apiFetch, ApiError } from "@/utils/api";
 import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
 import { LoadingStage } from "@/contexts/loading/types";
@@ -175,6 +175,10 @@ export default function Dashboard() {
     users: false,
     events: false
   });
+  // Состояния для поиска
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [eventSearchTerm, setEventSearchTerm] = useState("");
+  
   // Ref для отслеживания инициации первичной загрузки
   const initialLoadInitiated = useRef(false);
 
@@ -354,6 +358,38 @@ export default function Dashboard() {
   ).length;
   const activeUsersPercent = users.length ? Math.round((activeUsersCount / users.length) * 100) : 0;
 
+  // Функция для фильтрации пользователей по поисковому запросу
+  const filteredUsers = users.filter(user => {
+    const searchLower = userSearchTerm.toLowerCase();
+    return (
+      user.fio?.toLowerCase().includes(searchLower) ||
+      user.email?.toLowerCase().includes(searchLower) ||
+      (user.telegram && user.telegram.toLowerCase().includes(searchLower)) ||
+      (user.whatsapp && user.whatsapp.toLowerCase().includes(searchLower))
+    );
+  });
+  
+  // Функция для фильтрации мероприятий по поисковому запросу
+  const filteredEvents = events.filter(event => 
+    event.title?.toLowerCase().includes(eventSearchTerm.toLowerCase())
+  );
+
+  // Сортировка пользователей от новой к старой дате регистрации (новые вверху)
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    if (!a.created_at && !b.created_at) return 0;
+    if (!a.created_at) return 1;
+    if (!b.created_at) return -1;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+
+  // Сортировка мероприятий от новой к старой дате проведения (новые вверху)
+  const sortedEvents = [...filteredEvents].sort((a, b) => {
+    if (!a.start_date && !b.start_date) return 0;
+    if (!a.start_date) return 1;
+    if (!b.start_date) return -1;
+    return new Date(b.start_date).getTime() - new Date(a.start_date).getTime();
+  });
+
   // Если проверка авторизации еще не завершена, показываем скелетон
   if (!isAuthChecked) {
     return <DashboardSkeleton />;
@@ -392,6 +428,43 @@ export default function Dashboard() {
         }
         .fade-in {
           animation: fadeIn 0.5s ease-in-out;
+        }
+      `}</style>
+      <style jsx global>{`
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .fade-in {
+          animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        /* Кастомный скроллбар */
+        .custom-scrollbar::-webkit-scrollbar {
+          width: 8px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-track {
+          background: #f1f1f1;
+          border-radius: 10px;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+          background: #d1d5db;
+          border-radius: 10px;
+          transition: background 0.3s ease;
+        }
+        
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+          background: #9ca3af;
+        }
+        
+        /* Для Firefox */
+        .custom-scrollbar {
+          scrollbar-width: thin;
+          scrollbar-color: #d1d5db #f1f1f1;
+          /* Плавный переход при появлении скроллбара */
+          transition: padding-right 0.3s ease;
         }
       `}</style>
       <main className="container mx-auto px-4 pt-24 pb-12">
@@ -499,7 +572,26 @@ export default function Dashboard() {
           ) : (
             <div className="bg-white p-6 rounded-lg shadow-md mb-8">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
-              <UsersList users={users} />
+              
+              {/* Поиск пользователей */}
+              <div className="mb-4">
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FaSearch className="text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={userSearchTerm}
+                    onChange={(e) => setUserSearchTerm(e.target.value)}
+                    placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+              
+              <div className="max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                <UsersList users={sortedUsers} />
+              </div>
             </div>
           )}
           
@@ -508,7 +600,26 @@ export default function Dashboard() {
           ) : (
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
-              <EventsList events={events} onEventDeleted={fetchEvents} />
+              
+              {/* Поиск мероприятий */}
+              <div className="mb-4">
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FaSearch className="text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={eventSearchTerm}
+                    onChange={(e) => setEventSearchTerm(e.target.value)}
+                    placeholder="Поиск по названию мероприятия..."
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                </div>
+              </div>
+              
+              <div className="max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+                <EventsList events={sortedEvents} onEventDeleted={fetchEvents} />
+              </div>
             </div>
           )}
         </div>

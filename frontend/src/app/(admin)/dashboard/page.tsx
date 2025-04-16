@@ -1,16 +1,15 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
-import { FaPlus, FaSearch } from "react-icons/fa";
+import { FaPlus, FaSearch, FaSortUp, FaSortDown, FaFilter } from "react-icons/fa";
 import { apiFetch, ApiError } from "@/utils/api";
 import "@/app/globals.css";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import { useInView } from "react-intersection-observer";
 import { useDebounce } from "react-use";
-import { useRef } from 'react';
 
 // Storage key constants matching AdminAuthContext
 const ADMIN_STORAGE_KEYS = {
@@ -65,6 +64,15 @@ interface PaginatedResponse<T> {
   total: number;
   skip: number;
   limit: number;
+}
+
+// Добавляем Enum для статусов событий для удобства
+// (Можно вынести в отдельный файл types/enums.ts)
+enum EventStatusEnum {
+  DRAFT = "draft",
+  REGISTRATION_OPEN = "registration_open",
+  REGISTRATION_CLOSED = "registration_closed",
+  COMPLETED = "completed"
 }
 
 // Динамическая загрузка компонентов без SSR
@@ -173,6 +181,12 @@ const DashboardSkeleton = () => (
   </div>
 );
 
+// Добавляем хелпер для проверки формата даты YYYY-MM-DD
+const isValidDateFilter = (dateString: string): boolean => {
+  if (!dateString) return true; // Пустая строка - валидно (нет фильтра)
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateString);
+};
+
 export default function Dashboard() {
   const router = useRouter();
   const { isAuthenticated, isAuthChecked } = useAdminAuth();
@@ -191,6 +205,13 @@ export default function Dashboard() {
   const [userSearchTerm, setUserSearchTerm] = useState("");
   const [debouncedUserSearchTerm, setDebouncedUserSearchTerm] = useState("");
 
+  // Удалены состояния для сортировки Пользователей
+  // const [userSortBy, setUserSortBy] = useState("created_at");
+  // const [userSortOrder, setUserSortOrder] = useState("asc");
+  // Устанавливаем сортировку по умолчанию
+  const defaultUserSortBy = "created_at";
+  const defaultUserSortOrder = "desc"; // Новые сверху
+
   // Состояния для пагинации Мероприятий
   const [eventsSkip, setEventsSkip] = useState(0);
   const [eventsLimit] = useState(10); // Лимит на странице
@@ -200,49 +221,49 @@ export default function Dashboard() {
   const [eventSearchTerm, setEventSearchTerm] = useState("");
   const [debouncedEventSearchTerm, setDebouncedEventSearchTerm] = useState("");
 
-  // Ref для Intersection Observer
-  const { ref: usersLoadMoreRef, inView: usersInView } = useInView({
-    threshold: 0.5, // Триггер при 50% видимости
-    triggerOnce: false // Повторно проверять
-  });
-  const { ref: eventsLoadMoreRef, inView: eventsInView } = useInView({
-    threshold: 0.5,
-    triggerOnce: false
-  });
+  // Состояния для фильтров и сортировки Мероприятий
+  const [eventSortBy, setEventSortBy] = useState("published");
+  const [eventSortOrder, setEventSortOrder] = useState("desc");
+  const [eventStatusFilter, setEventStatusFilter] = useState<string>("");
+  // Мгновенные состояния для полей ввода дат
+  const [eventStartDateFilter, setEventStartDateFilter] = useState<string>("");
+  const [eventEndDateFilter, setEventEndDateFilter] = useState<string>("");
+  // Дебаунсированные состояния для дат
+  const [debouncedEventStartDateFilter, setDebouncedEventStartDateFilter] = useState<string>("");
+  const [debouncedEventEndDateFilter, setDebouncedEventEndDateFilter] = useState<string>("");
 
-  // Ref для контроля первичной загрузки
+  const [isEventFilterPanelOpen, setIsEventFilterPanelOpen] = useState(false);
+
+  // Refs для Intersection Observer и начальной загрузки
+  const { ref: usersLoadMoreRef, inView: usersInView } = useInView({ threshold: 0.5, triggerOnce: false });
+  const { ref: eventsLoadMoreRef, inView: eventsInView } = useInView({ threshold: 0.5, triggerOnce: false });
   const initialUsersLoadComplete = useRef(false);
   const initialEventsLoadComplete = useRef(false);
-  const initialLoadTriggered = useRef(false); // <--- Флаг однократного запуска
+  const initialLoadTriggered = useRef(false);
 
   // Debounce для поиска
-  useDebounce(
-    () => {
-      setDebouncedUserSearchTerm(userSearchTerm);
-    },
-    500, // Задержка 500 мс
-    [userSearchTerm]
-  );
-  useDebounce(
-    () => {
-      setDebouncedEventSearchTerm(eventSearchTerm);
-    },
-    500,
-    [eventSearchTerm]
-  );
+  useDebounce(() => { setDebouncedUserSearchTerm(userSearchTerm); }, 500, [userSearchTerm]);
+  useDebounce(() => { setDebouncedEventSearchTerm(eventSearchTerm); }, 500, [eventSearchTerm]);
+  // Debounce для фильтров дат
+  useDebounce(() => { setDebouncedEventStartDateFilter(eventStartDateFilter); }, 750, [eventStartDateFilter]);
+  useDebounce(() => { setDebouncedEventEndDateFilter(eventEndDateFilter); }, 750, [eventEndDateFilter]);
   
   // Функция для загрузки пользователей
   const fetchUsers = useCallback(async (currentSkip: number, search: string, isInitialLoad = false) => {
-    // Предотвращаем повторные запросы, если уже грузим или нет токена
     const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
     if (!token) return;
     
     setIsUsersLoading(true);
-    if (currentSkip === 0) setError(null); 
-    console.log(`Dashboard: Fetching users - Skip: ${currentSkip}, Limit: ${usersLimit}, Search: '${search}', Initial: ${isInitialLoad}`);
+    if (currentSkip === 0) setError(null);
+    console.log(`Dashboard: Fetching users - Skip: ${currentSkip}, Limit: ${usersLimit}, Search: '${search}', SortBy: ${defaultUserSortBy}, SortOrder: ${defaultUserSortOrder}, Initial: ${isInitialLoad}`);
     
     try {
-      const params = new URLSearchParams({ skip: currentSkip.toString(), limit: usersLimit.toString() });
+      const params = new URLSearchParams({ 
+        skip: currentSkip.toString(), 
+        limit: usersLimit.toString(),
+        sortBy: defaultUserSortBy,
+        sortOrder: defaultUserSortOrder
+      });
       if (search) params.append('search', search);
 
       const response = await apiFetch<PaginatedResponse<User>>(`/admin_edits/users?${params.toString()}`, {
@@ -250,9 +271,8 @@ export default function Dashboard() {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      // Проверка структуры ответа (оставляем основную проверку)
       if (!response || typeof response !== 'object' || !response.items || !Array.isArray(response.items)) {
-        console.error("Dashboard fetchUsers: Invalid response structure received. Expected PaginatedResponse object with an 'items' array.", response);
+        console.error("Dashboard fetchUsers: Invalid response structure.", response);
         setError("Не удалось получить данные пользователей. Некорректная структура ответа сервера.");
         setUsersHasMore(false); 
         return; 
@@ -278,45 +298,55 @@ export default function Dashboard() {
       if (isInitialLoad) initialUsersLoadComplete.current = true;
 
     } catch (error) {
-      console.error("Dashboard: Error fetching users:", error);
-      // Обработка ошибок аутентификации
       if (error instanceof ApiError && (error.status === 401 || error.body?.authError)) {
         console.log('Dashboard: Auth error detected in fetchUsers, redirecting...');
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
         router.push("/admin-login");
       } else {
-        // Устанавливаем ошибку только если это первая загрузка или новый поиск
         if (currentSkip === 0) setError("Не удалось загрузить пользователей.");
-        // При ошибке сбрасываем hasMore
         setUsersHasMore(false); 
       }
     } finally {
       setIsUsersLoading(false);
     }
-  // Зависимости: usersLimit и router - стабильны. isUsersLoading используется для предотвращения повторного входа.
-  }, [usersLimit, router]); 
+  }, [usersLimit, router]);
 
   // Функция для загрузки мероприятий
-  const fetchEvents = useCallback(async (currentSkip: number, search: string, isInitialLoad = false) => {
+  const fetchEvents = useCallback(async (
+    currentSkip: number,
+    search: string,
+    sortBy: string,
+    sortOrder: string,
+    status: string,
+    startDate: string,
+    endDate: string,
+    isInitialLoad = false
+  ) => {
     const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
     if (!token) return;
     setIsEventsLoading(true);
     if (currentSkip === 0) setError(null);
-    console.log(`Dashboard: Fetching events - Skip: ${currentSkip}, Limit: ${eventsLimit}, Search: '${search}', Initial: ${isInitialLoad}`);
+    console.log(`Dashboard: Fetching events - Skip: ${currentSkip}, Limit: ${eventsLimit}, Search: '${search}', SortBy: ${sortBy}, SortOrder: ${sortOrder}, Status: ${status}, Start: ${startDate}, End: ${endDate}, Initial: ${isInitialLoad}`);
 
     try {
-      const params = new URLSearchParams({ skip: currentSkip.toString(), limit: eventsLimit.toString() });
+      const params = new URLSearchParams({
+        skip: currentSkip.toString(),
+        limit: eventsLimit.toString(),
+        sortBy: sortBy,
+        sortOrder: sortOrder
+      });
       if (search) params.append('search', search);
-      
+      if (status) params.append('statusFilter', status);
+      // Передаем только валидные даты на бэкенд
+      if (isValidDateFilter(startDate)) params.append('startDateFilter', startDate);
+      if (isValidDateFilter(endDate)) params.append('endDateFilter', endDate);
+
       const response = await apiFetch<PaginatedResponse<Event>>(`/admin_edits/events?${params.toString()}`, {
         bypassLoadingStageCheck: true,
         headers: { 'Authorization': `Bearer ${token}` }
       });
       
-      // Проверка структуры ответа (оставляем основную проверку)
       if (!response || typeof response !== 'object' || !response.items || !Array.isArray(response.items)) {
-        console.error("Dashboard fetchEvents: Invalid response structure received. Expected PaginatedResponse object with an 'items' array.", response);
+        console.error("Dashboard fetchEvents: Invalid response structure.", response);
         setError("Не удалось получить данные мероприятий. Некорректная структура ответа сервера.");
         setEventsHasMore(false); 
         return;
@@ -342,11 +372,8 @@ export default function Dashboard() {
       if (isInitialLoad) initialEventsLoadComplete.current = true;
 
     } catch (error) {
-      console.error("Dashboard: Error fetching events:", error);
       if (error instanceof ApiError && (error.status === 401 || error.body?.authError)) {
         console.log('Dashboard: Auth error detected in fetchEvents, redirecting...');
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
         router.push("/admin-login");
       } else {
         if (currentSkip === 0) setError("Не удалось загрузить мероприятия.");
@@ -355,26 +382,25 @@ export default function Dashboard() {
     } finally {
       setIsEventsLoading(false);
     }
-  // Зависимости: eventsLimit и router.
   }, [eventsLimit, router]);
 
   // Установка флага клиентской загрузки при монтировании компонента
   useEffect(() => {
     setClientReady(true);
-    console.log('Dashboard: Client ready set to true');
+    console.log('Dashboard: Client ready');
   }, []);
 
   // Эффект для ПЕРВИЧНОЙ загрузки данных при монтировании и готовности
   useEffect(() => {
     if (clientReady && isAuthChecked && isAuthenticated && !initialLoadTriggered.current) {
       initialLoadTriggered.current = true; 
-      console.log('Dashboard: Initial load conditions met, triggering fetches ONCE.');
-      // Загружаем с ПУСТЫМ поиском и флагом isInitialLoad = true
-      fetchUsers(0, "", true); 
-      fetchEvents(0, "", true);
+      console.log('Dashboard: Initial load');
+      fetchUsers(0, debouncedUserSearchTerm, true);
+      fetchEvents(0, debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter, true);
     }
-  // Зависит ТОЛЬКО от условий готовности/аутентификации и стабильных fetch функций
-  }, [clientReady, isAuthChecked, isAuthenticated, fetchUsers, fetchEvents]); 
+  }, [clientReady, isAuthChecked, isAuthenticated, fetchUsers, fetchEvents, 
+      debouncedUserSearchTerm,
+      debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter]);
 
   // Эффект для загрузки СЛЕДУЮЩЕЙ страницы Пользователей
   useEffect(() => {
@@ -388,48 +414,58 @@ export default function Dashboard() {
   useEffect(() => {
     if (eventsInView && !isEventsLoading && eventsHasMore && initialEventsLoadComplete.current) { 
       console.log("Dashboard: Events Load More Triggered");
-      fetchEvents(eventsSkip, debouncedEventSearchTerm);
+      fetchEvents(eventsSkip, debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter);
     }
-  }, [eventsInView, eventsHasMore, eventsSkip, debouncedEventSearchTerm, fetchEvents]);
+  }, [eventsInView, eventsHasMore, eventsSkip, debouncedEventSearchTerm, fetchEvents, 
+      eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter]);
 
-  // Эффект для сброса и перезагрузки при ИЗМЕНЕНИИ ПОИСКА Пользователей
-  const isFirstUserSearchRun = useRef(true);
-  useEffect(() => {
-    if (isFirstUserSearchRun.current) {
-        isFirstUserSearchRun.current = false;
-        return; 
-    }
-
-    console.log(`Dashboard: User search term changed to '${debouncedUserSearchTerm}', resetting and fetching.`);
-    setUsers([]); 
-    setUsersSkip(0); 
-    setUsersHasMore(true); 
-    initialUsersLoadComplete.current = false; 
-
-    // Вызываем загрузку с новым поиском и isInitialLoad = true
-    fetchUsers(0, debouncedUserSearchTerm, true);
-
-  // Зависим ТОЛЬКО от debounced значения и стабильной функции fetch
+  // Эффект для перезагрузки при изменении поиска (УДАЛЕНО setUsers([]))
+  const resetAndFetchUsers = useCallback(() => {
+      console.log('Dashboard: User search changed, resetting and fetching.');
+      // setUsers([]); // <-- УДАЛЕНО
+      setUsersSkip(0);
+      setUsersHasMore(true);
+      initialUsersLoadComplete.current = false;
+      fetchUsers(0, debouncedUserSearchTerm, true);
   }, [debouncedUserSearchTerm, fetchUsers]);
 
-  // Эффект для сброса и перезагрузки при ИЗМЕНЕНИИ ПОИСКА Мероприятий
-  const isFirstEventSearchRun = useRef(true);
+  // Эффект для перезагрузки Мероприятий (УДАЛЕНО setEvents([]))
+  const resetAndFetchEvents = useCallback(() => {
+      // Проверяем валидность дебаунсированных дат перед запросом
+      if (!isValidDateFilter(debouncedEventStartDateFilter) || !isValidDateFilter(debouncedEventEndDateFilter)) {
+          console.log("Dashboard: resetAndFetchEvents skipped due to invalid debounced date format.");
+          return; // Не делаем запрос, если формат некорректен
+      }
+      console.log('Dashboard: Event search/filter/sort changed, resetting and fetching with debounced dates.');
+      setEventsSkip(0);
+      setEventsHasMore(true);
+      initialEventsLoadComplete.current = false;
+      // Передаем дебаунсированные даты
+      fetchEvents(0, debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter, true);
+  }, [// Зависит от debounced дат
+      debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter, fetchEvents]);
+
+  // Пользователи: перезагрузка при поиске или сортировке
+  const isFirstUserParamsRun = useRef(true);
   useEffect(() => {
-    if (isFirstEventSearchRun.current) {
-        isFirstEventSearchRun.current = false;
+    if (isFirstUserParamsRun.current) {
+        isFirstUserParamsRun.current = false;
+        return; 
+    }
+    resetAndFetchUsers();
+  }, [debouncedUserSearchTerm, resetAndFetchUsers]); 
+
+  // Мероприятия: перезагрузка при поиске, фильтре или сортировке (С ДОБАВЛЕННОЙ ПРОВЕРКОЙ ДАТ)
+  const isFirstEventParamsRun = useRef(true);
+  useEffect(() => {
+    if (isFirstEventParamsRun.current) {
+        isFirstEventParamsRun.current = false;
         return;
     }
-
-    console.log(`Dashboard: Event search term changed to '${debouncedEventSearchTerm}', resetting and fetching.`);
-    setEvents([]);
-    setEventsSkip(0);
-    setEventsHasMore(true);
-    initialEventsLoadComplete.current = false;
-
-    fetchEvents(0, debouncedEventSearchTerm, true);
-
-  // Зависим ТОЛЬКО от debounced значения и стабильной функции fetch
-  }, [debouncedEventSearchTerm, fetchEvents]);
+    // Теперь триггерится на изменение дебаунсированных значений
+    resetAndFetchEvents();
+  }, [// Зависит от debounced дат
+      debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter, resetAndFetchEvents]);
 
   const handleCreateEvent = () => {
     router.push("/edit-events");
@@ -443,21 +479,6 @@ export default function Dashboard() {
     user.last_active && new Date(user.last_active).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
   ).length;
   const activeUsersPercent = usersTotal ? Math.round((activeUsersCount / usersTotal) * 100) : 0;
-
-  // Сортировка теперь применяется к текущему списку users/events
-  const sortedUsers = [...users].sort((a, b) => {
-    if (!a.created_at && !b.created_at) return 0;
-    if (!a.created_at) return 1;
-    if (!b.created_at) return -1;
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
-
-  const sortedEvents = [...events].sort((a, b) => {
-    if (!a.start_date && !b.start_date) return 0;
-    if (!a.start_date) return 1;
-    if (!b.start_date) return -1;
-    return new Date(b.start_date).getTime() - new Date(a.start_date).getTime();
-  });
 
   // Если проверка авторизации еще не завершена, показываем скелетон
   if (!isAuthChecked) {
@@ -636,90 +657,157 @@ export default function Dashboard() {
             </div>
           )}
           
-          {!isUsersLoading ? (
-            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
-              
-              {/* Поиск пользователей */}
-              <div className="mb-4">
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <FaSearch className="text-gray-400" />
-                  </div>
-                  <input
-                    type="text"
-                    value={userSearchTerm}
-                    onChange={(e) => setUserSearchTerm(e.target.value)}
-                    placeholder="Поиск по ФИО, email, Telegram, WhatsApp..."
-                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  />
+          {/* Раздел Пользователей */}
+          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
+            {/* Поиск Пользователей */}
+            <div className="flex flex-col sm:flex-row gap-4 mb-4">
+              <div className="relative flex-grow">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FaSearch className="text-gray-400" />
                 </div>
+                <input
+                  type="text"
+                  value={userSearchTerm}
+                  onChange={(e) => setUserSearchTerm(e.target.value)}
+                  placeholder="Поиск по ФИО, email..."
+                  className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
               </div>
-              
-              {/* Показываем скелетон ТОЛЬКО при САМОЙ первой загрузке */} 
-              {isUsersLoading && !initialUsersLoadComplete.current && users.length === 0 ? (
-                <UsersSkeleton />
-              ) : users.length > 0 ? (
-                <div className="max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
-                  <UsersList users={sortedUsers} />
-                  {/* Триггер для подгрузки */}
-                  <div ref={usersLoadMoreRef} style={{ height: "10px" }} />
-                </div>
-              ) : !isUsersLoading ? ( // Сообщение "не найдено" только если НЕ идет загрузка
-                 <p className="text-center text-gray-500 py-4">Пользователи не найдены.</p>
-              ) : null}
-              {/* Индикатор загрузки при подгрузке */} 
-              {isUsersLoading && initialUsersLoadComplete.current && <div className="text-center py-4">Загрузка пользователей...</div>}
             </div>
-          ) : (
-            <UsersSkeleton />
-          )}
-          
-          {!isEventsLoading ? (
-            <div className="bg-white p-6 rounded-lg shadow-md">
-              <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
-              
-              {/* Поиск мероприятий */}
-              <div className="mb-4">
-                <div className="relative">
-                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <FaSearch className="text-gray-400" />
+
+            {/* Список Пользователей + Улучшенная логика скелетона/загрузки */}
+            {isUsersLoading && users.length === 0 ? (
+              <UsersSkeleton />
+            ) : (
+              <div className="relative"> {/* Контейнер для оверлея */}
+                {users.length > 0 ? (
+                  <div className={`max-h-[400px] overflow-y-auto pr-1 custom-scrollbar transition-opacity duration-300 ${isUsersLoading ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}> {/* Плавное затемнение */} 
+                    <UsersList users={users} />
+                    <div ref={usersLoadMoreRef} style={{ height: "10px" }} />
                   </div>
-                  <input
-                    type="text"
-                    value={eventSearchTerm}
-                    onChange={(e) => setEventSearchTerm(e.target.value)}
-                    placeholder="Поиск по названию мероприятия..."
-                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  />
-                </div>
+                ) : (
+                  !isUsersLoading && <p className="text-center text-gray-500 py-4">Пользователи не найдены.</p>
+                )}
+                {/* Индикатор загрузки поверх списка */} 
+                {isUsersLoading && users.length > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 rounded-b-lg"> 
+                    <div className="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4" style={{ borderTopColor: '#3b82f6' }}></div> {/* Tailwind Spinner */}
+                  </div>
+                )}
               </div>
-              
-              {/* Показываем скелетон ТОЛЬКО при САМОЙ первой загрузке */} 
-              {isEventsLoading && !initialEventsLoadComplete.current && events.length === 0 ? (
+            )}
+          </div>
+
+          {/* Раздел Мероприятий */}
+          <div className="bg-white p-6 rounded-lg shadow-md">
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
+            {/* Поиск, Фильтры и Сортировка Мероприятий */}
+            <div className="mb-4 space-y-4">
+              {/* Поиск */}
+              <div className="relative">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <FaSearch className="text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  value={eventSearchTerm}
+                  onChange={(e) => setEventSearchTerm(e.target.value)}
+                  placeholder="Поиск по названию..."
+                  className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                />
+              </div>
+              {/* Кнопка открытия панели фильтров и сама панель */}
+              <div className="flex justify-end">
+                <button
+                  onClick={() => setIsEventFilterPanelOpen(!isEventFilterPanelOpen)}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm rounded-lg transition-colors bg-gray-100 hover:bg-gray-200`}
+                >
+                  <FaFilter /> {isEventFilterPanelOpen ? 'Скрыть фильтры' : 'Показать фильтры'}
+                </button>
+              </div>
+              {isEventFilterPanelOpen && (
+                <div className="p-4 border border-gray-200 rounded-lg bg-gray-50 space-y-4">
+                  {/* Фильтр по статусу */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Статус:</label>
+                    <select
+                      value={eventStatusFilter}
+                      onChange={e => setEventStatusFilter(e.target.value)}
+                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">Все статусы</option>
+                      <option value={EventStatusEnum.DRAFT}>Черновик</option>
+                      <option value={EventStatusEnum.REGISTRATION_OPEN}>Регистрация открыта</option>
+                      <option value={EventStatusEnum.REGISTRATION_CLOSED}>Регистрация закрыта</option>
+                      <option value={EventStatusEnum.COMPLETED}>Завершено</option>
+                    </select>
+                  </div>
+                  {/* Фильтр по дате */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Дата начала (от):</label>
+                      <input
+                        type="date"
+                        value={eventStartDateFilter}
+                        onChange={e => setEventStartDateFilter(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Дата начала (до):</label>
+                      <input
+                        type="date"
+                        value={eventEndDateFilter}
+                        onChange={e => setEventEndDateFilter(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                  {/* Сортировка */}
+                  <div className="flex items-center gap-2">
+                    <label className="block text-sm font-medium text-gray-700 flex-shrink-0">Сортировать по:</label>
+                    <select
+                      value={eventSortBy}
+                      onChange={e => setEventSortBy(e.target.value)}
+                      className="p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 flex-grow"
+                    >
+                      <option value="published">Публикация</option>
+                      <option value="occupancy">Заполненность</option>
+                    </select>
+                    <button
+                      onClick={() => setEventSortOrder(eventSortOrder === 'asc' ? 'desc' : 'asc')}
+                      className={`p-2 border border-gray-300 rounded-lg flex-shrink-0 transition-colors hover:bg-gray-100`}
+                    >
+                      {eventSortOrder === 'asc' ? <FaSortUp /> : <FaSortDown />}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Список Мероприятий + Улучшенная логика скелетона/загрузки */}
+            {isEventsLoading && events.length === 0 ? (
                 <EventsSkeleton />
-              ) : events.length > 0 ? (
-                <div className="max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
-                  <EventsList events={sortedEvents} onEventDeleted={() => { 
-                      console.log('Dashboard: Event deleted, resetting events list');
-                      setEvents([]); 
-                      setEventsSkip(0); 
-                      setEventsHasMore(true); 
-                      initialEventsLoadComplete.current = false;
-                      fetchEvents(0, debouncedEventSearchTerm, true); 
-                  }} />
-                  {/* Триггер для подгрузки */}
-                  <div ref={eventsLoadMoreRef} style={{ height: "10px" }} />
-                </div>
-              ) : !isEventsLoading ? (
-                <p className="text-center text-gray-500 py-4">Мероприятия не найдены.</p>
-              ) : null}
-              {/* Индикатор загрузки при подгрузке */} 
-              {isEventsLoading && initialEventsLoadComplete.current && <div className="text-center py-4">Загрузка мероприятий...</div>}
-            </div>
-          ) : (
-            <EventsSkeleton />
-          )}
+            ) : (
+              <div className="relative"> {/* Контейнер для оверлея */}
+                {events.length > 0 ? (
+                  <div className={`max-h-[500px] overflow-y-auto pr-1 custom-scrollbar transition-opacity duration-300 ${isEventsLoading ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}> {/* Плавное затемнение */} 
+                    <EventsList events={events} onEventDeleted={resetAndFetchEvents} />
+                    <div ref={eventsLoadMoreRef} style={{ height: "10px" }} />
+                  </div>
+                ) : (
+                  !isEventsLoading && <p className="text-center text-gray-500 py-4">Мероприятия не найдены.</p>
+                )}
+                {/* Индикатор загрузки поверх списка */} 
+                {isEventsLoading && events.length > 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 rounded-b-lg">
+                    <div className="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12 mb-4" style={{ borderTopColor: '#10b981' }}></div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </main>
     </div>

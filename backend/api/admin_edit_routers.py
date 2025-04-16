@@ -6,10 +6,10 @@ from backend.config.auth import get_current_admin, log_admin_activity, get_last_
 from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType, Registration, Media
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select, delete, func, or_
+from sqlalchemy import select, delete, func, or_, asc, desc, case, cast, Integer, Float, outerjoin
 from sqlalchemy.orm import selectinload
 from backend.schemas_enums.enums import EventStatus, Status
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import uuid
 from typing import Optional, List
@@ -480,11 +480,13 @@ async def update_event(
 @router.get("/events", response_model=PaginatedResponse[EventCreate])
 async def get_admin_events(
     search: Optional[str] = Query(None),
-    start_date: Optional[str] = Query(None),
-    end_date: Optional[str] = Query(None),
-    status_param: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    status_filter: Optional[str] = Query(None, alias="statusFilter"),
+    start_date_filter: Optional[str] = Query(None, alias="startDateFilter"),
+    end_date_filter: Optional[str] = Query(None, alias="endDateFilter"),
+    sort_by: Optional[str] = Query("published", alias="sortBy"),
+    sort_order: Optional[str] = Query("desc", alias="sortOrder"),
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
@@ -493,49 +495,77 @@ async def get_admin_events(
     if not admin:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    logger.info(f"Admin {admin.email} fetching events with params: search='{search}', start='{start_date}', end='{end_date}', status='{status_param}', skip={skip}, limit={limit}")
+    logger.info(f"Admin {admin.email} fetching events with params: search='{search}', statusFilter='{status_filter}', startDateFilter='{start_date_filter}', endDateFilter='{end_date_filter}', sortBy='{sort_by}', sortOrder='{sort_order}', skip={skip}, limit={limit}")
 
+    # Базовый запрос с LEFT JOIN к TicketType для сортировки по заполненности
     base_query = select(Event).options(
         selectinload(Event.tickets),
         selectinload(Event.registrations)
-    )
-    count_query = select(func.count()).select_from(Event)
+    ).outerjoin(TicketType, Event.id == TicketType.event_id)
 
+    # Запрос для подсчета общего количества (без join, т.к. он нужен только для сортировки)
+    count_base_query = select(func.count()).select_from(Event)
+
+    # Применяем фильтры (к обоим запросам, где это применимо)
+    filters = []
     if search:
         search_term = f"%{search}%"
-        search_filter = Event.title.ilike(search_term)
-        base_query = base_query.where(search_filter)
-        count_query = count_query.where(search_filter)
+        filters.append(Event.title.ilike(search_term))
 
-    if start_date:
+    if start_date_filter:
         try:
-            start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
-            naive_start_dt = make_naive(start_dt)
-            date_filter = Event.start_date >= naive_start_dt
-            base_query = base_query.where(date_filter)
-            count_query = count_query.where(date_filter)
+            start_dt = datetime.strptime(start_date_filter, "%Y-%m-%d")
+            filters.append(Event.start_date >= start_dt)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid start_date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Invalid start_date_filter format. Use YYYY-MM-DD.")
 
-    if end_date:
+    if end_date_filter:
         try:
-            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
-            naive_end_dt = make_naive(end_dt)
-            date_filter = Event.start_date <= naive_end_dt
-            base_query = base_query.where(date_filter)
-            count_query = count_query.where(date_filter)
+            end_dt = datetime.strptime(end_date_filter, "%Y-%m-%d")
+            end_dt_exclusive = end_dt + timedelta(days=1)
+            filters.append(Event.start_date < end_dt_exclusive)
         except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid end_date format. Use ISO format.")
+            raise HTTPException(status_code=400, detail="Invalid end_date_filter format. Use YYYY-MM-DD.")
 
-    if status_param:
-        status_filter = Event.status == status_param
-        base_query = base_query.where(status_filter)
-        count_query = count_query.where(status_filter)
+    if status_filter:
+        allowed_statuses = [s.value for s in EventStatus]
+        if status_filter in allowed_statuses:
+             filters.append(Event.status == status_filter)
+        else:
+             logger.warning(f"Invalid status_filter provided: {status_filter}")
 
+    # Применяем собранные фильтры
+    if filters:
+        base_query = base_query.where(or_(*filters))
+        count_query = count_base_query.where(or_(*filters)) # Применяем те же фильтры к count
+    else:
+        count_query = count_base_query # Если фильтров нет, используем исходный count
+
+    # Считаем общее количество после фильтрации
     total_count_result = await db.execute(count_query)
     total = total_count_result.scalar_one_or_none() or 0
 
-    query = base_query.order_by(Event.created_at.desc()).offset(skip).limit(limit)
+    # Применяем сортировку
+    order_func = desc if sort_order == "desc" else asc
+
+    # --- Обновленная логика сортировки --- 
+    sort_column = None
+    if sort_by == "published":
+        sort_column = Event.published
+    elif sort_by == "occupancy":
+        # Сортируем по количеству проданных билетов. Используем coalesce на случай отсутствия билета.
+        sort_column = func.coalesce(TicketType.sold_quantity, 0)
+    # created_at больше не опция
+
+    # По умолчанию сортируем по published desc, если sort_by некорректный
+    if sort_column is None:
+        sort_column = Event.published
+        order_func = desc # Явно ставим desc для дефолта
+
+    # Добавляем вторичную сортировку по ID для стабильности
+    query = base_query.order_by(order_func(sort_column), Event.id).offset(skip).limit(limit)
+    # --- Конец обновленной логики --- 
+
     result = await db.execute(query)
     events = result.scalars().unique().all()
 
@@ -545,7 +575,7 @@ async def get_admin_events(
         remaining_quantity = ticket.available_quantity - ticket.sold_quantity if ticket else 0
         
         base_slug = generate_slug_with_id(event.url_slug or event.title, event.id, event.start_date)
-        formatted_slug = f"{base_slug}-{event.start_date.year}-{event.id}"
+        formatted_slug = f"{base_slug}-{event.start_date.year}-{event.id}" if base_slug else None
         
         event_response = EventCreate(
             id=event.id,
@@ -563,12 +593,12 @@ async def get_admin_events(
             url_slug=formatted_slug,
             registrations_count=len(event.registrations),
             ticket_type=TicketTypeCreate(
-                name=ticket.name,
-                price=float(ticket.price),
-                available_quantity=ticket.available_quantity,
-                free_registration=ticket.free_registration,
+                name=ticket.name if ticket else None,
+                price=float(ticket.price) if ticket else 0.0,
+                available_quantity=ticket.available_quantity if ticket else 0,
+                free_registration=ticket.free_registration if ticket else False,
                 remaining_quantity=remaining_quantity,
-                sold_quantity=ticket.sold_quantity
+                sold_quantity=ticket.sold_quantity if ticket else 0
             ) if ticket else None
         )
         event_responses.append(event_response)
@@ -585,6 +615,9 @@ async def get_admin_users(
     search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
+    # Параметры сортировки для пользователей
+    sort_by: Optional[str] = Query("created_at", alias="sortBy"),
+    sort_order: Optional[str] = Query("asc", alias="sortOrder"),
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
@@ -593,11 +626,12 @@ async def get_admin_users(
     if not admin:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    logger.info(f"Admin {admin.email} fetching users with params: search='{search}', skip={skip}, limit={limit}")
+    logger.info(f"Admin {admin.email} fetching users with params: search='{search}', sortBy='{sort_by}', sortOrder='{sort_order}', skip={skip}, limit={limit}")
 
     base_query = select(User).options(selectinload(User.activities))
     count_query = select(func.count()).select_from(User)
 
+    # Фильтр поиска
     if search:
         search_term = f"%{search}%"
         search_filter = or_(
@@ -609,10 +643,24 @@ async def get_admin_users(
         base_query = base_query.where(search_filter)
         count_query = count_query.where(search_filter)
 
+    # Считаем общее количество
     total_count_result = await db.execute(count_query)
     total = total_count_result.scalar_one_or_none() or 0
 
-    query = base_query.order_by(User.created_at.desc()).offset(skip).limit(limit)
+    # Применяем сортировку
+    sort_column_map = {
+        "created_at": User.created_at,
+        "fio": User.fio,
+        "email": User.email
+        # last_active требует доп. логики (join или subquery)
+    }
+    sort_column = sort_column_map.get(sort_by, User.created_at)
+
+    order_func = desc if sort_order == "desc" else asc
+    
+    # Добавляем вторичную сортировку по ID для стабильности
+    query = base_query.order_by(order_func(sort_column), asc(User.id)).offset(skip).limit(limit)
+
     result = await db.execute(query)
     users = result.scalars().unique().all()
 

@@ -4,6 +4,7 @@
 import { useRouter } from "next/navigation";
 import React, { createContext, useState, useEffect, useCallback, useContext, useRef } from "react";
 import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
+import { useLoadingFlags } from "@/contexts/loading/LoadingFlagsContext";
 import { LoadingStage } from "@/contexts/loading/types";
 import { checkAdminSession } from "@/utils/eventAdminService";
 import { createLogger } from "@/utils/logger";
@@ -83,10 +84,10 @@ const validateTokenLocally = (token: string | null): boolean => {
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
   const { setStage } = useLoadingStage();
+  const { setStaticLoading } = useLoadingFlags();
   const isInitialized = useRef(false);
   const isMounted = useRef(false);
   const lastCheckTimeRef = useRef<number>(0);
-  // Добавляем ref для отслеживания текущей проверки АВТОРИЗАЦИИ
   const checkingAuthRef = useRef(false);
 
   // Initialize state with data from localStorage if available and token is valid locally
@@ -181,13 +182,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         router.push('/admin-login');
       }
       return false;
-    } finally {
-      // Ensure loading is set to false unless it was already handled
-      // Проверяем, что компонент все еще смонтирован
-      // УБИРАЕМ setLoading(false) отсюда
-      // if (isMounted.current) {
-      //   setLoading(false);
-      // }
     }
   }, [router, validateTokenLocallyCallback]);
 
@@ -211,85 +205,75 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   // Инициализация при монтировании
   useEffect(() => {
-    // Используем checkingAuthRef, определенный вне эффекта
     if (isInitialized.current || checkingAuthRef.current) return;
     isInitialized.current = true;
-    isMounted.current = true; // Set mounted ref here
+    isMounted.current = true;
 
     const initAuth = async () => {
-      // Используем checkingAuthRef
-      if (checkingAuthRef.current) return; // Не запускать, если уже идет проверка
-      checkingAuthRef.current = true; // Устанавливаем флаг
+      if (checkingAuthRef.current) return;
+      checkingAuthRef.current = true;
       
       adminAuthLogger.info("AdminAuthContext: Starting authentication initialization");
-      // setLoading(true); // УДАЛЯЕМ
+      
+      // --- Устанавливаем флаг и стадию начала аутентификации --- 
+      setStaticLoading(true); // Используем флаг статической загрузки
+      setStage(LoadingStage.AUTHENTICATION);
+      // ----------------------------------------------------------
 
-      const storedLastCheckTime = localStorage.getItem(STORAGE_KEYS.LAST_CHECK_TIME);
-      if (storedLastCheckTime) {
-        lastCheckTimeRef.current = parseInt(storedLastCheckTime);
-      }
-
-      try {
-        // Initial state is already set based on local storage, now verify with server
-        // checkAuth теперь сама получит и установит adminData при успехе
-        const isValid = await checkAuth();
-        adminAuthLogger.info(`AdminAuthContext: Initial auth check result: ${isValid}`);
-
-        // Убираем лишнюю попытку восстановления adminData здесь
-        // if (isValid && !adminData) { ... }
-
-        // Set stage and dispatch event regardless of auth status after check
-        setStage(LoadingStage.STATIC_CONTENT);
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem('is_admin_route', 'true');
-          const event = new CustomEvent('auth-stage-change', {
-            detail: {
-              stage: LoadingStage.STATIC_CONTENT,
-              isAdmin: true,
-              isAuth: isValid
-            }
-          });
-          window.dispatchEvent(event);
-        }
-      } catch (err) {
-        adminAuthLogger.error("AdminAuthContext: Error during auth initialization:", err);
-        // Even on error, proceed to static content stage
-        setStage(LoadingStage.STATIC_CONTENT);
+      let checkSuccessful = false;
+      try { 
+        checkSuccessful = await checkAuth(); // checkAuth теперь только проверяет и устанавливает состояния
+        adminAuthLogger.info(`AdminAuthContext: Initial auth check result: ${checkSuccessful}`);
+      } catch (e) {
+         // Логируем ошибки, не пойманные внутри checkAuth (маловероятно)
+         adminAuthLogger.error("AdminAuthContext: Unexpected error during initAuth checkAuth call", e);
+         // isAuthChecked все равно установится в true в checkAuth, даже при ошибке
       } finally {
-        if (isMounted.current) {
-            // setLoading(false); // УДАЛЯЕМ
-            setIsAuthChecked(true); // Mark auth as checked after init attempt
-        }
-        checkingAuthRef.current = false; // Сбрасываем флаг после завершения
-        adminAuthLogger.info("AdminAuthContext: Initialization complete");
+         // --- Устанавливаем стадию и флаг ПОСЛЕ завершения проверки --- 
+         if (isMounted.current) {
+            // Переходим к STATIC_CONTENT независимо от результата проверки
+            setStage(LoadingStage.STATIC_CONTENT);
+            setStaticLoading(false); // Сбрасываем флаг статической загрузки
+            adminAuthLogger.info("AdminAuthContext: Initialization complete, stage set to STATIC_CONTENT");
+            
+            // Диспатчим событие для других частей приложения
+            if (typeof window !== 'undefined') {
+              window.localStorage.setItem('is_admin_route', 'true'); // Этот флаг можно оставить
+              const event = new CustomEvent('auth-stage-change', {
+                detail: {
+                  stage: LoadingStage.STATIC_CONTENT,
+                  isAdmin: true,
+                  isAuth: checkSuccessful // Используем результат проверки
+                }
+              });
+              window.dispatchEvent(event);
+            }
+         }
+         // ---------------------------------------------------------------
+         checkingAuthRef.current = false; // Сбрасываем флаг проверки
       }
     };
 
+    // Запускаем инициализацию
     initAuth();
 
+    // Очистка при размонтировании
     return () => {
-        isMounted.current = false; // Clear mounted ref on unmount
-      if (typeof window !== 'undefined') {
-        window.localStorage.removeItem('is_admin_route');
-      }
+      isMounted.current = false;
+      // Не сбрасываем isInitialized.current, чтобы эффект не запускался повторно при HMR
     };
-  }, [checkAuth, setStage]);
+  }, [checkAuth, setStage, setStaticLoading]);
 
-  // Removed useEffect for dispatching 'auth-stage-change' on isAuthChecked/isAuthenticated change
-  // as it's now handled within initAuth.
-
-  const contextValue = React.useMemo(() => ({
+  // Контекстное значение
+  const contextValue = {
     isAuthenticated,
     adminData,
     login,
     logout,
     checkAuth,
-    // Expose the callback version in the context
     validateTokenLocally: () => validateTokenLocallyCallback(localStorage.getItem(STORAGE_KEYS.ADMIN_TOKEN)),
     isAuthChecked,
-  }), [
-    isAuthenticated, adminData, login, logout, checkAuth, validateTokenLocallyCallback, isAuthChecked
-  ]);
+  };
 
   return (
     <AdminAuthContext.Provider value={contextValue}>
@@ -300,6 +284,8 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
 export const useAdminAuth = (): AdminAuthContextType => {
   const context = useContext(AdminAuthContext);
-  if (!context) throw new Error("useAdminAuth must be used within an AdminAuthProvider");
+  if (context === undefined) {
+    throw new Error("useAdminAuth must be used within an AdminAuthProvider");
+  }
   return context;
 };

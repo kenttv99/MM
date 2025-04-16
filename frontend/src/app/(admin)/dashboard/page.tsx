@@ -1,15 +1,16 @@
 // frontend/src/app/(admin)/dashboard/page.tsx
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { FaPlus, FaSearch } from "react-icons/fa";
 import { apiFetch, ApiError } from "@/utils/api";
-import { useLoadingStage } from "@/contexts/loading/LoadingStageContext";
-import { LoadingStage } from "@/contexts/loading/types";
 import "@/app/globals.css";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
+import { useInView } from "react-intersection-observer";
+import { useDebounce } from "react-use";
+import { useRef } from 'react';
 
 // Storage key constants matching AdminAuthContext
 const ADMIN_STORAGE_KEYS = {
@@ -28,6 +29,8 @@ interface User {
   telegram?: string;
   whatsapp?: string;
   avatar_url?: string;
+  is_blocked?: boolean;
+  is_partner?: boolean;
 }
 
 interface TicketType {
@@ -54,6 +57,14 @@ interface Event {
   registrations_count: number;
   ticket_type?: TicketType;
   url_slug?: string;
+}
+
+// Добавляем интерфейс для пагинированного ответа
+interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  skip: number;
+  limit: number;
 }
 
 // Динамическая загрузка компонентов без SSR
@@ -164,186 +175,261 @@ const DashboardSkeleton = () => (
 
 export default function Dashboard() {
   const router = useRouter();
-  const { setStage } = useLoadingStage();
-  const { isAuthenticated, isAuthChecked } = useAdminAuth(); // Get auth state from AdminAuthContext
+  const { isAuthenticated, isAuthChecked } = useAdminAuth();
   
   const [users, setUsers] = useState<User[]>([]);
   const [events, setEvents] = useState<Event[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [clientReady, setClientReady] = useState(false);
-  const [dataLoaded, setDataLoaded] = useState({
-    users: false,
-    events: false
-  });
-  // Состояния для поиска
-  const [userSearchTerm, setUserSearchTerm] = useState("");
-  const [eventSearchTerm, setEventSearchTerm] = useState("");
   
-  // Ref для отслеживания инициации первичной загрузки
-  const initialLoadInitiated = useRef(false);
+  // Состояния для пагинации Пользователей
+  const [usersSkip, setUsersSkip] = useState(0);
+  const [usersLimit] = useState(20); // Лимит на странице
+  const [usersTotal, setUsersTotal] = useState(0);
+  const [usersHasMore, setUsersHasMore] = useState(true);
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState("");
+  const [debouncedUserSearchTerm, setDebouncedUserSearchTerm] = useState("");
 
+  // Состояния для пагинации Мероприятий
+  const [eventsSkip, setEventsSkip] = useState(0);
+  const [eventsLimit] = useState(10); // Лимит на странице
+  const [eventsTotal, setEventsTotal] = useState(0);
+  const [eventsHasMore, setEventsHasMore] = useState(true);
+  const [isEventsLoading, setIsEventsLoading] = useState(false);
+  const [eventSearchTerm, setEventSearchTerm] = useState("");
+  const [debouncedEventSearchTerm, setDebouncedEventSearchTerm] = useState("");
+
+  // Ref для Intersection Observer
+  const { ref: usersLoadMoreRef, inView: usersInView } = useInView({
+    threshold: 0.5, // Триггер при 50% видимости
+    triggerOnce: false // Повторно проверять
+  });
+  const { ref: eventsLoadMoreRef, inView: eventsInView } = useInView({
+    threshold: 0.5,
+    triggerOnce: false
+  });
+
+  // Ref для контроля первичной загрузки
+  const initialUsersLoadComplete = useRef(false);
+  const initialEventsLoadComplete = useRef(false);
+  const initialLoadTriggered = useRef(false); // <--- Флаг однократного запуска
+
+  // Debounce для поиска
+  useDebounce(
+    () => {
+      setDebouncedUserSearchTerm(userSearchTerm);
+    },
+    500, // Задержка 500 мс
+    [userSearchTerm]
+  );
+  useDebounce(
+    () => {
+      setDebouncedEventSearchTerm(eventSearchTerm);
+    },
+    500,
+    [eventSearchTerm]
+  );
+  
   // Функция для загрузки пользователей
-  const fetchUsers = useCallback(async () => {
+  const fetchUsers = useCallback(async (currentSkip: number, search: string, isInitialLoad = false) => {
+    // Предотвращаем повторные запросы, если уже грузим или нет токена
+    const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+    if (!token) return;
+    
+    setIsUsersLoading(true);
+    if (currentSkip === 0) setError(null); 
+    console.log(`Dashboard: Fetching users - Skip: ${currentSkip}, Limit: ${usersLimit}, Search: '${search}', Initial: ${isInitialLoad}`);
+    
     try {
-      console.log('Dashboard: Starting fetchUsers');
-      // Get token with the correct key
-      const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
-      
-      if (!token) {
-        console.log('Dashboard: No admin token found');
-        throw new ApiError(401, { error: "Токен администратора не найден", authError: true });
-      }
-      
-      console.log('Dashboard: Sending request to fetch users');
-      const fetchedUsers = await apiFetch<User[]>(`/admin_edits/users`, {
-        bypassLoadingStageCheck: true, // Обходим проверку стадии загрузки
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const params = new URLSearchParams({ skip: currentSkip.toString(), limit: usersLimit.toString() });
+      if (search) params.append('search', search);
+
+      const response = await apiFetch<PaginatedResponse<User>>(`/admin_edits/users?${params.toString()}`, {
+        bypassLoadingStageCheck: true, 
+        headers: { 'Authorization': `Bearer ${token}` }
       });
+
+      // Проверка структуры ответа (оставляем основную проверку)
+      if (!response || typeof response !== 'object' || !response.items || !Array.isArray(response.items)) {
+        console.error("Dashboard fetchUsers: Invalid response structure received. Expected PaginatedResponse object with an 'items' array.", response);
+        setError("Не удалось получить данные пользователей. Некорректная структура ответа сервера.");
+        setUsersHasMore(false); 
+        return; 
+      }
+
+      setUsersTotal(response.total);
+      const newHasMore = response.items.length >= usersLimit;
+      setUsersHasMore(newHasMore); 
       
-      setUsers(fetchedUsers);
-      console.log(`Dashboard: Fetched ${fetchedUsers.length} users`);
-      setDataLoaded(prev => ({ ...prev, users: true }));
-      return true;
+      if (currentSkip === 0) {
+        setUsers(response.items); 
+        console.log(`Dashboard: Fetched FIRST PAGE of ${response.items.length} users (Total: ${response.total}), HasMore: ${newHasMore}`);
+      } else {
+        setUsers(prev => {
+            const existingIds = new Set(prev.map(u => u.id));
+            const uniqueNewItems = response.items.filter(u => !existingIds.has(u.id));
+            return [...prev, ...uniqueNewItems];
+        });
+        console.log(`Dashboard: Fetched MORE ${response.items.length} users (Total: ${response.total}), HasMore: ${newHasMore}`);
+      }
+      setUsersSkip(currentSkip + response.items.length);
+      
+      if (isInitialLoad) initialUsersLoadComplete.current = true;
+
     } catch (error) {
       console.error("Dashboard: Error fetching users:", error);
+      // Обработка ошибок аутентификации
       if (error instanceof ApiError && (error.status === 401 || error.body?.authError)) {
-        console.log('Dashboard: Auth error detected in fetchUsers (ApiError), redirecting...');
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
-        router.push("/admin-login");
-      } else if (error instanceof Error && error.message.includes("Токен администратора не найден")) {
-        console.log('Dashboard: Auth error detected in fetchUsers (Error message), redirecting...');
+        console.log('Dashboard: Auth error detected in fetchUsers, redirecting...');
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
         router.push("/admin-login");
       } else {
-        setError("Не удалось загрузить пользователей.");
+        // Устанавливаем ошибку только если это первая загрузка или новый поиск
+        if (currentSkip === 0) setError("Не удалось загрузить пользователей.");
+        // При ошибке сбрасываем hasMore
+        setUsersHasMore(false); 
       }
-      return false;
+    } finally {
+      setIsUsersLoading(false);
     }
-  }, [router]);
+  // Зависимости: usersLimit и router - стабильны. isUsersLoading используется для предотвращения повторного входа.
+  }, [usersLimit, router]); 
 
   // Функция для загрузки мероприятий
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (currentSkip: number, search: string, isInitialLoad = false) => {
+    const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+    if (!token) return;
+    setIsEventsLoading(true);
+    if (currentSkip === 0) setError(null);
+    console.log(`Dashboard: Fetching events - Skip: ${currentSkip}, Limit: ${eventsLimit}, Search: '${search}', Initial: ${isInitialLoad}`);
+
     try {
-      console.log('Dashboard: Starting fetchEvents');
-      const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
+      const params = new URLSearchParams({ skip: currentSkip.toString(), limit: eventsLimit.toString() });
+      if (search) params.append('search', search);
       
-      if (!token) {
-        console.log('Dashboard: No admin token found for events');
-        throw new ApiError(401, { error: "Токен администратора не найден", authError: true });
-      }
-      
-      console.log('Dashboard: Sending request to fetch events');
-      const fetchedEvents = await apiFetch<Event[]>(`/admin_edits/events`, {
+      const response = await apiFetch<PaginatedResponse<Event>>(`/admin_edits/events?${params.toString()}`, {
         bypassLoadingStageCheck: true,
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       
-      setEvents(fetchedEvents);
-      console.log(`Dashboard: Fetched ${fetchedEvents.length} events`);
-      setDataLoaded(prev => ({ ...prev, events: true }));
-      return true;
+      // Проверка структуры ответа (оставляем основную проверку)
+      if (!response || typeof response !== 'object' || !response.items || !Array.isArray(response.items)) {
+        console.error("Dashboard fetchEvents: Invalid response structure received. Expected PaginatedResponse object with an 'items' array.", response);
+        setError("Не удалось получить данные мероприятий. Некорректная структура ответа сервера.");
+        setEventsHasMore(false); 
+        return;
+      }
+
+      setEventsTotal(response.total);
+      const newHasMore = response.items.length >= eventsLimit;
+      setEventsHasMore(newHasMore);
+      
+      if (currentSkip === 0) {
+        setEvents(response.items);
+        console.log(`Dashboard: Fetched FIRST PAGE of ${response.items.length} events (Total: ${response.total}), HasMore: ${newHasMore}`);
+      } else {
+        setEvents(prev => {
+            const existingIds = new Set(prev.map(e => e.id));
+            const uniqueNewItems = response.items.filter(e => !existingIds.has(e.id));
+            return [...prev, ...uniqueNewItems];
+        });
+        console.log(`Dashboard: Fetched MORE ${response.items.length} events (Total: ${response.total}), HasMore: ${newHasMore}`);
+      }
+      setEventsSkip(currentSkip + response.items.length);
+      
+      if (isInitialLoad) initialEventsLoadComplete.current = true;
+
     } catch (error) {
       console.error("Dashboard: Error fetching events:", error);
       if (error instanceof ApiError && (error.status === 401 || error.body?.authError)) {
-        console.log('Dashboard: Auth error detected in fetchEvents (ApiError), redirecting...');
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
-        localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
-        router.push("/admin-login");
-      } else if (error instanceof Error && error.message.includes("Токен администратора не найден")) {
-        console.log('Dashboard: Auth error detected in fetchEvents (Error message), redirecting...');
+        console.log('Dashboard: Auth error detected in fetchEvents, redirecting...');
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
         localStorage.removeItem(ADMIN_STORAGE_KEYS.ADMIN_DATA);
         router.push("/admin-login");
       } else {
-        setError("Не удалось загрузить мероприятия.");
+        if (currentSkip === 0) setError("Не удалось загрузить мероприятия.");
+        setEventsHasMore(false);
       }
-      return false;
+    } finally {
+      setIsEventsLoading(false);
     }
-  }, [router]);
+  // Зависимости: eventsLimit и router.
+  }, [eventsLimit, router]);
 
   // Установка флага клиентской загрузки при монтировании компонента
   useEffect(() => {
     setClientReady(true);
     console.log('Dashboard: Client ready set to true');
-    
-    // Убираем преждевременную установку стадии
-    // setStage(LoadingStage.COMPLETED); 
-    // console.log('Dashboard: Setting stage to COMPLETED, current stage =', currentStage); 
-    
-    // Если мы вернулись с редактирования и нужно обновить данные, сбрасываем состояние загрузки
-    if (localStorage.getItem("dashboard_need_refresh") === "true") {
-      console.log('Dashboard: Need refresh flag detected in initial mount');
-      setDataLoaded({
-        users: false,
-        events: false
-      });
-    }
-  }, []); // <-- Изменяем зависимости на пустой массив
+  }, []);
 
-  // Функция для загрузки данных
-  const loadData = useCallback(async () => {
-    console.log('Dashboard: Starting to load data');
-    setError(null);
-
-    try {
-      // Загружаем данные параллельно
-      const [usersFetched, eventsFetched] = await Promise.all([
-        !dataLoaded.users ? fetchUsers() : Promise.resolve(true),
-        !dataLoaded.events ? fetchEvents() : Promise.resolve(true)
-      ]);
-
-      // Обновляем состояние загрузки данных
-      setDataLoaded({
-        users: dataLoaded.users || usersFetched === true,
-        events: dataLoaded.events || eventsFetched === true
-      });
-
-      // Продвигаем стадию загрузки
-      if ((dataLoaded.users || usersFetched === true) && 
-          (dataLoaded.events || eventsFetched === true)) {
-        console.log('Dashboard: All data loaded successfully');
-        setStage(LoadingStage.COMPLETED);
-      }
-    } catch (err) {
-      console.error('Dashboard: Error loading data:', err);
-      setError(err instanceof Error ? err.message : "Ошибка загрузки данных");
-    }
-  }, [dataLoaded, setStage, fetchUsers, fetchEvents]);
-
-  // Эффект для ПЕРВИЧНОЙ загрузки данных
+  // Эффект для ПЕРВИЧНОЙ загрузки данных при монтировании и готовности
   useEffect(() => {
-    // Ждем аутентификации и готовности клиента
-    if (!isAuthenticated || !isAuthChecked || !clientReady) return;
-    
-    // Запускаем первичную загрузку ТОЛЬКО ОДИН РАЗ
-    if (!initialLoadInitiated.current) {
-      console.log('Dashboard: Authenticated and client ready, loading initial data...');
-      initialLoadInitiated.current = true; // Помечаем, что загрузка инициирована
-      loadData();
+    if (clientReady && isAuthChecked && isAuthenticated && !initialLoadTriggered.current) {
+      initialLoadTriggered.current = true; 
+      console.log('Dashboard: Initial load conditions met, triggering fetches ONCE.');
+      // Загружаем с ПУСТЫМ поиском и флагом isInitialLoad = true
+      fetchUsers(0, "", true); 
+      fetchEvents(0, "", true);
     }
-  // Зависимости: статус аутентификации и готовность клиента
-  }, [isAuthenticated, isAuthChecked, clientReady, loadData]); 
+  // Зависит ТОЛЬКО от условий готовности/аутентификации и стабильных fetch функций
+  }, [clientReady, isAuthChecked, isAuthenticated, fetchUsers, fetchEvents]); 
 
-  // Эффект для обработки флага needRefresh
+  // Эффект для загрузки СЛЕДУЮЩЕЙ страницы Пользователей
   useEffect(() => {
-    const needRefresh = localStorage.getItem("dashboard_need_refresh") === "true";
-    if (needRefresh) {
-      console.log('Dashboard: Need refresh flag detected, forcing data reload');
-      localStorage.removeItem("dashboard_need_refresh");
-      // Сбрасываем флаги загрузки И флаг инициации, чтобы разрешить перезагрузку
-      setDataLoaded({ users: false, events: false }); 
-      initialLoadInitiated.current = false; 
-      loadData(); // Запускаем перезагрузку
+    if (usersInView && !isUsersLoading && usersHasMore && initialUsersLoadComplete.current) { 
+      console.log("Dashboard: Users Load More Triggered");
+      fetchUsers(usersSkip, debouncedUserSearchTerm);
     }
-  // Этот эффект зависит только от loadData (и неявно от localStorage)
-  // Можно добавить path или другой ключ, если нужно срабатывать при навигации
-  }, [loadData]);
+  }, [usersInView, usersHasMore, usersSkip, debouncedUserSearchTerm, fetchUsers]);
+
+  // Эффект для загрузки СЛЕДУЮЩЕЙ страницы Мероприятий
+  useEffect(() => {
+    if (eventsInView && !isEventsLoading && eventsHasMore && initialEventsLoadComplete.current) { 
+      console.log("Dashboard: Events Load More Triggered");
+      fetchEvents(eventsSkip, debouncedEventSearchTerm);
+    }
+  }, [eventsInView, eventsHasMore, eventsSkip, debouncedEventSearchTerm, fetchEvents]);
+
+  // Эффект для сброса и перезагрузки при ИЗМЕНЕНИИ ПОИСКА Пользователей
+  const isFirstUserSearchRun = useRef(true);
+  useEffect(() => {
+    if (isFirstUserSearchRun.current) {
+        isFirstUserSearchRun.current = false;
+        return; 
+    }
+
+    console.log(`Dashboard: User search term changed to '${debouncedUserSearchTerm}', resetting and fetching.`);
+    setUsers([]); 
+    setUsersSkip(0); 
+    setUsersHasMore(true); 
+    initialUsersLoadComplete.current = false; 
+
+    // Вызываем загрузку с новым поиском и isInitialLoad = true
+    fetchUsers(0, debouncedUserSearchTerm, true);
+
+  // Зависим ТОЛЬКО от debounced значения и стабильной функции fetch
+  }, [debouncedUserSearchTerm, fetchUsers]);
+
+  // Эффект для сброса и перезагрузки при ИЗМЕНЕНИИ ПОИСКА Мероприятий
+  const isFirstEventSearchRun = useRef(true);
+  useEffect(() => {
+    if (isFirstEventSearchRun.current) {
+        isFirstEventSearchRun.current = false;
+        return;
+    }
+
+    console.log(`Dashboard: Event search term changed to '${debouncedEventSearchTerm}', resetting and fetching.`);
+    setEvents([]);
+    setEventsSkip(0);
+    setEventsHasMore(true);
+    initialEventsLoadComplete.current = false;
+
+    fetchEvents(0, debouncedEventSearchTerm, true);
+
+  // Зависим ТОЛЬКО от debounced значения и стабильной функции fetch
+  }, [debouncedEventSearchTerm, fetchEvents]);
 
   const handleCreateEvent = () => {
     router.push("/edit-events");
@@ -351,39 +437,22 @@ export default function Dashboard() {
 
   // Вычисленные значения для панели статистики
   const publishedEventsCount = events.filter(event => event.published).length;
-  const publishedEventsPercent = events.length ? Math.round((publishedEventsCount / events.length) * 100) : 0;
+  const publishedEventsPercent = eventsTotal ? Math.round((publishedEventsCount / eventsTotal) * 100) : 0;
   
   const activeUsersCount = users.filter(user => 
     user.last_active && new Date(user.last_active).getTime() > Date.now() - 30 * 24 * 60 * 60 * 1000
   ).length;
-  const activeUsersPercent = users.length ? Math.round((activeUsersCount / users.length) * 100) : 0;
+  const activeUsersPercent = usersTotal ? Math.round((activeUsersCount / usersTotal) * 100) : 0;
 
-  // Функция для фильтрации пользователей по поисковому запросу
-  const filteredUsers = users.filter(user => {
-    const searchLower = userSearchTerm.toLowerCase();
-    return (
-      user.fio?.toLowerCase().includes(searchLower) ||
-      user.email?.toLowerCase().includes(searchLower) ||
-      (user.telegram && user.telegram.toLowerCase().includes(searchLower)) ||
-      (user.whatsapp && user.whatsapp.toLowerCase().includes(searchLower))
-    );
-  });
-  
-  // Функция для фильтрации мероприятий по поисковому запросу
-  const filteredEvents = events.filter(event => 
-    event.title?.toLowerCase().includes(eventSearchTerm.toLowerCase())
-  );
-
-  // Сортировка пользователей от новой к старой дате регистрации (новые вверху)
-  const sortedUsers = [...filteredUsers].sort((a, b) => {
+  // Сортировка теперь применяется к текущему списку users/events
+  const sortedUsers = [...users].sort((a, b) => {
     if (!a.created_at && !b.created_at) return 0;
     if (!a.created_at) return 1;
     if (!b.created_at) return -1;
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
   });
 
-  // Сортировка мероприятий от новой к старой дате проведения (новые вверху)
-  const sortedEvents = [...filteredEvents].sort((a, b) => {
+  const sortedEvents = [...events].sort((a, b) => {
     if (!a.start_date && !b.start_date) return 0;
     if (!a.start_date) return 1;
     if (!b.start_date) return -1;
@@ -492,7 +561,7 @@ export default function Dashboard() {
                 <div>
                   <h3 className="text-lg font-medium text-gray-500">Пользователи</h3>
                   <p className="text-3xl font-bold mt-1">{users.length || 0}</p>
-                  {dataLoaded.users && (
+                  {usersTotal > 0 && (
                     <div className="mt-2 text-sm text-gray-500">
                       <span className="font-medium text-blue-600">{activeUsersCount || 0}</span> активных за 30 дней 
                       <span className="inline-block ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
@@ -507,7 +576,7 @@ export default function Dashboard() {
                   </svg>
                 </div>
               </div>
-              {!dataLoaded.users && <div className="mt-2 h-1 w-full bg-gray-200 rounded overflow-hidden"><div className="h-full bg-blue-500 animate-pulse" style={{width: "100%"}}></div></div>}
+              {isUsersLoading && <div className="mt-2 h-1 w-full bg-gray-200 rounded overflow-hidden"><div className="h-full bg-blue-500 animate-pulse" style={{width: "100%"}}></div></div>}
             </div>
             
             <div className="bg-white p-6 rounded-lg shadow-md border-l-4 border-green-500">
@@ -515,7 +584,7 @@ export default function Dashboard() {
                 <div>
                   <h3 className="text-lg font-medium text-gray-500">Мероприятия</h3>
                   <p className="text-3xl font-bold mt-1">{events.length || 0}</p>
-                  {dataLoaded.events && (
+                  {eventsTotal > 0 && (
                     <div className="mt-2 text-sm text-gray-500">
                       <span className="font-medium text-green-600">{publishedEventsCount || 0}</span> опубликовано
                       <span className="inline-block ml-2 px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-medium">
@@ -530,12 +599,12 @@ export default function Dashboard() {
                   </svg>
                 </div>
               </div>
-              {!dataLoaded.events && <div className="mt-2 h-1 w-full bg-gray-200 rounded overflow-hidden"><div className="h-full bg-green-500 animate-pulse" style={{width: "100%"}}></div></div>}
+              {isEventsLoading && <div className="mt-2 h-1 w-full bg-gray-200 rounded overflow-hidden"><div className="h-full bg-green-500 animate-pulse" style={{width: "100%"}}></div></div>}
             </div>
           </div>
           
           {/* Recent Activity Panel */}
-          {dataLoaded.users && dataLoaded.events && (
+          {users.length > 0 && events.length > 0 && (
             <div className="bg-white p-6 rounded-lg shadow-md mb-8">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Общая статистика</h2>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -567,9 +636,7 @@ export default function Dashboard() {
             </div>
           )}
           
-          {!dataLoaded.users ? (
-            <UsersSkeleton />
-          ) : (
+          {!isUsersLoading ? (
             <div className="bg-white p-6 rounded-lg shadow-md mb-8">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
               
@@ -589,15 +656,26 @@ export default function Dashboard() {
                 </div>
               </div>
               
-              <div className="max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
-                <UsersList users={sortedUsers} />
-              </div>
+              {/* Показываем скелетон ТОЛЬКО при САМОЙ первой загрузке */} 
+              {isUsersLoading && !initialUsersLoadComplete.current && users.length === 0 ? (
+                <UsersSkeleton />
+              ) : users.length > 0 ? (
+                <div className="max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                  <UsersList users={sortedUsers} />
+                  {/* Триггер для подгрузки */}
+                  <div ref={usersLoadMoreRef} style={{ height: "10px" }} />
+                </div>
+              ) : !isUsersLoading ? ( // Сообщение "не найдено" только если НЕ идет загрузка
+                 <p className="text-center text-gray-500 py-4">Пользователи не найдены.</p>
+              ) : null}
+              {/* Индикатор загрузки при подгрузке */} 
+              {isUsersLoading && initialUsersLoadComplete.current && <div className="text-center py-4">Загрузка пользователей...</div>}
             </div>
+          ) : (
+            <UsersSkeleton />
           )}
           
-          {!dataLoaded.events ? (
-            <EventsSkeleton />
-          ) : (
+          {!isEventsLoading ? (
             <div className="bg-white p-6 rounded-lg shadow-md">
               <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
               
@@ -617,10 +695,30 @@ export default function Dashboard() {
                 </div>
               </div>
               
-              <div className="max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
-                <EventsList events={sortedEvents} onEventDeleted={fetchEvents} />
-              </div>
+              {/* Показываем скелетон ТОЛЬКО при САМОЙ первой загрузке */} 
+              {isEventsLoading && !initialEventsLoadComplete.current && events.length === 0 ? (
+                <EventsSkeleton />
+              ) : events.length > 0 ? (
+                <div className="max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
+                  <EventsList events={sortedEvents} onEventDeleted={() => { 
+                      console.log('Dashboard: Event deleted, resetting events list');
+                      setEvents([]); 
+                      setEventsSkip(0); 
+                      setEventsHasMore(true); 
+                      initialEventsLoadComplete.current = false;
+                      fetchEvents(0, debouncedEventSearchTerm, true); 
+                  }} />
+                  {/* Триггер для подгрузки */}
+                  <div ref={eventsLoadMoreRef} style={{ height: "10px" }} />
+                </div>
+              ) : !isEventsLoading ? (
+                <p className="text-center text-gray-500 py-4">Мероприятия не найдены.</p>
+              ) : null}
+              {/* Индикатор загрузки при подгрузке */} 
+              {isEventsLoading && initialEventsLoadComplete.current && <div className="text-center py-4">Загрузка мероприятий...</div>}
             </div>
+          ) : (
+            <EventsSkeleton />
           )}
         </div>
       </main>

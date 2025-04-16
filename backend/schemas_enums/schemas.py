@@ -1,6 +1,6 @@
 # backend/schemas_enums.schemas.py
 from datetime import datetime
-from typing import Optional, List, ForwardRef, Union
+from typing import Optional, List, ForwardRef, Union, TypeVar, Generic
 from pydantic import BaseModel, EmailStr, validator, root_validator
 from backend.schemas_enums.enums import EventStatus, TicketTypeEnum, Status
 
@@ -223,3 +223,16 @@ class UserTicketResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+# Добавляем определение PaginatedResponse
+ItemType = TypeVar('ItemType')
+
+# Исправляем порядок наследования: BaseModel ПЕРЕД Generic[ItemType]
+class PaginatedResponse(BaseModel, Generic[ItemType]): 
+    items: List[ItemType]
+    total: int
+    skip: int
+    limit: int
+
+    class Config:
+        from_attributes = True # Важно для совместимости с ORM, если используется

@@ -1,18 +1,18 @@
 # backend/api/admin_edit_routers.py
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request, Body
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request, Body, Query
 from fastapi.responses import FileResponse
-from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
+from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate, PaginatedResponse
 from backend.config.auth import get_current_admin, log_admin_activity, get_last_user_activity
 from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType, Registration, Media
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func, or_
 from sqlalchemy.orm import selectinload
 from backend.schemas_enums.enums import EventStatus, Status
 from datetime import datetime
 import os
 import uuid
-from typing import Optional
+from typing import Optional, List
 import inspect
 from pydantic import BaseModel, field_validator
 import re
@@ -477,146 +477,171 @@ async def update_event(
         await db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal server error")
 
-# Маршрут для создания мероприятия (переработанный)
-@router.get("/events", response_model=list[EventCreate])
+@router.get("/events", response_model=PaginatedResponse[EventCreate])
 async def get_admin_events(
-    search: str = None,
-    start_date: str = None,
-    end_date: str = None,
-    status_param: str = None,
+    search: Optional[str] = Query(None),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    status_param: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-        await log_admin_activity(db, current_admin.id, request, action="access_events")
+    admin = await get_current_admin(credentials.credentials, db)
+    if not admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
-        query = select(Event).options(
-            selectinload(Event.tickets),
-            selectinload(Event.registrations)
-        )
-        if search:
-            query = query.where(Event.title.ilike(f"%{search}%"))
+    logger.info(f"Admin {admin.email} fetching events with params: search='{search}', start='{start_date}', end='{end_date}', status='{status_param}', skip={skip}, limit={limit}")
 
-        # Преобразование строковых дат в datetime
-        if start_date:
-            try:
-                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-                query = query.where(Event.start_date >= start_dt)
-            except ValueError as e:
-                logger.error(f"Invalid start_date format: {start_date}, error: {str(e)}")
-                raise HTTPException(status_code=400, detail="Invalid start_date format, expected YYYY-MM-DD")
+    base_query = select(Event).options(
+        selectinload(Event.tickets),
+        selectinload(Event.registrations)
+    )
+    count_query = select(func.count()).select_from(Event)
 
-        if end_date:
-            try:
-                # Устанавливаем конец дня (23:59:59), чтобы включить события до конца указанной даты
-                end_dt = datetime.strptime(end_date, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-                query = query.where(Event.start_date <= end_dt)
-            except ValueError as e:
-                logger.error(f"Invalid end_date format: {end_date}, error: {str(e)}")
-                raise HTTPException(status_code=400, detail="Invalid end_date format, expected YYYY-MM-DD")
+    if search:
+        search_term = f"%{search}%"
+        search_filter = Event.title.ilike(search_term)
+        base_query = base_query.where(search_filter)
+        count_query = count_query.where(search_filter)
 
-        if status_param:
-            # Проверка, что status_param соответствует значениям перечисления EventStatus
-            try:
-                status_value = EventStatus(status_param)
-                query = query.where(Event.status == status_value)
-            except ValueError:
-                logger.error(f"Invalid status value: {status_param}")
-                raise HTTPException(status_code=400, detail=f"Invalid status value: {status_param}")
+    if start_date:
+        try:
+            start_dt = datetime.fromisoformat(start_date.replace("Z", "+00:00"))
+            naive_start_dt = make_naive(start_dt)
+            date_filter = Event.start_date >= naive_start_dt
+            base_query = base_query.where(date_filter)
+            count_query = count_query.where(date_filter)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid start_date format. Use ISO format.")
 
-        result = await db.execute(query)
-        events = result.scalars().all()
+    if end_date:
+        try:
+            end_dt = datetime.fromisoformat(end_date.replace("Z", "+00:00"))
+            naive_end_dt = make_naive(end_dt)
+            date_filter = Event.start_date <= naive_end_dt
+            base_query = base_query.where(date_filter)
+            count_query = count_query.where(date_filter)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid end_date format. Use ISO format.")
 
-        event_responses = []
-        for event in events:
-            registrations_count = len(event.registrations)
-            event_dict = {
-                "id": event.id,
-                "title": event.title,
-                "description": event.description,
-                "start_date": event.start_date,
-                "end_date": event.end_date,
-                "location": event.location,
-                "image_url": event.image_url,
-                "price": float(event.price) if event.price is not None else 0.0,
-                "published": event.published,
-                "created_at": event.created_at,
-                "updated_at": event.updated_at,
-                "status": event.status,
-                "registrations_count": registrations_count
-            }
-            if event.tickets:
-                ticket = event.tickets[0]
-                event_dict["ticket_type"] = {
-                    "name": ticket.name,
-                    "price": float(ticket.price),
-                    "available_quantity": ticket.available_quantity,
-                    "sold_quantity": ticket.sold_quantity
-                }
-            event_responses.append(EventCreate(**event_dict))
+    if status_param:
+        status_filter = Event.status == status_param
+        base_query = base_query.where(status_filter)
+        count_query = count_query.where(status_filter)
 
-        logger.info(f"Admin {current_admin.email} accessed events list")
-        return event_responses
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Error retrieving events for admin: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve events"
-        )
+    total_count_result = await db.execute(count_query)
+    total = total_count_result.scalar_one_or_none() or 0
+
+    query = base_query.order_by(Event.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(query)
+    events = result.scalars().unique().all()
+
+    event_responses = []
+    for event in events:
+        ticket = event.tickets[0] if event.tickets else None
+        remaining_quantity = ticket.available_quantity - ticket.sold_quantity if ticket else 0
         
+        base_slug = generate_slug_with_id(event.url_slug or event.title, event.id, event.start_date)
+        formatted_slug = f"{base_slug}-{event.start_date.year}-{event.id}"
+        
+        event_response = EventCreate(
+            id=event.id,
+            title=event.title,
+            description=event.description,
+            start_date=event.start_date,
+            end_date=event.end_date,
+            location=event.location,
+            image_url=event.image_url,
+            price=float(event.price) if event.price is not None else 0.0,
+            published=event.published,
+            created_at=event.created_at,
+            updated_at=event.updated_at,
+            status=event.status,
+            url_slug=formatted_slug,
+            registrations_count=len(event.registrations),
+            ticket_type=TicketTypeCreate(
+                name=ticket.name,
+                price=float(ticket.price),
+                available_quantity=ticket.available_quantity,
+                free_registration=ticket.free_registration,
+                remaining_quantity=remaining_quantity,
+                sold_quantity=ticket.sold_quantity
+            ) if ticket else None
+        )
+        event_responses.append(event_response)
 
-# Маршрут для получения списка пользователей
-@router.get("/users", response_model=list[UserResponse])
+    return PaginatedResponse(
+        items=event_responses,
+        total=total,
+        skip=skip,
+        limit=limit
+    )
+
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
 async def get_admin_users(
-    search: str = None,
+    search: Optional[str] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_async_db),
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
-    """Получение списка всех пользователей, возможно, с фильтрацией."""
-    try:
-        token = credentials.credentials
-        current_admin = await get_current_admin(token, db)
-        await log_admin_activity(db, current_admin.id, request, action="access_users_list")
+    admin = await get_current_admin(credentials.credentials, db)
+    if not admin:
+        raise HTTPException(status_code=403, detail="Not authorized")
 
-        stmt = select(User)
-        
-        # Применяем поиск, если он указан
-        if search:
-            search_pattern = f"%{search}%"
-            stmt = stmt.where(
-                (User.fio.ilike(search_pattern)) |
-                (User.email.ilike(search_pattern)) |
-                (User.telegram.ilike(search_pattern)) |
-                (User.whatsapp.ilike(search_pattern))
+    logger.info(f"Admin {admin.email} fetching users with params: search='{search}', skip={skip}, limit={limit}")
+
+    base_query = select(User).options(selectinload(User.activities))
+    count_query = select(func.count()).select_from(User)
+
+    if search:
+        search_term = f"%{search}%"
+        search_filter = or_(
+            User.fio.ilike(search_term),
+            User.email.ilike(search_term),
+            User.telegram.ilike(search_term),
+            User.whatsapp.ilike(search_term)
+        )
+        base_query = base_query.where(search_filter)
+        count_query = count_query.where(search_filter)
+
+    total_count_result = await db.execute(count_query)
+    total = total_count_result.scalar_one_or_none() or 0
+
+    query = base_query.order_by(User.created_at.desc()).offset(skip).limit(limit)
+    result = await db.execute(query)
+    users = result.scalars().unique().all()
+
+    user_responses = []
+    for user in users:
+        last_active_time = max((act.created_at for act in user.activities), default=None)
+        user_responses.append(
+            UserResponse(
+                id=user.id,
+                fio=user.fio,
+                email=user.email,
+                avatar_url=user.avatar_url,
+                telegram=user.telegram,
+                whatsapp=user.whatsapp,
+                is_blocked=user.is_blocked,
+                is_partner=user.is_partner,
+                created_at=user.created_at,
+                updated_at=user.updated_at,
+                last_active=last_active_time
             )
-            
-        result = await db.execute(stmt)
-        users = result.scalars().all()
-        
-        # Обновляем информацию о последней активности для каждого пользователя
-        for user in users:
-            last_activity = await get_last_user_activity(db, user.id)
-            if last_activity:
-                user.last_active = last_activity
-
-        logger.info(f"Admin {current_admin.email} accessed users list")
-        return list(users)
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        logger.error(f"Error retrieving users for admin: {str(e)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to retrieve users"
         )
 
-# Маршрут для удаления мероприятия
+    return PaginatedResponse(
+        items=user_responses,
+        total=total,
+        skip=skip,
+        limit=limit
+    )
+
 @router.delete("/{event_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_event(
     event_id: int,
@@ -703,7 +728,6 @@ async def delete_event(
             detail=f"Не удалось удалить мероприятие: {str(e)}"
         )
         
-# Маршрут для получения данных пользователя
 @router.get("/users/{user_id}", response_model=UserResponse)
 async def get_admin_user(
     user_id: int,
@@ -743,7 +767,6 @@ async def get_admin_user(
             detail="Failed to retrieve user"
         )
 
-# Маршрут для обновления данных пользователя
 @router.put("/users/{user_id}", response_model=UserResponse)
 async def update_user(
     user_id: int,

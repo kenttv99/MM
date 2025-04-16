@@ -56,27 +56,21 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
     };
   }, []);
 
-  // Предотвращаем рендеринг контента до завершения проверки авторизации 
-  // или если пользователь не авторизован (он будет перенаправлен)
-  if (!isLoginPage && (!isAuthChecked || !isAuthenticated)) {
-    // Добавляем лог перед возвратом null
-    console.log("AdminLayoutContent: Returning null due to rendering condition", {
+  // Предотвращаем рендеринг контента только если проверка завершена и пользователь не авторизован
+  // (он будет перенаправлен useEffect'ом выше)
+  if (!isLoginPage && isAuthChecked && !isAuthenticated) {
+    // Возвращаем null ТОЛЬКО в этом случае, так как будет редирект
+    console.log("AdminLayoutContent: Returning null because auth check complete and user not authenticated (redirect pending)");
+    return null;
+  }
+
+  // Во всех остальных случаях (включая isAuthChecked === false), рендерим контент
+  // Дочерние компоненты сами решат, показывать ли скелетон
+  console.log("AdminLayoutContent: Rendering content or letting child decide skeleton", {
       pathname,
       isLoginPage,
       isAuthChecked,
       isAuthenticated
-    });
-    // Можно вернуть скелетон или null
-    // Возвращаем null, т.к. PageTransitionWrapper может иметь свой скелетон
-    return null; 
-  }
-
-  // Если дошли сюда, рендерим контент
-  console.log("AdminLayoutContent: Rendering content", { 
-      pathname,
-      isLoginPage,
-      isAuthChecked,
-      isAuthenticated 
   });
 
   return (

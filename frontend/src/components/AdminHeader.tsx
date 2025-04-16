@@ -6,6 +6,10 @@ import { FaSignOutAlt, FaBars, FaTimes, FaUser, FaTachometerAlt } from "react-ic
 import Logo from "./Logo";
 import { usePathname } from "next/navigation";
 
+
+
+
+
 // Добавляем уровни логирования для оптимизации вывода
 const LOG_LEVEL = {
   NONE: 0,
@@ -141,12 +145,8 @@ const AdminHeader: React.FC<AdminHeaderProps> = memo(({
 
   const isLoginPage = isClient && pathname?.includes('/admin-login');
   
-  // --- Логика рендеринга (строгая версия) ---
-  logInfo("Render Check", { isAuthenticated, hasAdminData: !!adminData, isClient, isLoginPage });
-
   // 2. Страница логина
   if (isLoginPage) {
-    logInfo("Rendering: Login Page State");
     return (
       <header className={`fixed top-0 left-0 right-0 z-30 header-wrapper ${
         isScrolled ? "bg-white/95 shadow-lg py-3" : "bg-white/90 py-4"
@@ -165,7 +165,6 @@ const AdminHeader: React.FC<AdminHeaderProps> = memo(({
 
   // 3. Авторизованное состояние (данные должны быть)
   if (isAuthenticated && adminData) {
-    logInfo("Rendering: Authenticated State");
     return (
       <header className={`fixed top-0 left-0 right-0 z-30 header-wrapper ${
           isScrolled ? "bg-white/95 shadow-lg py-2 sm:py-3" : "bg-white/90 py-3 sm:py-4"
@@ -227,7 +226,6 @@ const AdminHeader: React.FC<AdminHeaderProps> = memo(({
   }
   
   // 4. Неавторизованное состояние (по умолчанию)
-  logInfo("Rendering: Default Non-Authenticated State");
   return (
     <header className={`fixed top-0 left-0 right-0 z-30 header-wrapper ${
         isScrolled ? "bg-white/95 shadow-lg py-3" : "bg-white/90 py-4"

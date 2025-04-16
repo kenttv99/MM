@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Request, Body
 from fastapi.responses import FileResponse
 from backend.schemas_enums.schemas import EventCreate, TicketTypeCreate, UserResponse, UserUpdate
-from backend.config.auth import get_current_admin, log_admin_activity
+from backend.config.auth import get_current_admin, log_admin_activity, get_last_user_activity
 from backend.database.user_db import AsyncSession, NotificationTemplate, NotificationView, UserActivity, get_async_db, Event, User, TicketType, Registration, Media
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -578,26 +578,35 @@ async def get_admin_users(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     request: Request = None
 ):
+    """Получение списка всех пользователей, возможно, с фильтрацией."""
     try:
         token = credentials.credentials
         current_admin = await get_current_admin(token, db)
-        await log_admin_activity(db, current_admin.id, request, action="access_users")
+        await log_admin_activity(db, current_admin.id, request, action="access_users_list")
 
-        query = select(User)
+        stmt = select(User)
+        
+        # Применяем поиск, если он указан
         if search:
             search_pattern = f"%{search}%"
-            query = query.where(
+            stmt = stmt.where(
                 (User.fio.ilike(search_pattern)) |
                 (User.email.ilike(search_pattern)) |
                 (User.telegram.ilike(search_pattern)) |
                 (User.whatsapp.ilike(search_pattern))
             )
-
-        result = await db.execute(query)
+            
+        result = await db.execute(stmt)
         users = result.scalars().all()
+        
+        # Обновляем информацию о последней активности для каждого пользователя
+        for user in users:
+            last_activity = await get_last_user_activity(db, user.id)
+            if last_activity:
+                user.last_active = last_activity
 
         logger.info(f"Admin {current_admin.email} accessed users list")
-        return users
+        return list(users)
     except HTTPException as e:
         raise e
     except Exception as e:
@@ -717,6 +726,11 @@ async def get_admin_user(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Пользователь не найден"
             )
+        
+        # Получаем последнюю активность из user_activities
+        last_activity = await get_last_user_activity(db, user.id)
+        if last_activity:
+            user.last_active = last_activity
 
         logger.info(f"Admin {current_admin.email} accessed user {user_id}")
         return user

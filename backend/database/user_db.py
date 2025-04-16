@@ -139,7 +139,6 @@ class User(Base):
     is_partner = Column(Boolean, default=False)
     created_at = Column(TIMESTAMP, default=datetime.utcnow)
     updated_at = Column(TIMESTAMP, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_active = Column(TIMESTAMP, default=datetime.utcnow)
     
     params = relationship("UserParams", uselist=False, back_populates="user")
     registrations = relationship("Registration", back_populates="user")

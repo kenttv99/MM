@@ -1,14 +1,15 @@
 # backend/api/user_auth_routers.py
 from fastapi import APIRouter, Body, Depends, HTTPException, status, Request
 from backend.schemas_enums.schemas import ChangePassword, ChangePasswordResponse, UserCreate, UserLogin, UserResponse
-from backend.config.auth import create_user, get_user_by_username, pwd_context, create_access_token, get_current_user, log_user_activity, generate_device_fingerprint
-from backend.database.user_db import AsyncSession, User, get_async_db, NotificationView
+from backend.config.auth import create_user, get_user_by_username, pwd_context, create_access_token, get_current_user, log_user_activity, generate_device_fingerprint, get_last_user_activity
+from backend.database.user_db import AsyncSession, User, get_async_db, NotificationView, UserActivity
 from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import timedelta
 from backend.config.rate_limiter import rate_limit
 from constants import ACCESS_TOKEN_EXPIRE_MINUTES
-from sqlalchemy import update
+from sqlalchemy import update, select
+from sqlalchemy.sql.expression import desc
 
 router = APIRouter()
 
@@ -168,7 +169,12 @@ async def get_user_profile(
             await db.commit()
             await db.refresh(current_user)
             logger.info(f"Normalized avatar URL for user {current_user.email}: {current_user.avatar_url}")
-            
+        
+        # Получаем последнюю активность из user_activities
+        last_activity = await get_last_user_activity(db, current_user.id)
+        if last_activity:
+            current_user.last_active = last_activity
+        
         await log_user_activity(db, current_user.id, request, action="access_profile")
         logger.info(f"User {current_user.email} accessed their profile")
         return current_user

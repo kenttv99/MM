@@ -224,6 +224,23 @@ async def log_user_activity(
         await db.rollback()
         raise
 
+async def get_last_user_activity(db: AsyncSession, user_id: int) -> Optional[datetime]:
+    """Получение времени последней активности пользователя из таблицы активностей."""
+    try:
+        stmt = select(UserActivity).where(
+            UserActivity.user_id == user_id
+        ).order_by(UserActivity.created_at.desc()).limit(1)
+        
+        result = await db.execute(stmt)
+        last_activity = result.scalars().first()
+        
+        if last_activity:
+            return last_activity.created_at
+        return None
+    except Exception as e:
+        logger.error(f"Error getting last user activity: {str(e)}")
+        return None
+
 async def log_admin_activity(
     db: AsyncSession,
     admin_id: int,

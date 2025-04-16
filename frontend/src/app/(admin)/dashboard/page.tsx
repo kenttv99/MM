@@ -247,7 +247,7 @@ export default function Dashboard() {
   // Debounce для фильтров дат
   useDebounce(() => { setDebouncedEventStartDateFilter(eventStartDateFilter); }, 750, [eventStartDateFilter]);
   useDebounce(() => { setDebouncedEventEndDateFilter(eventEndDateFilter); }, 750, [eventEndDateFilter]);
-  
+
   // Функция для загрузки пользователей
   const fetchUsers = useCallback(async (currentSkip: number, search: string, isInitialLoad = false) => {
     const token = localStorage.getItem(ADMIN_STORAGE_KEYS.ADMIN_TOKEN);
@@ -658,24 +658,24 @@ export default function Dashboard() {
           )}
           
           {/* Раздел Пользователей */}
-          <div className="bg-white p-6 rounded-lg shadow-md mb-8">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md mb-8">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Пользователи</h2>
             {/* Поиск Пользователей */}
             <div className="flex flex-col sm:flex-row gap-4 mb-4">
               <div className="relative flex-grow">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FaSearch className="text-gray-400" />
-                </div>
-                <input
-                  type="text"
-                  value={userSearchTerm}
-                  onChange={(e) => setUserSearchTerm(e.target.value)}
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FaSearch className="text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={userSearchTerm}
+                    onChange={(e) => setUserSearchTerm(e.target.value)}
                   placeholder="Поиск по ФИО, email..."
-                  className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                />
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                </div>
               </div>
-            </div>
-
+              
             {/* Список Пользователей + Улучшенная логика скелетона/загрузки */}
             {isUsersLoading && users.length === 0 ? (
               <UsersSkeleton />
@@ -697,26 +697,26 @@ export default function Dashboard() {
                 )}
               </div>
             )}
-          </div>
-
+            </div>
+          
           {/* Раздел Мероприятий */}
-          <div className="bg-white p-6 rounded-lg shadow-md">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
+            <div className="bg-white p-6 rounded-lg shadow-md">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">Мероприятия</h2>
             {/* Поиск, Фильтры и Сортировка Мероприятий */}
             <div className="mb-4 space-y-4">
               {/* Поиск */}
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <FaSearch className="text-gray-400" />
-                </div>
-                <input
-                  type="text"
-                  value={eventSearchTerm}
-                  onChange={(e) => setEventSearchTerm(e.target.value)}
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <FaSearch className="text-gray-400" />
+                  </div>
+                  <input
+                    type="text"
+                    value={eventSearchTerm}
+                    onChange={(e) => setEventSearchTerm(e.target.value)}
                   placeholder="Поиск по названию..."
-                  className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                />
-              </div>
+                    className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  />
+                </div>
               {/* Кнопка открытия панели фильтров и сама панель */}
               <div className="flex justify-end">
                 <button
@@ -784,8 +784,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               )}
-            </div>
-
+              </div>
+              
             {/* Список Мероприятий + Улучшенная логика скелетона/загрузки */}
             {isEventsLoading && events.length === 0 ? (
                 <EventsSkeleton />
@@ -807,7 +807,7 @@ export default function Dashboard() {
                 )}
               </div>
             )}
-          </div>
+            </div>
         </div>
       </main>
     </div>

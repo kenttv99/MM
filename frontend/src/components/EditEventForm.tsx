@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useState, useEffect, useCallback } from "react";
+import React, { useRef, useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { EventFormData, TicketTypeEnum } from "@/types/events";
@@ -15,13 +15,17 @@ import SuccessDisplay from "@/components/common/SuccessDisplay";
 import Image from "next/image";
 import Switch from "@/components/common/Switch";
 import { createPortal } from "react-dom";
+import PreviewEvent, { EventFormDataForPreview } from '@/components/PreviewEvent';
+
+// Определяем базовый URL админского бэкенда (порт 8001)
+const ADMIN_BACKEND_URL = process.env.NEXT_PUBLIC_ADMIN_BACKEND_URL || 'http://localhost:8001';
 
 interface EditEventFormProps {
   isNewEvent: boolean;
   formData: EventFormData;
   error: string | null;
   success: string | null;
-  imagePreview: string | null;
+  imagePreview: string | null; // Может быть data: URL или относительный /images/...
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   handleFileChange: (file: File | null, isRemoved?: boolean) => void;
   handleSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
@@ -77,6 +81,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   const [localError, setLocalError] = useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = useState<string | null>(null);
   const [slugStatus, setSlugStatus] = useState<{ isValid: boolean | null; message: string | null }>({ isValid: null, message: null });
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   
   // Обновляем локальные состояния при изменении пропсов
   useEffect(() => {
@@ -240,7 +245,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   };
 
   const handlePreview = () => {
-    alert("Функция предварительного просмотра находится в разработке.");
+    setIsPreviewOpen(true);
+  };
+
+  const handleClosePreview = () => {
+    setIsPreviewOpen(false);
   };
 
   // Обработчики для даты и времени
@@ -303,6 +312,9 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
       if (endIso) {
         setFieldValue('end_datetime', endIso);
       }
+    } else {
+      // Если дата или время окончания не указаны, обнуляем end_datetime
+      setFieldValue('end_datetime', null);
     }
   }, [formData.start_date, formData.start_time, formData.end_date, formData.end_time, setFieldValue]);
 
@@ -374,7 +386,7 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
 
   const availableQuantity = formData.ticket_type_available_quantity || 0;
   const soldQuantity = formData.ticket_type_sold_quantity || 0;
-  const remainingQuantity = availableQuantity - soldQuantity;
+  const remainingQuantity = Math.max(0, availableQuantity - soldQuantity); // Гарантируем, что не отрицательное
   const fillPercentage = availableQuantity > 0 ? (soldQuantity / availableQuantity) * 100 : 0;
 
   // Add restoration of saved form data
@@ -606,10 +618,27 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
     }
   };
 
-  if (isLoading) {
+  // --- Обновляем логику для imagePreview --- 
+  const displayImagePreviewUrl = useMemo(() => {
+    if (!imagePreview) return null;
+    // Если это Data URL (blob) или уже полный URL, используем как есть
+    if (imagePreview.startsWith('data:') || imagePreview.startsWith('http')) {
+      return imagePreview;
+    }
+    // Если это относительный путь с бэкенда, добавляем хост админки
+    if (imagePreview.startsWith('/')) { // Проверяем, что это путь
+      return `${ADMIN_BACKEND_URL}${imagePreview}`;
+    }
+    // В остальных случаях (неожиданный формат) возвращаем null
+    console.warn("Unexpected imagePreview format:", imagePreview);
+    return null;
+  }, [imagePreview]);
+
+  if (isLoading || isPageLoading) {
     return <FormSkeleton />;
   }
 
+  // Возвращаем JSX
   return (
     <div className="min-h-screen bg-gray-100">
       <main className="container mx-auto px-4 pt-24 pb-12">
@@ -623,32 +652,12 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-800 text-center sm:text-left">
               {isNewEvent ? "Создание мероприятия" : "Редактирование мероприятия"}
             </h1>
-            <div className="flex flex-col sm:flex-row gap-4">
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] min-h-[44px]"
-              >
-                Отмена
-              </button>
+            <div className="flex flex-wrap justify-center sm:justify-end gap-4">
+              <button type="button" onClick={handleCancel} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] text-sm sm:text-base">Отмена</button>
               {!isNewEvent && refreshEventData && (
-                <button
-                  type="button"
-                  onClick={refreshEventData}
-                  className="flex items-center justify-center px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors min-w-[120px] min-h-[44px]"
-                >
-                  <FaSync className="mr-2" />
-                  Обновить
-                </button>
+                <button type="button" onClick={refreshEventData} className="flex items-center justify-center px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors min-w-[120px] text-sm sm:text-base"><FaSync className="mr-2" />Обновить</button>
               )}
-              <button
-                type="button"
-                onClick={handlePreview}
-                className="flex items-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors min-w-[120px] min-h-[44px]"
-              >
-                <FaEye className="mr-2" />
-                Предпросмотр
-              </button>
+              <button type="button" onClick={handlePreview} className="flex items-center justify-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors min-w-[120px] text-sm sm:text-base"><FaEye className="mr-2" />Предпросмотр</button>
             </div>
           </div>
 
@@ -990,10 +999,10 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
               </div>
               <p className="mt-2 text-xs text-gray-500">
                 Пример URL на сайте: 
-                <strong>/events/{formData.url_slug || "ваш-слаг"}{formData.start_date ? `-${formData.start_date}` : '-ГГГГ-ММ-ДД'}</strong>
-                <span className="text-gray-600">?id={formData.id || "ID"}</span>
+                <strong>/events/{formData.url_slug || "ваш-слаг"}{formData.start_date ? `-${new Date(formData.start_date).getFullYear()}` : '-ГГГГ'}</strong>
+                <span className="text-gray-600">-{formData.id || "ID"}</span>
                 <br/>
-                <span className="text-gray-400">Введите только базовую часть URL (дата и ID добавляются автоматически).</span>
+                <span className="text-gray-400">Введите только базовую часть URL (год и ID добавляются автоматически).</span>
               </p>
             </div>
 
@@ -1055,19 +1064,18 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
               <label className="block text-gray-700 font-medium mb-2">Изображение мероприятия</label>
               <div className="flex flex-col sm:flex-row items-start gap-4">
                 <div
-                  className={`w-32 h-32 border-2 border-dashed flex items-center justify-center cursor-pointer rounded-lg overflow-hidden shrink-0 ${imagePreview ? "border-transparent" : "border-gray-300 hover:border-blue-500"}`}
+                  className={`w-32 h-32 border-2 border-dashed flex items-center justify-center cursor-pointer rounded-lg overflow-hidden shrink-0 ${displayImagePreviewUrl ? "border-transparent" : "border-gray-300 hover:border-blue-500"}`}
                   onClick={() => fileInputRef.current?.click()}
                 >
-                  {imagePreview ? (
+                  {displayImagePreviewUrl ? (
                     <div className="relative w-full h-full">
                       <Image
-                        src={imagePreview}
+                        src={displayImagePreviewUrl}
                         alt="Preview"
                         width={128}
                         height={128}
                         className="w-full h-full object-cover"
                         onError={() => {
-                          // If image fails to load, remove it and show error
                           handleRemoveImage();
                           setImageError("Ошибка загрузки изображения. Пожалуйста, выберите другой файл.");
                         }}
@@ -1151,34 +1159,20 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between gap-4">
-              <div className="flex flex-col sm:flex-row gap-4">
-                <button
-                  type="button"
-                  onClick={handleCancel}
-                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] min-h-[44px]"
-                >
-                  Отмена
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePreview}
-                  className="flex items-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors min-w-[120px] min-h-[44px]"
-                >
-                  <FaEye className="mr-2" />
-                  Предпросмотр
-                </button>
+              <div className="flex flex-wrap justify-center sm:justify-start gap-4">
+                <button type="button" onClick={handleCancel} className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors min-w-[120px] text-sm sm:text-base">Отмена</button>
+                <button type="button" onClick={handlePreview} className="flex items-center justify-center px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition-colors min-w-[120px] text-sm sm:text-base"><FaEye className="mr-2" />Предпросмотр</button>
               </div>
-              <ModalButton
-                type="submit"
-                disabled={isPageLoading}
-                className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
-              >
-                {isPageLoading ? "Сохранение..." : "Сохранить"}
-              </ModalButton>
+              <ModalButton type="submit" disabled={isPageLoading || isLoading} className="w-full sm:w-auto min-w-[120px]">{isLoading ? "Сохранение..." : "Сохранить"}</ModalButton>
             </div>
           </form>
         </motion.div>
       </main>
+      <PreviewEvent
+        isOpen={isPreviewOpen}
+        onClose={handleClosePreview}
+        eventData={formData as EventFormDataForPreview}
+      />
     </div>
   );
 };
@@ -1189,55 +1183,21 @@ export const FormSkeleton: React.FC = () => {
       <main className="container mx-auto px-4 pt-24 pb-12">
         <div className="max-w-4xl mx-auto">
           <div className="bg-white p-8 rounded-lg shadow-md">
-            {/* Заголовок */}
             <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
               <div className="h-8 bg-gray-300 rounded w-64 mb-4 animate-pulse"></div>
               <div className="flex gap-4">
                 <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
                 <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
+                <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
               </div>
             </div>
             
-            {/* Основная форма */}
             <div className="bg-white p-8 rounded-lg mb-6">
-              {/* Поля формы */}
-              <div className="mb-8">
-                <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
-                <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
-              </div>
-              
-              <div className="flex flex-col md:flex-row gap-6 mb-8">
-                <div className="flex-1">
-                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
-                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
-                </div>
-                <div className="flex-1">
-                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
-                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
-                </div>
-              </div>
-              
-              <div className="mb-8">
-                <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
-                <div className="h-36 bg-gray-200 rounded w-full animate-pulse"></div>
-              </div>
-              
-              <div className="flex flex-col md:flex-row gap-6 mb-8">
-                <div className="flex-1">
-                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
-                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
-                </div>
-                <div className="flex-1">
-                  <div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div>
-                  <div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div>
-                </div>
-              </div>
-              
-              {/* Кнопки внизу */}
-              <div className="flex justify-end gap-4">
-                <div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div>
-                <div className="h-10 bg-blue-300 rounded w-28 animate-pulse"></div>
-              </div>
+              <div className="mb-8"><div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div><div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div></div>
+              <div className="flex flex-col md:flex-row gap-6 mb-8"><div className="flex-1"><div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div><div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div></div><div className="flex-1"><div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div><div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div></div></div>
+              <div className="mb-8"><div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div><div className="h-36 bg-gray-200 rounded w-full animate-pulse"></div></div>
+              <div className="flex flex-col md:flex-row gap-6 mb-8"><div className="flex-1"><div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div><div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div></div><div className="flex-1"><div className="h-5 bg-gray-300 rounded w-40 mb-2 animate-pulse"></div><div className="h-12 bg-gray-200 rounded w-full animate-pulse"></div></div></div>
+              <div className="flex justify-end gap-4"><div className="h-10 bg-gray-300 rounded w-28 animate-pulse"></div><div className="h-10 bg-blue-300 rounded w-28 animate-pulse"></div></div>
             </div>
           </div>
         </div>

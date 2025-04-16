@@ -558,9 +558,10 @@ const generateBaseSlugWithDate = (event: EventData): string => {
 export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
   ({ containerRef: externalContainerRef }, ref) => {
   const { isAuth, userData } = useAuth();
-  const { currentStage, setStage } = useLoadingStage();
+  const { setStage } = useLoadingStage();
   const { error: loadingError, setError: setLoadingError } = useLoadingError();
   
+  // --- Состояния и рефы компонента ---
   // Инициализация состояний с учетом кэша
   const [tickets, setTickets] = useState<UserTicket[]>(() => {
      const cacheIsFresh = Date.now() - globalTicketsCache.lastFetched <= 180000; // 3 минуты
@@ -589,14 +590,18 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
   const ticketsPerPage = 3; // Загружаем по 3 билета за раз
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
   const [showLoadingHint, setShowLoadingHint] = useState(false);
-  const hasInitiatedFetch = useRef(false);
+  const loadMoreStartTimeRef = useRef<number | null>(null); // Ref для таймера спиннера
+  const abortControllerRef = useRef<AbortController | null>(null); // Используется в fetchTickets
+  const hasInitialData = useRef(false); // Флаг для отслеживания первичной загрузки данных
+  const hasAttemptedInitialFetch = useRef(false); // Отслеживаем, была ли попытка первичной загрузки
   const isInitialLoadRef = useRef(true); // <-- Реф для отслеживания первого рендера
 
   const [activeFilter, setActiveFilter] = useState<TicketFilter>("approved");
-  const [dateRange, setDateRange] = useState({ 
-    startDate: '', 
-    endDate: ''
-  });
+  const [dateRange, setDateRange] = useState({ startDate: '', endDate: '' });
+
+  // Рефы для отслеживания предыдущих значений фильтров
+  const prevActiveFilterRef = useRef<TicketFilter>(activeFilter);
+  const prevDateRangeRef = useRef<{ startDate: string; endDate: string }>(dateRange);
 
   const filters: { id: TicketFilter; label: string; description: string }[] = [
     { id: "approved", label: "Подтвержденные", description: "Только подтвержденные билеты" },
@@ -706,6 +711,13 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     console.log(`UserEventTickets: Загрузка билетов, страница ${pageToFetch}, userId: ${userData.id}`);
 
     const token = localStorage.getItem('token');
+
+    // Отменяем предыдущий запрос, если он есть
+    if (abortControllerRef.current) {
+        abortControllerRef.current.abort('New fetch started');
+    }
+    abortControllerRef.current = abortController ? abortController : new AbortController();
+
     if (!token) {
       console.error("UserEventTickets: Токен не найден.");
       setLocalError("Ошибка аутентификации.");
@@ -743,9 +755,12 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         },
         bypassLoadingStageCheck: true,
         params,
-        signal: abortController?.signal
+        signal: abortControllerRef.current.signal // Передаем сигнал из рефа
       });
       
+      // ЛОГИРОВАНИЕ: Проверяем сырой ответ от apiFetch
+      console.log("UserEventTickets: Raw response received from apiFetch:", JSON.stringify(response));
+
       if (!response || typeof response !== 'object' || !response.tickets) {
         console.error('UserEventTickets: Invalid response format received', response);
         throw new Error('Некорректный формат ответа от сервера');
@@ -770,11 +785,19 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         globalTicketsCache.hasMore = newHasMore;
         globalTicketsCache.currentPage = 1;
         globalTicketsCache.logCacheUpdate('fetchTickets page 1');
+        hasInitialData.current = true; // Устанавливаем флаг после ПЕРВОЙ успешной загрузки
       }
       
       console.log('UserEventTickets: Ticket loading complete');
       setStage(LoadingStage.COMPLETED);
       
+      // Сбрасываем AbortController ref после завершения или ошибки
+      abortControllerRef.current = null;
+      
+      // Сбрасываем ошибки при успешном завершении
+      setLoadingError(null);
+      setLocalError(null);
+
       return { fetchedTickets: processedTickets, newHasMore };
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
@@ -786,6 +809,8 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         setLoadingError(errorMsg);
         setStage(LoadingStage.ERROR);
       }
+      // Сбрасываем AbortController ref после завершения или ошибки
+      abortControllerRef.current = null;
       return null;
     } finally {
       console.log("UserEventTickets: Завершение fetchTickets finally.");
@@ -794,79 +819,18 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [setStage, processTickets, ticketsPerPage, activeFilter, isAuth, userData, setLoadingError, setLocalError, setTickets, setPage, setHasMore, setIsFetching, setIsInitialLoading, globalTicketsCache]);
 
-  // --- Эффект для перезагрузки при смене фильтров ---
-  useEffect(() => {
-    // Пропускаем первый запуск (при монтировании)
-    if (isInitialLoadRef.current) {
-      isInitialLoadRef.current = false;
-      return;
-    }
-
-    console.log("UserEventTickets: Filter changed, refetching tickets...");
-    // Сбрасываем состояние перед новым запросом
-    setTickets([]); 
-    setPage(1); 
-    setHasMore(true); 
-
-    // Вызываем fetchTickets для первой страницы с новыми фильтрами
-    // Используем текущую версию fetchTickets из замыкания
-    fetchTickets(1);
-
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeFilter, dateRange]); // Оставляем только фильтры
-
-  // --- Новый useEffect для инициализации и проверки кэша ---
-  useEffect(() => {
-    console.log("UserEventTickets: Init useEffect start");
-    if (!isAuth || !userData) {
-      console.log("UserEventTickets: Init useEffect - waiting for auth");
-      return; // Ждем авторизации
-    }
-
-    const cacheIsStale = Date.now() - globalTicketsCache.lastFetched > 180000; // 3 минуты
-    const cacheIsEmpty = globalTicketsCache.data.length === 0;
-
-    if (cacheIsEmpty || cacheIsStale) {
-       // Только если isInitialLoading все еще true И мы еще не запускали fetch
-       if (isInitialLoading && !hasInitiatedFetch.current) { 
-            hasInitiatedFetch.current = true;
-            if (cacheIsEmpty) {
-                console.log('UserEventTickets: Init useEffect - Cache empty, fetching tickets...');
-            } else {
-                console.log('UserEventTickets: Init useEffect - Cache stale, fetching tickets...');
-            }
-            fetchTickets(1); // Запускаем начальную загрузку
-       } else {
-           console.log('UserEventTickets: Init useEffect - Cache stale/empty, but initial load already handled (likely from cache).');
-       }
-    } else {
-      console.log('UserEventTickets: Init useEffect - Using recent cached data.');
-      // Если мы дошли сюда, значит кэш свежий и не пустой.
-      // Убедимся, что isInitialLoading точно false, если вдруг useState не справился
-      if (isInitialLoading) {
-          console.warn("UserEventTickets: Init useEffect - Forcing isInitialLoading to false as cache is fresh.");
-          setIsInitialLoading(false);
-      }
-    }
-
-    // Страховочный таймер
-    const safetyTimeout = setTimeout(() => {
-      // Проверяем isInitialLoading снова, т.к. fetchTickets мог завершиться
-      if (isInitialLoading) {
-        console.warn("UserEventTickets: Initial load safety timeout reached while still loading.");
-        setIsInitialLoading(false); // Принудительно выключаем лоадер
-        if(currentStage === LoadingStage.DYNAMIC_CONTENT) {
-           setStage(LoadingStage.COMPLETED); // Считаем условно завершенным
-        }
-      }
-    }, 15000);
-
-    return () => {
-      console.log("UserEventTickets: Init useEffect cleanup");
-      clearTimeout(safetyTimeout)
-    };
-
-  }, [isAuth, userData, fetchTickets, isInitialLoading, setStage, currentStage]); // Убрали tickets из зависимостей
+  // Оборачиваем fetchTickets в useCallback
+  const stableFetchTickets = useCallback(fetchTickets, [
+    // Перечисляем ТОЛЬКО те зависимости fetchTickets, которые могут измениться
+    // и ДОЛЖНЫ вызывать пересоздание fetchTickets
+    isAuth, 
+    userData?.id, // Зависим от ID пользователя, а не всего объекта
+    activeFilter, 
+    ticketsPerPage, 
+    processTickets, // processTickets тоже обернут в useCallback
+    // Сеттеры состояния стабильны и их можно не указывать, но для ясности:
+    setStage, setLoadingError, setLocalError, setTickets, setPage, setHasMore, setIsFetching, setIsInitialLoading
+  ]);
 
   const loadMoreTickets = useCallback(async () => {
     if (isLoadingMore || !hasMore || isFetching) return;
@@ -876,7 +840,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     console.log(`UserEventTickets: Loading more tickets, page ${nextPage}`);
     
     try {
-      const result = await fetchTickets(nextPage);
+      const result = await stableFetchTickets(nextPage);
 
       if (result && result.fetchedTickets.length > 0) {
           console.log(`UserEventTickets: Appending ${result.fetchedTickets.length} new tickets.`);
@@ -898,43 +862,121 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     } catch (err) {
       console.error("UserEventTickets: Error loading more tickets", err);
     } finally {
-      setIsLoadingMore(false);
-    }
-  }, [isLoadingMore, hasMore, isFetching, page, fetchTickets, setTickets, setPage, setHasMore]);
+      const startTime = loadMoreStartTimeRef.current;
+      if (startTime) {
+        const elapsedTime = Date.now() - startTime;
+        const remainingTime = 1000 - elapsedTime; // 1000ms = 1 second
 
-  // Эффект для обработчика скролла
+        if (remainingTime > 0) {
+          console.log(`UserEventTickets: Load more finished quickly (${elapsedTime}ms), delaying spinner hide by ${remainingTime}ms`);
+          setTimeout(() => {
+            setIsLoadingMore(false);
+          }, remainingTime);
+        } else {
+          console.log(`UserEventTickets: Load more took ${elapsedTime}ms, hiding spinner immediately`);
+          setIsLoadingMore(false); // Скрываем сразу, если прошло >= 1 сек
+        }
+      } else {
+        setIsLoadingMore(false); // Скрываем, если время старта не записано (на всякий случай)
+      }
+      loadMoreStartTimeRef.current = null; // Сбрасываем время старта
+    }
+  }, [isLoadingMore, hasMore, isFetching, page, setTickets, setPage, setHasMore, stableFetchTickets]);
+
+  // --- Эффекты --- 
+
+  // 1. Эффект для САМОЙ ПЕРВОЙ загрузки при монтировании / появлении auth 
+  useEffect(() => {
+    // Запускаем только если авторизован, и еще не было попытки загрузки
+    if (isAuth && userData && !hasAttemptedInitialFetch.current) {
+      console.log("UserEventTickets: Initial fetch attempt triggered.");
+      hasAttemptedInitialFetch.current = true; // Помечаем, что попытка была
+
+      // Проверяем кэш
+      const cacheIsFresh = Date.now() - globalTicketsCache.lastFetched <= 180000; // 3 минуты
+      const shouldUseCache = globalTicketsCache.data.length > 0 && cacheIsFresh;
+
+      if (shouldUseCache) {
+        console.log("UserEventTickets: Initializing from fresh cache.");
+        setTickets(globalTicketsCache.data);
+        setPage(globalTicketsCache.currentPage);
+        setHasMore(globalTicketsCache.hasMore);
+        setIsInitialLoading(false); // Сразу убираем основной скелетон
+        hasInitialData.current = true;
+        setStage(LoadingStage.COMPLETED);
+      } else {
+        console.log("UserEventTickets: Cache empty or stale, fetching initial tickets.");
+        setIsInitialLoading(true); // Показываем основной скелетон
+        stableFetchTickets(1); // Запускаем загрузку первой страницы
+      }
+    }
+
+    // Устанавливаем флаг первого рендера в false после первого прохода
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+    }
+  }, [isAuth, userData, stableFetchTickets, setStage, setTickets, setPage, setHasMore, setIsInitialLoading]);
+
+  // 2. Эффект для перезагрузки при СМЕНЕ ФИЛЬТРОВ (после первого рендера)
+  useEffect(() => {
+    const prevActiveFilter = prevActiveFilterRef.current;
+    const prevDateRange = prevDateRangeRef.current;
+
+    // Пропускаем первый рендер
+    if (isInitialLoadRef.current) {
+      // На первом рендере обновляем рефы и выходим
+      prevActiveFilterRef.current = activeFilter;
+      prevDateRangeRef.current = dateRange;
+      return; 
+    }
+    // Проверяем, изменились ли фильтры по сравнению с предыдущим рендером
+    const filterChanged = activeFilter !== prevActiveFilter;
+    const dateRangeChanged = dateRange.startDate !== prevDateRange.startDate || dateRange.endDate !== prevDateRange.endDate;
+
+    if (filterChanged || dateRangeChanged) {
+      console.log("UserEventTickets: Filter changed by user, refetching tickets...", { newFilter: activeFilter, newRange: dateRange });
+      setIsInitialLoading(true); // Показываем скелетон при смене фильтра
+      stableFetchTickets(1); // Запрашиваем первую страницу с новыми фильтрами
+      
+      // Обновляем рефы после срабатывания
+      prevActiveFilterRef.current = activeFilter;
+      prevDateRangeRef.current = dateRange;
+    }
+    // Если фильтры не изменились (например, другой ререндер), ничего не делаем
+  }, [activeFilter, dateRange, stableFetchTickets, setIsInitialLoading]);
+
+  // 3. Эффект для обработчика скролла (подгрузка)
   useEffect(() => {
     const container = ticketsContainerRef.current;
     if (!container) return;
 
     const handleScroll = () => {
       const { scrollTop, scrollHeight, clientHeight } = container;
-      // Условия для запуска подгрузки
       const shouldLoadMore = 
-          tickets.length > 0 && // Не грузить, если первый запрос ничего не вернул
-          scrollHeight - scrollTop - clientHeight <= 10 && // Уменьшаем порог до 10px
-          !isLoadingMore && // Не грузить, если уже идет подгрузка
-          !isFetching && // Не грузить, если идет основной запрос
-          hasMore; // Не грузить, если больше нет данных
+          tickets.length > 0 && 
+          scrollHeight - scrollTop - clientHeight <= 10 && 
+          hasInitialData.current && 
+          !isLoadingMore && 
+          !isFetching && 
+          hasMore; 
 
       if (shouldLoadMore) {
-        console.log('UserEventTickets: Scroll reached end, preparing to load more tickets');
-        // Сразу показываем индикатор загрузки
+        console.log('UserEventTickets: Scroll threshold reached, initiating load more...');
         setIsLoadingMore(true); 
-        // Запускаем саму загрузку (можно добавить setTimeout для плавности, если нужно)
+        loadMoreStartTimeRef.current = Date.now(); 
         loadMoreTickets();
       }
     };
 
     container.addEventListener('scroll', handleScroll);
-    // Очистка слушателя
     return () => {
       if (container) {
           container.removeEventListener('scroll', handleScroll);
       }
     };
-  }, [isLoadingMore, hasMore, isFetching, loadMoreTickets, ticketsContainerRef, tickets.length]);
+  }, [tickets.length, hasInitialData, isLoadingMore, isFetching, hasMore, loadMoreTickets, ticketsContainerRef]);
   
+  // 4. Эффект для отложенной подсказки о долгой загрузке
   useEffect(() => {
     let timeout: NodeJS.Timeout | null = null;
     
@@ -955,21 +997,21 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     const timeout = setTimeout(() => {
       if (isFetching && tickets.length === 0 && !localError && isAuth && userData && isInitialLoading) {
         console.log('UserEventTickets: Auto-retry after long loading');
-        fetchTickets(1);
+        stableFetchTickets(1);
       }
     }, 10000);
     
     return () => clearTimeout(timeout);
-  }, [isFetching, tickets.length, localError, isAuth, userData, isInitialLoading, fetchTickets]);
+  }, [isFetching, tickets.length, localError, isAuth, userData, isInitialLoading, stableFetchTickets]);
 
   React.useImperativeHandle(ref, () => ({
     refreshTickets: () => {
       if (!isFetching && isAuth && userData && isInitialLoading) {
         console.log('UserEventTickets: Manual refresh via ref');
-        fetchTickets(1);
+        stableFetchTickets(1);
       }
     }
-  }), [isFetching, isAuth, userData, isInitialLoading, fetchTickets]);
+  }), [isFetching, isAuth, userData, isInitialLoading, stableFetchTickets]);
 
   // --- НАЧАЛО: Добавление состояний для модалки отмены ---
   const [selectedTicketToCancel, setSelectedTicketToCancel] = useState<UserTicket | null>(null);
@@ -1077,30 +1119,27 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       if (event instanceof CustomEvent && event.detail) {
         const { source, action, newTicket, needsRefresh } = event.detail;
         
-        if (needsRefresh === false) return;
-        
-        if (source === 'event-registration' && action === 'register' && newTicket) {
-          const updatedTickets = [...tickets];
-          if (!updatedTickets.some(t => t.id === newTicket.id)) {
-            updatedTickets.push(newTicket);
-            setTickets(updatedTickets);
-            
-            globalTicketsCache.data = updatedTickets;
-            globalTicketsCache.count = updatedTickets.length;
-            globalTicketsCache.logCacheUpdate('ticket-update-event');
-          }
+        if (needsRefresh === false) {
+          console.log('UserEventTickets: Received ticket-update event with needsRefresh=false, skipping fetch.');
           return;
         }
         
+        if (source === 'event-registration' && action === 'register' && newTicket) {
+          console.log('UserEventTickets: Received ticket-update event for registration, will refetch tickets.');
+          // return; // Убираем return, чтобы перейти к общему fetchTickets
+        }
+        
         if (!isFetching) {
-          fetchTickets();
+          console.log('UserEventTickets: Received ticket-update event, calling fetchTickets(1).');
+          // Всегда перезапрашиваем первую страницу для актуальности
+          stableFetchTickets(1); // Используем стабильную версию
         }
       }
     };
     
     window.addEventListener('ticket-update', handleTicketUpdate);
     return () => window.removeEventListener('ticket-update', handleTicketUpdate);
-  }, [isAuth, isTicketBeingCancelled, tickets, fetchTickets, isFetching]); // <-- Возвращаем isTicketBeingCancelled в зависимости
+  }, [isAuth, isTicketBeingCancelled, isFetching, stableFetchTickets]);
 
   // Восстанавливаем состояние для hover-эффекта
   const [hoveredTicketId, setHoveredTicketId] = useState<number | null>(null);
@@ -1112,7 +1151,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       <div className="text-center py-4">
         <p className="text-red-500">{loadingError}</p>
         <button
-          onClick={() => fetchTickets(1)}
+          onClick={() => stableFetchTickets(1)}
           className="mt-2 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
         >
           Попробовать снова
@@ -1123,228 +1162,223 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
 
   return (
     <div className="overflow-hidden flex flex-col">
-      {isFetching && tickets.length === 0 ? (
-        <div className="p-2">
-          <TicketSkeleton />
-          {showLoadingHint && (
-            <div className="text-center mt-4 text-gray-500 text-sm animate-pulse">
-              Загрузка билетов может занять некоторое время...
-            </div>
-          )}
-        </div>
-      ) : (
-        <>
-          <div className="flex justify-between items-center mb-4">
-            <button
-              onClick={() => setIsFilterModalOpen(true)}
-              className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-xs sm:text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-            >
-              <FaFilter className="text-orange-500 text-[10px] sm:text-base" />
-              <span>
-                {filters.find((f: {id: TicketFilter}) => f.id === activeFilter)?.label || "Фильтровать"}
-                {dateRange.startDate && dateRange.endDate && 
-                  ` (${dateRange.startDate.split('-').reverse().join('.')} - ${dateRange.endDate.split('-').reverse().join('.')})`}
-              </span>
-            </button>
-            
-            <span className="text-xs sm:text-sm text-gray-500 truncate bg-white px-1 sm:px-2 py-0.5 sm:py-1 rounded shadow-sm tickets-count">
-              Загружено: {filteredTickets.length}
-            </span>
-          </div>
-          
-          {localError && tickets.length === 0 && (
-            <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">
-              <p className="text-sm font-medium">{localError}</p>
-            </div>
-          )}
+      {/* Статическая шапка - всегда видна */} 
+      <div className="flex justify-between items-center mb-4">
+        {/* Кнопка фильтра */}
+        <button
+          onClick={() => setIsFilterModalOpen(true)}
+          className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-xs sm:text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+        >
+          <FaFilter className="text-orange-500 text-[10px] sm:text-base" />
+          <span>
+            {filters.find((f: {id: TicketFilter}) => f.id === activeFilter)?.label || "Фильтровать"}
+            {dateRange.startDate && dateRange.endDate && 
+              ` (${dateRange.startDate.split('-').reverse().join('.')} - ${dateRange.endDate.split('-').reverse().join('.')})`}
+          </span>
+        </button>
+        
+        {/* Счетчик билетов - со скелетоном при начальной загрузке */} 
+        {isInitialLoading ? (
+          <span className="text-xs sm:text-sm text-gray-500 truncate bg-white px-1 sm:px-2 py-0.5 sm:py-1 rounded shadow-sm tickets-count">
+            <span className="inline-block h-4 w-20 bg-gray-200 rounded animate-pulse"></span>
+          </span>
+        ) : (
+          <span className="text-xs sm:text-sm text-gray-500 truncate bg-white px-1 sm:px-2 py-0.5 sm:py-1 rounded shadow-sm tickets-count">
+            Загружено: {filteredTickets.length}
+          </span>
+        )}
+      </div>
       
-          <div className="h-[450px] overflow-y-auto border border-gray-100 rounded-lg shadow-inner" ref={ticketsContainerRef}>
-            {isInitialLoading ? (
-              <div className="space-y-4 p-3">
-                <TicketSkeleton />
-                <TicketSkeleton />
-                <TicketSkeleton />
-                {showLoadingHint && (
-                  <div className="text-center mt-4 text-gray-500 text-sm animate-pulse">
-                    Загрузка билетов может занять некоторое время...
-                  </div>
-                )}
-              </div>
-            ) : tickets.length > 0 ? (
-              <div className="space-y-4 p-3">
-                {filteredTickets.map((ticket, index) => {
-                  // --- НАЧАЛО: Условие для кнопки отмены ---
-                  const canCancel = ticket.status === 'approved' && ticket.event.status === 'registration_open';
-                  // --- КОНЕЦ: Условие для кнопки отмены ---
-                  // --- НАЧАЛО: Формирование URL для ссылки ---
-                  const baseSlugWithDate = generateBaseSlugWithDate(ticket.event);
-                  const eventUrl = `/events/${baseSlugWithDate}?id=${ticket.event.id}`;
-                  // --- КОНЕЦ: Формирование URL для ссылки ---
-                  return (
-                    <div key={`ticket-${ticket.id}-${index}`}> {/* Добавляем index к ключу для уникальности при добавлении */} 
-                      <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
-                        // Восстанавливаем обработчики hover
-                        onMouseEnter={() => setHoveredTicketId(ticket.id)} 
-                        onMouseLeave={() => setHoveredTicketId(null)}
-                      >
-                        {/* Содержимое билета */}
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
-                          <Link 
-                            href={eventUrl} 
-                            className="flex items-center gap-1 text-sm sm:text-base md:text-lg font-semibold text-gray-800 hover:text-orange-600 transition-colors group relative flex-grow min-w-0 truncate sm:gap-2"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <h3 className="min-w-0 truncate sm:break-words">{ticket.event.title}</h3> 
-                            <motion.div
-                              // Восстанавливаем анимацию
-                              initial={{ x: 0 }}
-                              animate={{
-                                x: hoveredTicketId === ticket.id ? [0, -3, 0] : 0,
-                              }}
-                              transition={{
-                                duration: 1.5,
-                                repeat: hoveredTicketId === ticket.id ? Infinity : 0,
-                                repeatType: "loop",
-                                ease: "easeInOut",
-                              }}
-                              className="text-orange-500 flex-shrink-0 text-xs sm:text-sm md:text-base"
-                            >
-                              <FaHandPointLeft />
-                            </motion.div>
-                          </Link>
-                          
-                          <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
-                            <div
-                              className={`px-2 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap ${getStatusColor(ticket.status)} sm:px-3`}
-                            >
-                              {getStatusText(ticket.status)}
-                            </div>
-                            {canCancel && (
-                              <button 
-                                onClick={() => handleCancelClick(ticket)}
-                                className="text-red-600 hover:text-red-800 text-xs sm:text-sm font-medium py-1 px-1 sm:px-2 rounded transition-colors whitespace-nowrap"
-                              >
-                                Отменить
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <div className="flex h-full">
-                          <div className="flex-shrink-0 w-[60px] sm:w-[75px] md:w-[90px] flex items-center justify-center">
-                            <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-1 sm:px-2 shadow-sm h-full flex">
-                              <div className="flex-1 flex items-center justify-center pr-0.5 sm:pr-1 border-r border-orange-200">
-                                <p className="[writing-mode:vertical-rl] rotate-180 text-[9px] sm:text-xs text-gray-500 uppercase font-medium">
-                                  НОМЕР БИЛЕТА
-                                </p>
-                              </div>
-                              
-                              <div className="flex-1 flex items-center justify-center pl-0.5 sm:pl-1">
-                                <p className="[writing-mode:vertical-rl] rotate-180 text-sm sm:text-lg md:text-xl font-bold text-orange-600">
-                                  #{ticket.ticket_number || ticket.id}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                          
-                          <div className="flex-1 ml-2 sm:ml-3">
-                            <div className="space-y-1 sm:space-y-2">
-                              <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
-                                <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
-                                <span className="break-words">
-                                  {formatDateForDisplay(ticket.event.start_date)}
-                                  {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
-                                    ` - ${formatDateForDisplay(ticket.event.end_date)}`}
-                                </span>
-                              </div>
-                              <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
-                                <FaClock className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
-                                <span className="break-words">
-                                  {formatTimeForDisplay(ticket.event.start_date)}
-                                  {ticket.event.end_date && 
-                                    ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
-                                </span>
-                              </div>
-                              {ticket.event.location && (
-                                <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
-                                  <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
-                                  <span className="break-words">{ticket.event.location}</span>
-                                </div>
-                              )}
-                              <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
-                                <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
-                                <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
-                              </div>
-                              
-                              <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
-                                <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
-                                <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </motion.div>
-                      {index < filteredTickets.length - 1 && (
-                        <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
-                      )}
-                    </div>
-                  );
-                })}
-                
-                {/* Показываем скелетон во время ПОДГРУЗКИ */} 
-                {isLoadingMore && (
-                   <div className="pt-4">
-                      <TicketSkeleton />
-                   </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-10 px-4 min-h-[300px]">
-                <div className="bg-orange-50 rounded-full p-4 mb-4">
-                  <FaTicketAlt className="text-orange-500 text-3xl" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-800 mb-2">Билеты не найдены</h3>
-                <p className="text-gray-500 text-center max-w-md">
-                  По выбранным параметрам фильтра не найдено билетов. Попробуйте изменить настройки фильтра или проверьте наличие билетов позже.
-                </p>
-                <button
-                  onClick={() => fetchTickets(1)}
-                  className="mt-4 px-4 py-2 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-lg transition-colors text-sm"
-                >
-                  Обновить
-                </button>
+      {/* Отображение ошибки */} 
+      {localError && tickets.length === 0 && !isInitialLoading && (
+        <div className="mb-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md">
+          <p className="text-sm font-medium">{localError}</p>
+        </div>
+      )}
+
+      {/* Контейнер с прокруткой и условным рендерингом содержимого */} 
+      <div className="h-[450px] overflow-y-auto border border-gray-100 rounded-lg shadow-inner" ref={ticketsContainerRef}>
+        {isInitialLoading ? (
+          // --- Скелетоны для ПЕРВОЙ загрузки --- 
+          <div className="space-y-4 p-3"> 
+            <TicketSkeleton />
+            <TicketSkeleton />
+            <TicketSkeleton />
+            {showLoadingHint && (
+              <div className="text-center mt-4 text-gray-500 text-sm animate-pulse">
+                Загрузка билетов может занять некоторое время...
               </div>
             )}
           </div>
-          
-          <FilterModal
-            isOpen={isFilterModalOpen}
-            onClose={() => setIsFilterModalOpen(false)}
-            activeFilter={activeFilter}
-            setActiveFilter={setActiveFilter}
-            dateRange={dateRange}
-            setDateRange={setDateRange}
-            setUseDateFilter={() => {}}
-          />
-          
-          <CancelTicketModal 
-            isOpen={isCancelModalOpen}
-            onClose={() => setIsCancelModalOpen(false)}
-            onConfirm={handleCancelConfirm}
-            eventTitle={selectedTicketToCancel?.event.title || ''}
-            isLoading={cancelModalLoading}
-            error={cancelModalError}
-            success={cancelModalSuccess}
-          />
-        </>
-      )}
+        ) : tickets.length > 0 ? (
+          // --- Список билетов, если они есть --- 
+          <div className="space-y-4 p-3">
+            {filteredTickets.map((ticket, index) => {
+              const canCancel = ticket.status === 'approved' && ticket.event.status === 'registration_open';
+              const baseSlugWithDate = generateBaseSlugWithDate(ticket.event);
+              const eventUrl = `/events/${baseSlugWithDate}?id=${ticket.event.id}`;
+              return (
+                <div key={`ticket-${ticket.id}-${index}`}> 
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                    onMouseEnter={() => setHoveredTicketId(ticket.id)} 
+                    onMouseLeave={() => setHoveredTicketId(null)}
+                  >
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
+                      <Link 
+                        href={eventUrl} 
+                        className="flex items-center gap-1 text-sm sm:text-base md:text-lg font-semibold text-gray-800 hover:text-orange-600 transition-colors group relative flex-grow min-w-0 truncate sm:gap-2"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <h3 className="min-w-0 truncate sm:break-words">{ticket.event.title}</h3> 
+                        <motion.div
+                          initial={{ x: 0 }}
+                          animate={{
+                            x: hoveredTicketId === ticket.id ? [0, -3, 0] : 0,
+                          }}
+                          transition={{
+                            duration: 1.5,
+                            repeat: hoveredTicketId === ticket.id ? Infinity : 0,
+                            repeatType: "loop",
+                            ease: "easeInOut",
+                          }}
+                          className="text-orange-500 flex-shrink-0 text-xs sm:text-sm md:text-base"
+                        >
+                          <FaHandPointLeft />
+                        </motion.div>
+                      </Link>
+                      
+                      <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
+                        <div
+                          className={`px-2 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap ${getStatusColor(ticket.status)} sm:px-3`}
+                        >
+                          {getStatusText(ticket.status)}
+                        </div>
+                        {canCancel && (
+                          <button 
+                            onClick={() => handleCancelClick(ticket)}
+                            className="text-red-600 hover:text-red-800 text-xs sm:text-sm font-medium py-1 px-1 sm:px-2 rounded transition-colors whitespace-nowrap"
+                          >
+                            Отменить
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex h-full">
+                      <div className="flex-shrink-0 w-[60px] sm:w-[75px] md:w-[90px] flex items-center justify-center">
+                        <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-1 sm:px-2 shadow-sm h-full flex">
+                          <div className="flex-1 flex items-center justify-center pr-0.5 sm:pr-1 border-r border-orange-200">
+                            <p className="[writing-mode:vertical-rl] rotate-180 text-[9px] sm:text-xs text-gray-500 uppercase font-medium">
+                              НОМЕР БИЛЕТА
+                            </p>
+                          </div>
+                          
+                          <div className="flex-1 flex items-center justify-center pl-0.5 sm:pl-1">
+                            <p className="[writing-mode:vertical-rl] rotate-180 text-sm sm:text-lg md:text-xl font-bold text-orange-600">
+                              #{ticket.ticket_number || ticket.id}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex-1 ml-2 sm:ml-3">
+                        <div className="space-y-1 sm:space-y-2">
+                          <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                            <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
+                            <span className="break-words">
+                              {formatDateForDisplay(ticket.event.start_date)}
+                              {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
+                                ` - ${formatDateForDisplay(ticket.event.end_date)}`}
+                            </span>
+                          </div>
+                          <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                            <FaClock className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
+                            <span className="break-words">
+                              {formatTimeForDisplay(ticket.event.start_date)}
+                              {ticket.event.end_date && 
+                                ` - ${formatTimeForDisplay(ticket.event.end_date)}`}
+                            </span>
+                          </div>
+                          {ticket.event.location && (
+                            <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                              <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
+                              <span className="break-words">{ticket.event.location}</span>
+                            </div>
+                          )}
+                          <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                            <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
+                            <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
+                          </div>
+                          
+                          <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                            <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
+                            <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </motion.div>
+                  {index < filteredTickets.length - 1 && (
+                    <div className="h-[2px] bg-gray-200 my-3 mx-auto w-[70%]"></div>
+                  )}
+                </div>
+              );
+            })}
+            
+            {/* Показываем скелетон во время ПОДГРУЗКИ */} 
+            {isLoadingMore && (
+              <div className="pt-4">
+                <TicketSkeleton />
+              </div>
+            )}
+          </div>
+        ) : (
+          // --- Сообщение, если билетов нет --- 
+          <div className="flex flex-col items-center justify-center py-10 px-4 min-h-[300px]">
+            <div className="bg-orange-50 rounded-full p-4 mb-4">
+              <FaTicketAlt className="text-orange-500 text-3xl" />
+            </div>
+            <h3 className="text-lg font-medium text-gray-800 mb-2">Билеты не найдены</h3>
+            <p className="text-gray-500 text-center max-w-md">
+              По выбранным параметрам фильтра не найдено билетов. Попробуйте изменить настройки фильтра или проверьте наличие билетов позже.
+            </p>
+            <button
+              onClick={() => stableFetchTickets(1)}
+              className="mt-4 px-4 py-2 bg-orange-100 text-orange-600 hover:bg-orange-200 rounded-lg transition-colors text-sm"
+            >
+              Обновить
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Модальные окна */} 
+      <FilterModal
+        isOpen={isFilterModalOpen}
+        onClose={() => setIsFilterModalOpen(false)}
+        activeFilter={activeFilter}
+        setActiveFilter={setActiveFilter}
+        dateRange={dateRange}
+        setDateRange={setDateRange}
+        setUseDateFilter={() => {}}
+      />
+      
+      <CancelTicketModal 
+        isOpen={isCancelModalOpen}
+        onClose={() => setIsCancelModalOpen(false)}
+        onConfirm={handleCancelConfirm}
+        eventTitle={selectedTicketToCancel?.event.title || ''}
+        isLoading={cancelModalLoading}
+        error={cancelModalError}
+        success={cancelModalSuccess}
+      />
     </div>
   );
-  }
+}
 );
 
 UserEventTickets.displayName = 'UserEventTickets';

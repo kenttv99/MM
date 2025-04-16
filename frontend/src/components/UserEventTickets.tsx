@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback, useLayoutEffect } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck, FaFilter } from "react-icons/fa";
+import { FaTicketAlt, FaCalendarAlt, FaMapMarkerAlt, FaTimesCircle, FaClock, FaRegCalendarCheck, FaFilter, FaHandPointLeft } from "react-icons/fa";
 import { apiFetch } from "@/utils/api";
 import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
 import { useLoadingError } from '@/contexts/loading/LoadingErrorContext';
@@ -16,6 +17,7 @@ interface EventData {
   location?: string;
   status: string; // Статус события
   published: boolean;
+  url_slug?: string;
 }
 
 // Define the date formatting function directly
@@ -499,9 +501,62 @@ interface UserEventTicketsProps {
   containerRef?: React.RefObject<HTMLDivElement>;
 }
 
+// Функция генерации слага из events/page.tsx (адаптирована)
+const generateBaseSlugWithDate = (event: EventData): string => {
+  if (!event) return "";
+
+  let startDateStr = "";
+  try {
+    const startDate = new Date(event.start_date);
+    if (!isNaN(startDate.getTime())) {
+      const year = startDate.getFullYear();
+      const month = String(startDate.getMonth() + 1).padStart(2, '0');
+      const day = String(startDate.getDate()).padStart(2, '0');
+      startDateStr = `${year}-${month}-${day}`;
+    } else {
+      throw new Error("Invalid start_date");
+    }
+  } catch {
+    // Логирование ошибки можно добавить, если нужно
+    // logger.error("Error formatting start date for slug base", { eventId: event.id, startDate: event.start_date, error: e });
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    startDateStr = `${year}-${month}-${day}`;
+  }
+
+  const dateSuffix = `-${startDateStr}`;
+
+  if (event.url_slug) {
+    const parts = event.url_slug.split('-');
+    let baseSlug = event.url_slug;
+    if (parts.length >= 3) {
+      const lastPart = parts[parts.length - 1];
+      const looksLikeOldYearId = /^\d{4}$/.test(parts[parts.length - 2]) && /^\d+$/.test(lastPart);
+      const looksLikeDateId = parts.length >= 4 && /^\d{4}$/.test(parts[parts.length - 4]) && /^\d{2}$/.test(parts[parts.length - 3]) && /^\d{2}$/.test(parts[parts.length - 2]) && /^\d+$/.test(lastPart);
+      if (looksLikeDateId) {
+        baseSlug = parts.slice(0, -4).join('-');
+      } else if (looksLikeOldYearId) {
+        baseSlug = parts.slice(0, -2).join('-');
+      }
+    }
+    return `${baseSlug}${dateSuffix}`;
+  }
+
+  const safeSlug = event.title ?
+    event.title.toLowerCase()
+      .replace(/[^a-zA-Z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    : 'event';
+
+  return `${safeSlug}${dateSuffix}`;
+};
+
 export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
   ({ containerRef: externalContainerRef }, ref) => {
-  console.log("UserEventTickets: Component function start");
   const { isAuth, userData } = useAuth();
   const { currentStage, setStage } = useLoadingStage();
   const { error: loadingError, setError: setLoadingError } = useLoadingError();
@@ -599,6 +654,13 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     });
   }, []);
   
+  // Функция для сортировки билетов по дате регистрации от старой к новой
+  const sortByDate = useCallback((tickets: UserTicket[]): UserTicket[] => {
+    return [...tickets].sort((a, b) => 
+      new Date(a.registration_date).getTime() - new Date(b.registration_date).getTime()
+    );
+  }, []);
+  
   const processTickets = useCallback((tickets: UserTicket[]): UserTicket[] => {
     // Шаг 1: Исключаем билеты мероприятий в статусе 'draft'
     const nonDraftTickets = tickets.filter(ticket => ticket.event.status !== 'draft');
@@ -623,8 +685,10 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       }
     });
     
-    return sortByStatusAndDate(Array.from(uniqueTicketsMap.values()).filter(t => t.status !== "cancelled"));
-  }, [shouldReplaceTicket, sortByStatusAndDate]);
+    // Сначала сортируем по статусу и дате начала события, затем применяем сортировку по дате регистрации
+    const ticketsByStatusAndDate = sortByStatusAndDate(Array.from(uniqueTicketsMap.values()).filter(t => t.status !== "cancelled"));
+    return sortByDate(ticketsByStatusAndDate);
+  }, [shouldReplaceTicket, sortByStatusAndDate, sortByDate]);
 
   const fetchTickets = useCallback(async (pageToFetch = 1, abortController?: AbortController): Promise<{ fetchedTickets: UserTicket[], newHasMore: boolean } | null> => {
     if (!isAuth || !userData || !userData.id) {
@@ -1023,6 +1087,8 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     return () => window.removeEventListener('ticket-update', handleTicketUpdate);
   }, [isAuth, isTicketBeingCancelled, tickets, fetchTickets, isFetching]); // <-- Возвращаем isTicketBeingCancelled в зависимости
 
+  const [hoveredTicketId, setHoveredTicketId] = useState<number | null>(null);
+
   // Отображение ошибки загрузки, если она есть - ВОЗВРАЩАЕМ СЮДА
   if (loadingError) {
     console.log("UserEventTickets: Rendering loading error");
@@ -1039,7 +1105,6 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     );
   }
 
-  console.log(`UserEventTickets: Rendering main content (tickets: ${filteredTickets.length})`);
   return (
     <div className="h-full overflow-auto" ref={ticketsContainerRef}>
       {isFetching && tickets.length === 0 ? (
@@ -1093,17 +1158,43 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                    // --- НАЧАЛО: Условие для кнопки отмены ---
                    const canCancel = ticket.status === 'approved' && ticket.event.status === 'registration_open';
                    // --- КОНЕЦ: Условие для кнопки отмены ---
+                   // --- НАЧАЛО: Формирование URL для ссылки ---
+                   const baseSlugWithDate = generateBaseSlugWithDate(ticket.event);
+                   const eventUrl = `/events/${baseSlugWithDate}?id=${ticket.event.id}`;
+                   // --- КОНЕЦ: Формирование URL для ссылки ---
                    return (
                      <div key={`ticket-${ticket.id}`}>
                        <motion.div
                          initial={{ opacity: 0 }}
                          animate={{ opacity: 1 }}
                          className="bg-white rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                         onMouseEnter={() => setHoveredTicketId(ticket.id)}
+                         onMouseLeave={() => setHoveredTicketId(null)}
                        >
                          <div className="flex justify-between items-center mb-2">
-                           <h3 className="text-lg font-semibold text-gray-800">
-                             {ticket.event.title}
-                           </h3>
+                           <Link 
+                             href={eventUrl} 
+                             className="flex items-center gap-2 text-lg font-semibold text-gray-800 hover:text-orange-600 transition-colors group relative"
+                             target="_blank"
+                             rel="noopener noreferrer"
+                           >
+                             <h3>{ticket.event.title}</h3>
+                             <motion.div
+                               initial={{ x: 0 }}
+                               animate={{
+                                 x: hoveredTicketId === ticket.id ? [0, -3, 0] : 0,
+                               }}
+                               transition={{
+                                 duration: 1.5,
+                                 repeat: hoveredTicketId === ticket.id ? Infinity : 0,
+                                 repeatType: "loop",
+                                 ease: "easeInOut",
+                               }}
+                               className="text-orange-500"
+                             >
+                               <FaHandPointLeft />
+                             </motion.div>
+                           </Link>
                            <div className="flex items-center gap-3">
                              <div
                                className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(

@@ -4,6 +4,7 @@ import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { FaUser, FaEnvelope, FaLock, FaTelegram, FaWhatsapp } from "react-icons/fa";
 import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
+import SuccessDisplay from "./common/SuccessDisplay";
 import { useAuthForm } from "@/hooks/useAuthForm";
 import { motion, AnimatePresence } from "framer-motion";
 import { FieldConfig, FormErrors, TouchedFields } from "@/types/index";
@@ -34,14 +35,22 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
   const [isValid, setIsValid] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
 
-  const { formValues, isLoading, handleChange: authHandleChange, handleSubmit, isSuccess, error, userHint } = useAuthForm({
+  const {
+    formValues,
+    isLoading,
+    handleChange: authHandleChange,
+    handleSubmit,
+    isSuccess,
+    error,
+    successMessage,
+    userHint,
+  } = useAuthForm({
     initialValues,
     endpoint: "/auth/register",
     onSuccess: useCallback(() => {
-      console.log("Registration: onSuccess called, closing modal");
+      console.log("Registration component: onSuccess triggered from hook, calling onClose");
       onClose();
-      if (toggleMode) toggleMode();
-    }, [onClose, toggleMode]),
+    }, [onClose]),
   });
 
   const validateField = useCallback((name: string, value: string) => {
@@ -107,8 +116,10 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
     <div className="space-y-6">
       <ClientErrorBoundary>
         <form onSubmit={onSubmit} className="space-y-4">
+          <SuccessDisplay message={successMessage} />
+
           {fields.map((field) => (
-            <div key={field.name} className="relative">
+            <div key={field.name} className="relative pb-5">
               <InputField
                 type={field.type}
                 value={formValues[field.name]}
@@ -122,13 +133,13 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
                 className="w-full"
               />
               <AnimatePresence>
-                {shouldShowError(field, formErrors[field.name]) && (
+                {shouldShowError(field, formErrors[field.name]) && !successMessage && (
                   <motion.p
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     transition={{ duration: 0.2 }}
-                    className="absolute left-0 -bottom-5 text-red-500 text-xs mt-1 overflow-wrap-break-word max-w-full"
+                    className="absolute left-0 top-full text-red-500 text-xs mt-1 overflow-wrap-break-word max-w-full"
                     style={{ fontSize: "clamp(0.7rem, 1.8vw, 0.8rem)" }}
                   >
                     {formErrors[field.name]}
@@ -137,12 +148,12 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               </AnimatePresence>
             </div>
           ))}
-          {error && (
+          {error && !successMessage && (
             <div className="p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
               <p>{error}</p>
             </div>
           )}
-          {userHint && (
+          {userHint && !successMessage && (
             <div className="p-2 bg-blue-50 border-l-4 border-blue-500 text-blue-700 rounded-md text-xs">
               <p>{userHint}</p>
             </div>
@@ -173,7 +184,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               disabled={isLoading || isSuccess || !isValid}
               className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
             >
-              {isLoading ? "Регистрация..." : isSuccess ? "Успешно!" : "Зарегистрироваться"}
+              {isLoading ? "Регистрация..." : isSuccess && successMessage ? "Успешно!" : "Зарегистрироваться"}
             </ModalButton>
           </div>
         </form>

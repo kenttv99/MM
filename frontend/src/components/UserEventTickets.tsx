@@ -276,13 +276,13 @@ const FilterModal: React.FC<FilterModalProps> = ({
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-4"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 px-2 sm:px-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
           <motion.div
-            className="bg-white rounded-lg p-5 w-full max-w-lg shadow-xl relative my-8"
+            className="bg-white rounded-lg p-3 sm:p-5 w-full max-w-lg shadow-xl relative my-4 sm:my-8"
             variants={modalVariants}
             initial="hidden"
             animate="visible"
@@ -290,33 +290,33 @@ const FilterModal: React.FC<FilterModalProps> = ({
           >
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 transition-colors"
+              className="absolute top-2 sm:top-4 right-2 sm:right-4 text-gray-500 hover:text-gray-700 transition-colors"
               aria-label="Закрыть"
             >
-              <FaTimesCircle size={20} />
+              <FaTimesCircle size={16} className="sm:text-xl" />
             </button>
-            <h2 className="text-xl font-semibold mb-4 text-gray-800">Фильтр билетов</h2>
+            <h2 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-800">Фильтр билетов</h2>
             
-            <div className="space-y-5">
+            <div className="space-y-3 sm:space-y-5">
               <div>
-                <p className="text-sm text-gray-600 mb-3">Выберите статус билетов:</p>
-                <div className="grid grid-cols-2 gap-3">
+                <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Выберите статус билетов:</p>
+                <div className="grid grid-cols-2 gap-2 sm:gap-3">
                   {filters.map((filter) => (
                     <div
                       key={filter.id}
                       onClick={() => handleFilterChange(filter.id)}
-                      className={`p-3 rounded-lg cursor-pointer transition-colors ${
+                      className={`p-2 sm:p-3 rounded-lg cursor-pointer transition-colors ${
                         tempFilter === filter.id
                           ? "bg-orange-100 border-2 border-orange-500"
                           : "bg-gray-50 hover:bg-gray-100 border-2 border-transparent"
                       }`}
                     >
                       <div className="flex items-center">
-                        <div className={`w-4 h-4 rounded-full mr-2 ${
+                        <div className={`w-3 h-3 sm:w-4 sm:h-4 rounded-full mr-1 sm:mr-2 ${
                           tempFilter === filter.id ? "bg-orange-500" : "bg-gray-300"
                         }`} />
                         <div>
-                          <h3 className="font-medium text-gray-800">{filter.label}</h3>
+                          <h3 className="font-medium text-gray-800 text-xs sm:text-base">{filter.label}</h3>
                         </div>
                       </div>
                     </div>
@@ -324,44 +324,42 @@ const FilterModal: React.FC<FilterModalProps> = ({
                 </div>
               </div>
               
-              {/* Удаляем переключатель для фильтра по датам */}
-              
               {/* Секция выбора диапазона дат - всегда видима */}
-              <div className="p-4 rounded-lg border-2 border-orange-500 bg-orange-50">
-                <p className="text-sm text-gray-600 mb-3">Фильтр по датам мероприятий:</p>
-                <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 sm:p-4 rounded-lg border-2 border-orange-500 bg-orange-50">
+                <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-3">Фильтр по датам мероприятий:</p>
+                <div className="grid grid-cols-2 gap-2 sm:gap-4">
                   <div>
-                    <label className="block text-sm text-gray-600 mb-1">С даты:</label>
+                    <label className="block text-xs sm:text-sm text-gray-600 mb-1">С даты:</label>
                     <input 
                       type="date" 
                       value={tempDateRange.startDate}
                       onChange={(e) => setTempDateRange(prev => ({ ...prev, startDate: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 text-xs sm:text-sm"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-600 mb-1">По дату:</label>
+                    <label className="block text-xs sm:text-sm text-gray-600 mb-1">По дату:</label>
                     <input 
                       type="date" 
                       value={tempDateRange.endDate}
                       onChange={(e) => setTempDateRange(prev => ({ ...prev, endDate: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      className="w-full px-2 sm:px-3 py-1 sm:py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-500 text-xs sm:text-sm"
                     />
                   </div>
                 </div>
               </div>
             </div>
             
-            <div className="mt-6 flex justify-between">
+            <div className="mt-4 sm:mt-6 flex justify-between">
               <button
                 onClick={handleResetFilters}
-                className="px-4 py-2 rounded-lg font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors"
+                className="px-3 sm:px-4 py-1 sm:py-2 rounded-lg font-medium bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors text-xs sm:text-sm"
               >
                 Сбросить
               </button>
               <button
                 onClick={handleApplyFilters}
-                className="px-4 py-2 rounded-lg font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors"
+                className="px-3 sm:px-4 py-1 sm:py-2 rounded-lg font-medium bg-orange-500 text-white hover:bg-orange-600 transition-colors text-xs sm:text-sm"
               >
                 Применить
               </button>
@@ -1121,9 +1119,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
           <div className="flex justify-between items-center mb-4">
             <button
               onClick={() => setIsFilterModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1 sm:gap-2 px-2 sm:px-3 py-1 sm:py-2 bg-white rounded-lg shadow-sm border border-gray-200 text-xs sm:text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              <FaFilter className="text-orange-500" />
+              <FaFilter className="text-orange-500 text-[10px] sm:text-base" />
               <span>
                 {filters.find((f: {id: TicketFilter}) => f.id === activeFilter)?.label || "Фильтровать"}
                 {dateRange.startDate && dateRange.endDate && 
@@ -1131,7 +1129,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
               </span>
             </button>
             
-            <span className="text-sm text-gray-500 truncate bg-white px-2 py-1 rounded shadow-sm tickets-count">
+            <span className="text-xs sm:text-sm text-gray-500 truncate bg-white px-1 sm:px-2 py-0.5 sm:py-1 rounded shadow-sm tickets-count">
               Загружено: {filteredTickets.length}
             </span>
           </div>
@@ -1171,14 +1169,20 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                          onMouseEnter={() => setHoveredTicketId(ticket.id)}
                          onMouseLeave={() => setHoveredTicketId(null)}
                        >
-                         <div className="flex justify-between items-center mb-2">
+                         {/* --- НАЧАЛО: Адаптивный блок заголовка/статуса/кнопки --- */}
+                         {/* Используем flex-wrap для автоматического переноса */}
+                         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-3">
+                           {/* Левая часть: Заголовок с иконкой (ссылка) */}
+                           {/* Добавляем flex-grow, убираем order- */}
                            <Link 
                              href={eventUrl} 
-                             className="flex items-center gap-2 text-lg font-semibold text-gray-800 hover:text-orange-600 transition-colors group relative"
+                             className="flex items-center gap-1 text-sm sm:text-base md:text-lg font-semibold text-gray-800 hover:text-orange-600 transition-colors group relative flex-grow min-w-0 truncate sm:gap-2"
                              target="_blank"
                              rel="noopener noreferrer"
+                             onMouseEnter={() => setHoveredTicketId(ticket.id)} 
+                             onMouseLeave={() => setHoveredTicketId(null)}
                            >
-                             <h3>{ticket.event.title}</h3>
+                             <h3 className="min-w-0 truncate sm:break-words">{ticket.event.title}</h3> 
                              <motion.div
                                initial={{ x: 0 }}
                                animate={{
@@ -1190,61 +1194,62 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                                  repeatType: "loop",
                                  ease: "easeInOut",
                                }}
-                               className="text-orange-500"
+                               className="text-orange-500 flex-shrink-0 text-xs sm:text-sm md:text-base"
                              >
                                <FaHandPointLeft />
                              </motion.div>
                            </Link>
-                           <div className="flex items-center gap-3">
+                           
+                           {/* Правая часть: Статус и кнопка отмены */}
+                           {/* Убираем order- и justify-* */}
+                           <div className="flex items-center gap-1 sm:gap-2 md:gap-3 flex-shrink-0">
                              <div
-                               className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(
-                                 ticket.status
-                               )}`}
+                               className={`px-2 py-1 rounded-full text-[10px] sm:text-xs font-medium whitespace-nowrap ${getStatusColor(ticket.status)} sm:px-3`}
                              >
                                {getStatusText(ticket.status)}
                              </div>
-                             {/* --- НАЧАЛО: Отображение кнопки отмены --- */}
                              {canCancel && (
                                <button 
                                  onClick={() => handleCancelClick(ticket)}
-                                 className="text-red-600 hover:text-red-800 text-sm font-medium py-1 px-2 rounded transition-colors whitespace-nowrap"
+                                 className="text-red-600 hover:text-red-800 text-xs sm:text-sm font-medium py-1 px-1 sm:px-2 rounded transition-colors whitespace-nowrap"
                                >
                                  Отменить
                                </button>
                              )}
-                             {/* --- КОНЕЦ: Отображение кнопки отмены --- */}
                            </div>
                          </div>
+                         {/* --- КОНЕЦ: Адаптивный блок --- */}
                          
+                         {/* --- Неизмененный блок номера билета и деталей --- */}
                          <div className="flex h-full">
-                           <div className="flex-shrink-0 w-[90px] flex items-center justify-center">
-                             <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-2 shadow-sm h-full flex">
-                               <div className="flex-1 flex items-center justify-center pr-1 border-r border-orange-200">
-                                 <p className="[writing-mode:vertical-rl] rotate-180 text-xs text-gray-500 uppercase font-medium">
+                           <div className="flex-shrink-0 w-[60px] sm:w-[75px] md:w-[90px] flex items-center justify-center">
+                             <div className="bg-orange-50 border-2 border-orange-200 rounded-lg py-2 px-1 sm:px-2 shadow-sm h-full flex">
+                               <div className="flex-1 flex items-center justify-center pr-0.5 sm:pr-1 border-r border-orange-200">
+                                 <p className="[writing-mode:vertical-rl] rotate-180 text-[9px] sm:text-xs text-gray-500 uppercase font-medium">
                                    НОМЕР БИЛЕТА
                                  </p>
                                </div>
                                
-                               <div className="flex-1 flex items-center justify-center pl-1">
-                                 <p className="[writing-mode:vertical-rl] rotate-180 text-xl font-bold text-orange-600">
+                               <div className="flex-1 flex items-center justify-center pl-0.5 sm:pl-1">
+                                 <p className="[writing-mode:vertical-rl] rotate-180 text-sm sm:text-lg md:text-xl font-bold text-orange-600">
                                    #{ticket.ticket_number || ticket.id}
                                  </p>
                                </div>
                              </div>
                            </div>
                            
-                           <div className="flex-1 ml-3">
-                             <div className="space-y-2">
-                               <div className="flex items-start gap-2 text-sm text-gray-600">
-                                 <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                           <div className="flex-1 ml-2 sm:ml-3">
+                             <div className="space-y-1 sm:space-y-2">
+                               <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                                 <FaCalendarAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
                                  <span className="break-words">
                                    {formatDateForDisplay(ticket.event.start_date)}
                                    {ticket.event.end_date && !isSameDay(ticket.event.start_date, ticket.event.end_date) &&
                                      ` - ${formatDateForDisplay(ticket.event.end_date)}`}
                                  </span>
                                </div>
-                               <div className="flex items-start gap-2 text-sm text-gray-600">
-                                 <FaClock className="text-orange-500 flex-shrink-0 mt-1" />
+                               <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                                 <FaClock className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
                                  <span className="break-words">
                                    {formatTimeForDisplay(ticket.event.start_date)}
                                    {ticket.event.end_date && 
@@ -1252,18 +1257,18 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
                                  </span>
                                </div>
                                {ticket.event.location && (
-                                 <div className="flex items-start gap-2 text-sm text-gray-600">
-                                   <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                                 <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                                   <FaMapMarkerAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
                                    <span className="break-words">{ticket.event.location}</span>
                                  </div>
                                )}
-                               <div className="flex items-start gap-2 text-sm text-gray-600">
-                                 <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1" />
+                               <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                                 <FaTicketAlt className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
                                  <span className="break-words">{getTicketTypeInRussian(ticket.ticket_type)}</span>
                                </div>
                                
-                               <div className="flex items-start gap-2 text-sm text-gray-600">
-                                 <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1" />
+                               <div className="flex items-start gap-1 sm:gap-2 text-xs sm:text-sm text-gray-600">
+                                 <FaRegCalendarCheck className="text-orange-500 flex-shrink-0 mt-1 text-[10px] sm:text-base" />
                                  <span className="break-words">Забронировано: {formatDateForDisplay(ticket.registration_date)}</span>
                                </div>
                              </div>

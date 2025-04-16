@@ -4,6 +4,7 @@ import React from "react";
 import { FaEnvelope, FaLock } from "react-icons/fa";
 import { ModalButton } from "./common/AuthModal";
 import InputField from "./common/InputField";
+import SuccessDisplay from "./common/SuccessDisplay";
 import { useAuthForm } from "@/hooks/useAuthForm";
 import { LoginProps } from "@/types/index";
 import ClientErrorBoundary from "./Errors/ClientErrorBoundary";
@@ -18,16 +19,15 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     handleChange,
     handleSubmit,
     error,
+    successMessage,
     userHint,
   } = useAuthForm({
     initialValues: { email: "", password: "" },
     endpoint,
     isLogin: true,
     onSuccess: () => {
-      setTimeout(() => {
-        console.log('Login: Closing modal after successful login');
-        onClose();
-      }, 500); // Увеличиваем задержку для гарантии обновления состояния
+      console.log('Login component: onSuccess triggered from hook, calling onClose');
+      onClose();
     },
   });
 
@@ -37,6 +37,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     <div className="space-y-6">
       <ClientErrorBoundary>
         <form onSubmit={handleSubmit} className="space-y-6">
+          <SuccessDisplay message={successMessage} />
           <InputField
             type="email"
             value={formValues.email}
@@ -44,7 +45,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
             placeholder="Введите email"
             icon={FaEnvelope}
             name="email"
-            disabled={isSuccess}
+            disabled={isLoading || isSuccess}
             className="w-full"
           />
           <InputField
@@ -54,15 +55,15 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
             placeholder="Введите пароль"
             icon={FaLock}
             name="password"
-            disabled={isSuccess}
+            disabled={isLoading || isSuccess}
             className="w-full"
           />
-          {error && (
+          {error && !successMessage && (
             <div className="p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
               <p>{error}</p>
             </div>
           )}
-          {userHint && (
+          {userHint && !successMessage && (
             <div className="p-2 bg-blue-50 border-l-4 border-blue-500 text-blue-700 rounded-md text-xs">
               <p>{userHint}</p>
             </div>
@@ -93,7 +94,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
               disabled={isLoading || isSuccess}
               className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
             >
-              {isLoading ? "Вход..." : isSuccess ? "Успешно!" : "Войти"}
+              {isLoading ? "Вход..." : isSuccess && successMessage ? "Успешно!" : "Войти"}
             </ModalButton>
           </div>
         </form>

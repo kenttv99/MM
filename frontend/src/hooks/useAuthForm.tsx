@@ -1,7 +1,7 @@
 // frontend/src/hooks/useAuthForm.tsx
 "use client";
 
-import { useState, ChangeEvent, FormEvent, useCallback, useRef } from "react";
+import { useState, ChangeEvent, FormEvent, useCallback, useRef, useEffect } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiFetch } from "@/utils/api";
 import { UseAuthFormProps } from "@/types/index";
@@ -38,17 +38,32 @@ export const useAuthForm = ({
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string>("");
   const [userHint, setUserHint] = useState<string>("");
   const isSubmitting = useRef(false);
+  const successTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleChange = useCallback((e: ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setFormValues((prev) => ({ ...prev, [name]: value }));
     
-    // Очищаем ошибку и подсказку при вводе
     if (error) setError("");
+    if (successMessage) setSuccessMessage("");
     if (userHint) setUserHint("");
-  }, [error, userHint]);
+    setIsSuccess(false);
+    if (successTimerRef.current) {
+      clearTimeout(successTimerRef.current);
+      successTimerRef.current = null;
+    }
+  }, [error, successMessage, userHint]);
 
   const handleSubmit = useCallback(
     async (e: FormEvent<HTMLFormElement>) => {
@@ -58,19 +73,26 @@ export const useAuthForm = ({
       isSubmitting.current = true;
 
       setError("");
+      setSuccessMessage("");
       setUserHint("");
       setIsLoading(true);
       setIsSuccess(false);
+      if (successTimerRef.current) {
+        clearTimeout(successTimerRef.current);
+        successTimerRef.current = null;
+      }
 
       try {
         console.log('AuthForm: Sending login request to endpoint:', endpoint);
-        // Используем обновленный apiFetch для выполнения запроса аутентификации
         const data = await apiFetch<AuthResponse>(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           data: formValues,
-          bypassLoadingStageCheck: true // Обходим проверку стадии загрузки для запросов аутентификации
+          bypassLoadingStageCheck: true
         });
+
+        setIsSuccess(true);
+        setSuccessMessage(isLogin ? "Успешный вход!" : "Регистрация успешна!");
 
         if (isLogin && data.access_token) {
           const userData = {
@@ -82,39 +104,30 @@ export const useAuthForm = ({
             avatar_url: data.avatar_url,
           };
           
-          // First set success state and hint
-          setIsSuccess(true);
-          setUserHint("Успешная авторизация! Перенаправление...");
-          
           console.log('AuthForm: Login successful, token received:', data.access_token.substring(0, 10) + '...');
           console.log('AuthForm: User data:', userData);
           console.log('AuthForm: Current loading stage before handleLoginSuccess:', typeof window !== 'undefined' ? (window as Window & { __loading_stage__?: string }).__loading_stage__ : 'N/A');
           
           try {
-            // Принудительно устанавливаем данные в localStorage перед вызовом handleLoginSuccess
             if (typeof window !== 'undefined') {
               localStorage.setItem('token', data.access_token);
               localStorage.setItem('userData', JSON.stringify(userData));
               
-              // Включаем режим отладки для системы стадий, но только если он еще не включен
               if (!(window as Window & { DEBUG_LOADING_CONTEXT?: boolean }).DEBUG_LOADING_CONTEXT) {
                 console.log('AuthForm: Enabling DEBUG_LOADING_CONTEXT');
                 (window as Window & { DEBUG_LOADING_CONTEXT?: boolean }).DEBUG_LOADING_CONTEXT = true;
                 
-                // Устанавливаем таймер для отключения режима отладки через 2 секунды
                 setTimeout(() => {
                   console.log('AuthForm: Disabling DEBUG_LOADING_CONTEXT after timeout');
                   (window as Window & { DEBUG_LOADING_CONTEXT?: boolean }).DEBUG_LOADING_CONTEXT = false;
                 }, 2000);
               }
               
-              // Проверяем, не было ли уже отправлено сообщение authStateChanged
               const authEventSent = (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__;
               if (!authEventSent) {
                 console.log('AuthForm: Dispatching authStateChanged event');
                 (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__ = true;
                 
-                // Диспатчим событие и устанавливаем таймер для сброса флага
                 window.dispatchEvent(new CustomEvent('authStateChanged', {
                   detail: {
                     isAuth: true,
@@ -123,7 +136,6 @@ export const useAuthForm = ({
                   }
                 }));
                 
-                // Сбрасываем флаг через 2 секунды
                 setTimeout(() => {
                   console.log('AuthForm: Resetting auth event sent flag');
                   (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__ = false;
@@ -131,51 +143,51 @@ export const useAuthForm = ({
               }
             }
             
-            // Вызываем handleLoginSuccess для обработки авторизации
             handleLoginSuccess(data.access_token, userData);
             
-            // Ждем небольшую задержку перед вызовом onSuccess, чтобы дать время контексту обновиться
-            setTimeout(() => {
-              // Проверка состояния после вызова handleLoginSuccess
-              console.log('AuthForm: Logging in complete - authentication should be updated');
-              
-              // Call onSuccess callback to close modal
+            successTimerRef.current = setTimeout(() => {
+              console.log('AuthForm: Closing modal after login success timeout');
+              setSuccessMessage("");
               if (onSuccess) {
                 console.log('AuthForm: Calling onSuccess callback');
                 onSuccess();
                 setFormValues(initialValues);
               }
-            }, 100);
+              successTimerRef.current = null;
+            }, 1000);
             
           } catch (loginError) {
             console.error('AuthForm: Error during login success handling:', loginError);
-            // Даже при ошибке, пытаемся закрыть модальное окно
+            setError("Ошибка обработки входа.");
+            setIsSuccess(false);
+            setSuccessMessage("");
             if (onSuccess) {
               onSuccess();
               setFormValues(initialValues);
             }
           }
-        } else {
-          setIsSuccess(true);
-          setUserHint("Регистрация успешна! Перенаправление...");
-          
-          if (onSuccess) {
-            setTimeout(() => {
+        } else if (!isLogin) {
+          console.log('AuthForm: Registration successful');
+          successTimerRef.current = setTimeout(() => {
+            console.log('AuthForm: Closing modal after registration success timeout');
+            setSuccessMessage("");
+            if (onSuccess) {
               onSuccess();
               setFormValues(initialValues);
-            }, 1000);
-          }
+            }
+            successTimerRef.current = null;
+          }, 1000);
+        } else {
+          throw new Error("Токен авторизации не получен.");
         }
       } catch (err) {
         const apiError = err as ApiError;
         let userFriendlyError = apiError.message;
         let hint = "";
         
-        // Проверяем, есть ли статус и ошибка в ответе
         if ('status' in apiError && 'error' in apiError) {
           const status = apiError.status;
           
-          // Обработка ошибок по статусу ответа
           if (status === 401) {
             userFriendlyError = "Неверный логин или пароль";
           } else if (status === 400) {
@@ -188,7 +200,6 @@ export const useAuthForm = ({
             userFriendlyError = apiError.error;
           }
         } else {
-          // Преобразуем технические сообщения об ошибках в понятные для пользователя
           if (apiError.message.includes('blocked')) {
             userFriendlyError = "Запрос заблокирован";
             hint = "Пожалуйста, подождите. Система инициализируется...";
@@ -209,6 +220,8 @@ export const useAuthForm = ({
         
         setError(userFriendlyError);
         if (hint) setUserHint(hint);
+        setIsSuccess(false);
+        setSuccessMessage("");
         console.log(`Authentication error: ${apiError.message}`);
       } finally {
         setIsLoading(false);
@@ -221,6 +234,7 @@ export const useAuthForm = ({
   return {
     formValues,
     error,
+    successMessage,
     userHint,
     isLoading,
     isSuccess,

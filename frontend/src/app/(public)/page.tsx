@@ -115,6 +115,60 @@ const FeatureCard: React.FC<ExtendedFeatureCardProps> = ({ href, icon: Icon, tit
   </Link>
 );
 
+// Добавляю компонент типографической печати заголовка
+const Typewriter: React.FC<{ text: string; typingSpeed?: number; deletingSpeed?: number; pauseTime?: number }> = ({ text, typingSpeed = 200, deletingSpeed = 100, pauseTime = 1000 }) => {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [cursorVisible, setCursorVisible] = useState(true);
+
+  // Эффект мигания курсора
+  useEffect(() => {
+    // Постоянное мигание курсора
+    const cursorInterval = setInterval(() => {
+      setCursorVisible(prev => !prev);
+    }, 500);
+    return () => clearInterval(cursorInterval);
+  }, []);
+
+  // Эффект типирования и удаления текста
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (!isDeleting && displayedText === text) {
+      // Пауза перед удалением
+      timer = setTimeout(() => setIsDeleting(true), pauseTime);
+    } else if (isDeleting && displayedText === '') {
+      // Короткая пауза перед повторным набором после удаления
+      timer = setTimeout(() => setIsDeleting(false), 1000);
+    } else {
+      // Набор или удаление символа
+      timer = setTimeout(() => {
+        const newText = isDeleting
+          ? text.substring(0, displayedText.length - 1)
+          : text.substring(0, displayedText.length + 1);
+        setDisplayedText(newText);
+      }, isDeleting ? deletingSpeed : typingSpeed);
+    }
+    return () => clearTimeout(timer);
+  }, [displayedText, isDeleting, text, typingSpeed, deletingSpeed, pauseTime]);
+
+  return (
+    <h1 className="text-3xl sm:text-4xl font-black text-center mb-12">
+      {displayedText}
+      <span
+        style={{
+          opacity: cursorVisible ? 1 : 0,
+          color: "#f97316",
+          fontSize: "0.75em",
+          marginLeft: 0,
+          display: "inline-block",
+          transform: "scaleY(1) translateY(-0.15em)",
+        }}
+      >|
+      </span>
+    </h1>
+  );
+};
+
 const PublicHomePage: React.FC = () => {
   const { setStaticLoading, isStaticLoading } = useLoadingFlags();
   const { isAuth, isAuthChecked } = useAuth();
@@ -219,7 +273,7 @@ const PublicHomePage: React.FC = () => {
   return (
     <>
       <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 sm:px-6 min-h-[calc(100vh-120px)]">
-        <h1 className="text-3xl sm:text-4xl font-black text-center mb-12">MOSCOW MELLOWS</h1>
+        <Typewriter text="MOSCOW MELLOWS" typingSpeed={150} deletingSpeed={100} pauseTime={3000} />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8 max-w-6xl w-full">
           {isAuthChecked && isContentReady ? (
             features.map((feature, index) => (

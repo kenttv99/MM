@@ -1,13 +1,24 @@
 # backend/config/rate_limiter.py
+import os
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+# Импортируем RATE_LIMITS из корневого файла constants.py
 from constants import RATE_LIMITS
 from functools import wraps
 from fastapi import Request
 from typing import Callable, Any
 
-# Инициализация Limiter
-limiter = Limiter(key_func=get_remote_address)
+# Получаем хост и порт Redis из переменных окружения
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = os.getenv("REDIS_PORT", 6379)
+
+# Создаем URL для Redis
+# Используем redis:// для простого подключения
+REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
+
+# Инициализация Limiter с использованием Redis
+# Обратите внимание на storage_uri
+limiter = Limiter(key_func=get_remote_address, storage_uri=REDIS_URL)
 
 def rate_limit(action: str):
     """

@@ -1,0 +1,126 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: postgres_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_USER: ${DB_USER:-user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_DB: ${DB_NAME:-appdb}
+    ports:
+      - "5432:5432" # Открываем порт наружу только для отладки, можно убрать
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis_cache
+    ports:
+      - "6379:6379" # Открываем порт наружу только для отладки, можно убрать
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  user-server:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    container_name: user_server_app
+    command: uvicorn servers.server_user:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      # Монтируем код для hot-reload во время разработки
+      - ./backend:/app/backend
+      - ./servers:/app/servers
+      # Монтируем requirements для обновления зависимостей без пересборки
+      - ./requirements.txt:/app/requirements.txt 
+      # Монтируем общую папку для медиафайлов
+      - ./private_media:/app/private_media 
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env # Загружаем переменные из .env файла
+    environment:
+      # Переопределяем хост БД и Redis для контейнера
+      DB_HOST: db 
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - db
+      - redis
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  admin-server:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    container_name: admin_server_app
+    command: uvicorn servers.server_admin:app --host 0.0.0.0 --port 8001 --reload
+    volumes:
+      # Монтируем код для hot-reload во время разработки
+      - ./backend:/app/backend
+      - ./servers:/app/servers
+      # Монтируем requirements для обновления зависимостей без пересборки
+      - ./requirements.txt:/app/requirements.txt
+      # Монтируем общую папку для медиафайлов
+      - ./private_media:/app/private_media
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env # Загружаем переменные из .env файла
+    environment:
+      # Переопределяем хост БД и Redis для контейнера
+      DB_HOST: db
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - db
+      - redis
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend_app
+    volumes:
+      # Монтируем код для hot-reload во время разработки
+      - ./frontend:/app
+      # Исключаем node_modules из монтирования, чтобы использовать те, что в контейнере
+      - /app/node_modules 
+      - /app/.next
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.local # Загружаем переменные фронтенда
+    environment:
+      # Указываем адреса бэкендов внутри Docker сети
+      NEXT_PUBLIC_API_URL: http://user-server:8000
+      NEXT_ADMIN_API_URL: http://admin-server:8001
+      # Важно: Убедитесь, что WATCHPACK_POLLING=true для hot-reload в Docker
+      WATCHPACK_POLLING: 'true'
+      NODE_ENV: development # Устанавливаем development для hot-reload
+    depends_on:
+      - user-server
+      - admin-server
+    networks:
+      - app-network
+    # Переопределяем команду для запуска в режиме разработки
+    command: npm run dev 
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data: 

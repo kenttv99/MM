@@ -35,19 +35,25 @@ from backend.config.logging_config import logger
 # logger = logging.getLogger(__name__)
 
 # Читаем отдельные параметры из .env
-DB_LOGIN = os.getenv("DB_LOGIN") # Добавил значения по умолчанию для подстраховки
+DB_LOGIN = os.getenv("DB_USER") # Используем DB_USER в соответствии с .env и compose
 DB_PASSWORD = os.getenv("DB_PASSWORD")
-DB_HOST = os.getenv("DB_URL")
-DB_PORT = os.getenv("DB_PORT")
+DB_HOST = os.getenv("DB_HOST", "localhost") # Читаем DB_HOST, а не DB_URL. Добавляем default для локального запуска.
+DB_PORT = os.getenv("DB_PORT", "5432")     # Добавляем default для локального запуска.
 DB_NAME = os.getenv("DB_NAME")
 debug_mode = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 diagnostics_mode = debug_mode
 
 # Проверяем, что основные переменные заданы
+if not DB_LOGIN:
+    raise ValueError("Переменная окружения DB_USER не установлена!")
 if not DB_PASSWORD:
     raise ValueError("Переменная окружения DB_PASSWORD не установлена!")
 if not DB_NAME:
      raise ValueError("Переменная окружения DB_NAME не установлена!")
+if not DB_HOST:
+     raise ValueError("Переменная окружения DB_HOST не установлена!")
+if not DB_PORT:
+     raise ValueError("Переменная окружения DB_PORT не установлена!")
 
 # Формируем DATABASE_URL программно
 DATABASE_URL = f"postgresql+asyncpg://{DB_LOGIN}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"

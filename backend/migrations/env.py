@@ -13,7 +13,13 @@ sys.path.insert(0, root_dir)
 
 # Импортируем модели и конфигурацию
 from backend.database.user_db import Base
-from constants import DATABASE_URL
+
+# --- Загрузка конфигурации из .env --- 
+# Предполагается, что load_dotenv() вызывается где-то при старте приложения
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("Переменная окружения DATABASE_URL не установлена!")
+# --- Конец загрузки конфигурации ---
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

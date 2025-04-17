@@ -152,7 +152,7 @@ const Typewriter: React.FC<{ text: string; typingSpeed?: number; deletingSpeed?:
   }, [displayedText, isDeleting, text, typingSpeed, deletingSpeed, pauseTime]);
 
   return (
-    <h1 className="text-3xl sm:text-4xl font-black text-center mb-12">
+    <h1 className="text-2xl sm:text-3xl font-black text-center mb-8 sm:mb-12 px-4 sm:px-0 leading-tight">
       {displayedText}
       <span
         style={{
@@ -273,7 +273,11 @@ const PublicHomePage: React.FC = () => {
   return (
     <>
       <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 sm:px-6 min-h-[calc(100vh-120px)]">
-        <Typewriter text="MOSCOW MELLOWS" typingSpeed={150} deletingSpeed={100} pauseTime={3000} />
+        {isAuthChecked && isContentReady ? (
+          <Typewriter text="MOSCOW MELLOWS" typingSpeed={150} deletingSpeed={100} pauseTime={3000} />
+        ) : (
+          <div className="h-12 w-64 bg-orange-200 rounded mb-12 animate-pulse mx-auto"></div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-8 max-w-6xl w-full">
           {isAuthChecked && isContentReady ? (
             features.map((feature, index) => (
@@ -282,15 +286,15 @@ const PublicHomePage: React.FC = () => {
           ) : (
             // Скелетоны карточек во время загрузки
             [...Array(3)].map((_, index) => (
-              <div key={index} className="bg-white rounded-xl p-4 sm:p-6 shadow-md animate-pulse h-full">
-                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-gray-200 rounded-full mb-4 sm:mb-5"></div>
-                <div className="h-6 bg-gray-200 rounded mb-4 w-1/2"></div>
+              <div key={index} className="bg-orange-100 rounded-xl p-4 sm:p-6 shadow-md animate-pulse h-full">
+                <div className="w-12 h-12 sm:w-14 sm:h-14 bg-orange-200 rounded-full mb-4 sm:mb-5"></div>
+                <div className="h-6 bg-orange-200 rounded mb-4 w-1/2"></div>
                 <div className="space-y-2">
-                  <div className="h-4 bg-gray-200 rounded w-full"></div>
-                  <div className="h-4 bg-gray-200 rounded w-5/6"></div>
-                  <div className="h-4 bg-gray-200 rounded w-4/6"></div>
+                  <div className="h-4 bg-orange-200 rounded w-full"></div>
+                  <div className="h-4 bg-orange-200 rounded w-5/6"></div>
+                  <div className="h-4 bg-orange-200 rounded w-4/6"></div>
                 </div>
-                <div className="mt-4 h-5 bg-gray-200 rounded w-2/5"></div>
+                <div className="mt-4 h-5 bg-orange-200 rounded w-2/5"></div>
               </div>
             ))
           )}

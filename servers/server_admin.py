@@ -1,4 +1,30 @@
 # servers/server_admin.py
+import os
+from dotenv import load_dotenv, find_dotenv
+env_path = find_dotenv()
+if not env_path:
+    print("ERROR: Не удалось найти файл .env!")
+else:
+    print(f"Найден .env файл: {env_path}")
+    load_dotenv(dotenv_path=env_path)
+    print("Переменные окружения из .env загружены.")
+
+# Проверка, что переменная загрузилась (для отладки)
+db_password_value = os.getenv('DB_PASSWORD')
+print(f"DEBUG: DB_PASSWORD загружена? {'Да' if db_password_value else 'Нет'}")
+if db_password_value:
+    print(f"DEBUG: DB_PASSWORD={db_password_value[:3]}***")
+
+import sys
+import asyncio
+
+# На Windows использовать SelectorEventLoopPolicy для совместимости с asyncpg
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+from dotenv import load_dotenv
+load_dotenv()
+import os # Добавляю os
 from datetime import timedelta
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,12 +38,29 @@ from backend.config.logging_config import logger
 import uvicorn
 from datetime import datetime, timedelta  # Добавлен импорт для datetime и timedelta
 from authlib.jose import jwt  # Добавлен импорт для jwt
-from constants import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY  # Добавлен импорт для SECRET_KEY
+# Удаляю импорты из constants (обратите внимание на дублирующий импорт ACCESS_TOKEN_EXPIRE_MINUTES)
+# from constants import ACCESS_TOKEN_EXPIRE_MINUTES, SECRET_KEY  
 from fastapi.staticfiles import StaticFiles
 from fastapi.routing import APIRoute
 
 from backend.database.user_db import AsyncSessionLocal, get_async_db
-from constants import ACCESS_TOKEN_EXPIRE_MINUTES  # Добавляем импорт
+# from constants import ACCESS_TOKEN_EXPIRE_MINUTES  # Удаляю дублирующий импорт
+
+# --- Загрузка конфигурации из .env --- 
+# Предполагается, что load_dotenv() вызывается где-то при старте приложения
+SECRET_KEY = os.getenv("SECRET_KEY")
+ACCESS_TOKEN_EXPIRE_MINUTES_STR = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+
+# Проверка критических переменных
+if not SECRET_KEY:
+    raise ValueError("Переменная окружения SECRET_KEY не установлена!")
+
+try:
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(ACCESS_TOKEN_EXPIRE_MINUTES_STR)
+except ValueError:
+    logger.error(f"Неверное значение для ACCESS_TOKEN_EXPIRE_MINUTES: {ACCESS_TOKEN_EXPIRE_MINUTES_STR}. Используется значение по умолчанию 30.")
+    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# --- Конец загрузки конфигурации ---
 
 app = FastAPI(
     title="Event Management API",

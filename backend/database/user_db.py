@@ -1,12 +1,11 @@
 # backend/database/user_db.py
 import asyncio
+import os
 from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.pool import NullPool
 from backend.schemas_enums.enums import EventStatus, MediaType, Status
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from constants import DATABASE_URL
 from datetime import datetime
 from sqlalchemy.orm import (
     declarative_base,
@@ -26,10 +25,92 @@ from sqlalchemy import (
     TIMESTAMP,
     Enum,
     UniqueConstraint,
+    text,
 )
+import time
+from backend.config.logging_config import logger
+
+# Настройка логирования
+# logging.basicConfig(level=logging.INFO)
+# logger = logging.getLogger(__name__)
+
+# Читаем отдельные параметры из .env
+DB_LOGIN = os.getenv("DB_LOGIN") # Добавил значения по умолчанию для подстраховки
+DB_PASSWORD = os.getenv("DB_PASSWORD")
+DB_HOST = os.getenv("DB_URL")
+DB_PORT = os.getenv("DB_PORT")
+DB_NAME = os.getenv("DB_NAME")
+debug_mode = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
+diagnostics_mode = debug_mode
+
+# Проверяем, что основные переменные заданы
+if not DB_PASSWORD:
+    raise ValueError("Переменная окружения DB_PASSWORD не установлена!")
+if not DB_NAME:
+     raise ValueError("Переменная окружения DB_NAME не установлена!")
+
+# Формируем DATABASE_URL программно
+DATABASE_URL = f"postgresql+asyncpg://{DB_LOGIN}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+# Логируем параметры для отладки
+logger.info(f"Параметры подключения: host={DB_HOST}, port={DB_PORT}, dbname={DB_NAME}, user={DB_LOGIN}")
+
+# Отображаем URL в логе, маскируя пароль
+masked_url = f"postgresql+asyncpg://{DB_LOGIN}:***@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+if diagnostics_mode:
+    logger.info(f"ДИАГНОСТИКА - Реальный URL подключения: {DATABASE_URL}")
+else:
+    logger.info(f"Подключение к базе данных с URL: {masked_url}")
+
+# Выводим параметры URL для отладки
+parts = DATABASE_URL.split('@')
+if len(parts) >= 2:
+    auth_part = parts[0].split('//')
+    if len(auth_part) >= 2:
+        auth_info = auth_part[1].split(':')
+        user = auth_info[0] if len(auth_info) >= 1 else "unknown"
+        
+    connection_details = parts[1].split('/')
+    host_port = connection_details[0].split(':')
+    host = host_port[0] if len(host_port) >= 1 else "unknown"
+    port = host_port[1] if len(host_port) >= 2 else "5432"  # Стандартный порт PostgreSQL
+    dbname = connection_details[1] if len(connection_details) >= 2 else "unknown"
+    
+    logger.info(f"Параметры подключения: host={host}, port={port}, dbname={dbname}, user={user}")
+else:
+    # Для диагностики выводим полный URL в логи
+    logger.warning(f"Неожиданный формат URL БД: {DATABASE_URL}")
+    # Пробуем вывести DATABASE_URL напрямую
+    logger.warning(f"Значение переменной DATABASE_URL из .env: {os.getenv('DATABASE_URL')}")
+
+if not DATABASE_URL:
+    raise ValueError("Переменная окружения DATABASE_URL не установлена!")
+# --- Конец загрузки конфигурации ---
+
+# Настройка параметров для прямого TCP соединения
+connect_args = {
+    "server_settings": {
+        "client_encoding": "utf8"
+    },
+    "statement_cache_size": 0,
+    "command_timeout": 60,
+    "timeout": 10
+}
+
+if sys.platform.startswith("win"):
+    connect_args.update({"ssl": False})
+    logger.info("Применены дополнительные настройки для Windows")
 
 # Создание асинхронного движка SQLAlchemy
-engine = create_async_engine(DATABASE_URL, echo=True, future=True)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=debug_mode, # Включаем echo только если DEBUG=True
+    future=True,
+    pool_pre_ping=True,
+    poolclass=NullPool, # Использование NullPool для Windows с asyncpg
+    connect_args=connect_args,
+    # Убираем isolation_level="AUTOCOMMIT", т.к. он может мешать транзакциям
+)
 
 # Базовый класс для моделей
 Base = declarative_base()
@@ -42,6 +123,15 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False
 )
+
+# Логируем параметры подключения безопасным способом
+try:
+    logger.info(f"Диагностика URL: драйвер={engine.url.drivername}, хост={engine.url.host}, порт={engine.url.port}, база={engine.url.database}, пользователь={engine.url.username}")
+    if diagnostics_mode:
+        logger.info(f"Настройки движка: echo={engine.echo}") # Убрал _future
+        logger.info(f"Параметры соединения: {connect_args}")
+except Exception as e:
+    logger.error(f"Ошибка при логировании параметров движка: {str(e)}")
 
 class UserParams(Base):
     __tablename__ = "users_params"
@@ -228,14 +318,28 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
             finally:
                 await session.close()
 
-# Dependency для FastAPI
+# Dependency для FastAPI (упрощенная версия)
 async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        except Exception:
-            await session.rollback()
-            raise
+    logger.info("Запрос сессии БД...")
+    session = None # Инициализируем None
+    try:
+        async with AsyncSessionLocal() as session:
+             # pool_pre_ping должен проверить соединение перед этим
+             logger.info("Сессия БД получена, передается в эндпоинт.")
+             yield session
+             logger.info("Контекст эндпоинта завершен, сессия будет неявно закрыта.")
+    except Exception as e:
+        logger.error(f"Ошибка во время работы с сессией БД: {str(e)}")
+        if session: # Добавим проверку на всякий случай
+             try:
+                 await session.rollback()
+                 logger.info("Откат транзакции выполнен.")
+             except Exception as rb_exc:
+                 logger.error(f"Ошибка при откате транзакции: {rb_exc}")
+        raise # Передаем исключение дальше
+    finally:
+        # async with AsyncSessionLocal() автоматически закроет сессию
+        logger.info("Блок finally get_async_db - сессия должна быть закрыта.")
 
 if __name__ == "__main__":
     asyncio.run(init_db())

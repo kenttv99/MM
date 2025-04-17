@@ -1,4 +1,5 @@
 # backend/api/admin_auth_routers.py
+import os
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from backend.schemas_enums.schemas import AdminCreate, AdminLogin, AdminResponse
 from backend.config.auth import create_admin, get_admin_by_username, pwd_context, create_access_token, get_current_admin, log_admin_activity
@@ -7,7 +8,16 @@ from backend.config.logging_config import logger
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from datetime import timedelta
 from backend.config.rate_limiter import rate_limit
-from constants import ACCESS_TOKEN_EXPIRE_MINUTES
+
+# --- Загрузка конфигурации из .env --- 
+# Предполагается, что load_dotenv() вызывается где-то при старте приложения
+ACCESS_TOKEN_EXPIRE_MINUTES_STR = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+try:
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(ACCESS_TOKEN_EXPIRE_MINUTES_STR)
+except ValueError:
+    logger.error(f"Неверное значение для ACCESS_TOKEN_EXPIRE_MINUTES: {ACCESS_TOKEN_EXPIRE_MINUTES_STR}. Используется значение по умолчанию 30.") # logger может быть не определен здесь
+    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# --- Конец загрузки конфигурации ---
 
 router = APIRouter()
 

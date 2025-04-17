@@ -1,4 +1,5 @@
 import hashlib
+import os
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.database.user_db import User, UserActivity, Admin, get_async_db
 from sqlalchemy.future import select
@@ -13,8 +14,27 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError
 from sqlalchemy import delete
 from backend.config.logging_config import logger
-from constants import SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES
 from backend.schemas_enums.schemas import TokenData
+
+# --- Загрузка конфигурации из .env ---
+# Предполагается, что load_dotenv() вызывается где-то при старте приложения
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES_STR = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
+
+# Проверка критических переменных
+if not SECRET_KEY:
+    raise ValueError("Переменная окружения SECRET_KEY не установлена!")
+if not ALGORITHM:
+    raise ValueError("Переменная окружения ALGORITHM не установлена!")
+
+try:
+    ACCESS_TOKEN_EXPIRE_MINUTES = int(ACCESS_TOKEN_EXPIRE_MINUTES_STR)
+except ValueError:
+    logger.error(f"Неверное значение для ACCESS_TOKEN_EXPIRE_MINUTES: {ACCESS_TOKEN_EXPIRE_MINUTES_STR}. Используется значение по умолчанию 30.")
+    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# --- Конец загрузки конфигурации ---
 
 # Контекст для хэширования паролей
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -67,7 +87,7 @@ async def create_access_token(data: dict, session: AsyncSession, expires_delta: 
     if expires_delta:
         expire = now + expires_delta
     else:
-        expire = now + timedelta(minutes=15)
+        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
     
     # Исправляем вызов метода encode, используя правильный синтаксис для authlib

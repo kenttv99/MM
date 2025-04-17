@@ -1,11 +1,16 @@
 # backend/database/drop_db.py
 import asyncio
+import os
 from sqlalchemy.ext.asyncio import create_async_engine
 from backend.database.user_db import Base  # Импортируем Base
 import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from constants import DATABASE_URL
+
+# --- Загрузка конфигурации из .env --- 
+# Предполагается, что load_dotenv() вызывается где-то при старте приложения
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("Переменная окружения DATABASE_URL не установлена!")
+# --- Конец загрузки конфигурации ---
 
 # Создаем асинхронный движок
 engine = create_async_engine(DATABASE_URL, echo=True, future=True)

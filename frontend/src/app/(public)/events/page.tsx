@@ -366,7 +366,7 @@ const EventCard: React.FC<{ event: EventData; index: number; lastCardRef?: (node
                 }}></div>
               )}
               {/* Статус мероприятия теперь будет поверх оверлея */}
-              <span className={`absolute top-2 ${isReserved ? 'right-6' : 'right-2'} px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status).bgColor} ${getStatusStyles(event.status).textColor} z-9`}>
+              <span className={`absolute top-2 ${isReserved ? 'right-6' : 'right-2'} px-2 py-1 text-xs rounded-full ${getStatusStyles(event.status).bgColor} ${getStatusStyles(event.status).textColor}`}>
                 {getStatusStyles(event.status).label}
               </span>
             </div>

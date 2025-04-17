@@ -1,4 +1,25 @@
 // Создаю файл метаданных для SEO страницы списка мероприятий
+// JSON-LD схема BreadcrumbList
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
+const breadcrumbList = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Главная",
+      "item": siteUrl
+    },
+    {
+      "@type": "ListItem",
+      "position": 2,
+      "name": "Все мероприятия",
+      "item": `${siteUrl}/events`
+    }
+  ]
+};
+
 export const metadata = {
   title: 'Все мероприятия – Moscow Mellows',
   description: 'Просмотрите все предстоящие и завершенные мероприятия Moscow Mellows.',
@@ -19,31 +40,8 @@ export const metadata = {
   alternates: {
     canonical: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com'}/events`,
   },
-};
-
-export default function Head() {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
-  const breadcrumbList = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      {
-        "@type": "ListItem",
-        "position": 1,
-        "name": "Главная",
-        "item": siteUrl
-      },
-      {
-        "@type": "ListItem",
-        "position": 2,
-        "name": "Все мероприятия",
-        "item": `${siteUrl}/events`
-      }
-    ]
-  };
-  return (
-    <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbList) }} />
-    </>
-  );
-} 
+  // Добавляем JSON-LD BreadcrumbList
+  other: {
+    "script[type='application/ld+json']": JSON.stringify(breadcrumbList),
+  }
+}; 

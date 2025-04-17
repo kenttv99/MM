@@ -1,4 +1,14 @@
-// Создаю файл метаданных и JSON-LD для страницы медиа
+// JSON-LD схема BreadcrumbList
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
+const breadcrumbList = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Главная", "item": siteUrl },
+    { "@type": "ListItem", "position": 2, "name": "Медиа", "item": `${siteUrl}/media` }
+  ]
+};
+
 export const metadata = {
   title: 'Медиа – Moscow Mellows',
   description: 'Фото, видео и аудио материалы с мероприятий Moscow Mellows.',
@@ -19,19 +29,8 @@ export const metadata = {
   alternates: {
     canonical: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com'}/media`,
   },
-};
-
-export default function Head() {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
-  const breadcrumbList = {
-    "@context": "https://schema.org",
-    "@type": "BreadcrumbList",
-    "itemListElement": [
-      { "@type": "ListItem", "position": 1, "name": "Главная", "item": siteUrl },
-      { "@type": "ListItem", "position": 2, "name": "Медиа", "item": `${siteUrl}/media` }
-    ]
-  };
-  return (
-    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbList) }} />
-  );
-} 
+  // Добавляем JSON-LD BreadcrumbList
+  other: {
+    "script[type='application/ld+json']": JSON.stringify(breadcrumbList),
+  }
+}; 

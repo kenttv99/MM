@@ -1,4 +1,15 @@
-// Создаю файл метаданных для SEO главной страницы
+// import React from "react"; // Удаляем неиспользуемый импорт
+// Удаляем импорт SocialMeta, так как Head будет удален
+// import SocialMeta from '@/components/SocialMeta';
+
+// JSON-LD схема WebSite
+const websiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  url: process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com',
+  name: 'MOSCOW MELLOWS'
+};
+
 export const metadata = {
   title: 'MOSCOW MELLOWS – Главная',
   description: 'Официальный сайт Moscow Mellows. Узнайте о мероприятиях, просматривайте медиа и следите за событиями.',
@@ -22,9 +33,11 @@ export const metadata = {
   alternates: {
     canonical: process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com',
   },
+  // Добавляем JSON-LD в metadata
+  other: {
+    "script[type='application/ld+json']": JSON.stringify(websiteSchema),
+  }
 };
 
-export default function Head() {
-  // Здесь можно добавить JSON-LD или дополнительные теги, если потребуется
-  return null;
-}
+// Удаляем экспорт по умолчанию Head
+// export default function Head() { ... }

@@ -2315,3 +2315,11 @@ sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call a
 2025-04-17 14:52:55,221 - root - ERROR - Error in token refresh middleware: bad_signature: 
 2025-04-17 14:52:55,252 - root - ERROR - Error in token refresh middleware: bad_signature: 
 2025-04-17 17:21:11,776 - root - ERROR - Ошибка при логировании параметров: 'AsyncEngine' object has no attribute '_future'
+2025-04-17 23:25:49,423 - root - ERROR - Ошибка во время работы с сессией БД: 401: Could not validate credentials
+2025-04-17 23:25:49,584 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-17 23:26:18,374 - root - ERROR - Ошибка во время работы с сессией БД: 401: Could not validate credentials
+2025-04-17 23:26:18,377 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-17 23:26:18,504 - root - ERROR - Ошибка во время работы с сессией БД: 401: Could not validate credentials
+2025-04-17 23:26:18,513 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-17 23:26:18,556 - root - ERROR - Ошибка во время работы с сессией БД: 401: Could not validate credentials
+2025-04-17 23:26:18,561 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

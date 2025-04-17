@@ -4,9 +4,9 @@
 
 В Next.js App‑директории используются:
 - `app/metadata.ts` — глобальные метаданные (для всех страниц).
-- `app/(public)/*/head.tsx` — page‑specific `metadata` или компонент `<Head>` для каждой публичной страницы.
+- `app/(public)/*/head.tsx` — файлы, экспортирующие page-specific объект `metadata` или асинхронную функцию `generateMetadata` для каждой публичной страницы.
 
-Все эти данные автоматически конвертируются в теги `<title>`, `<meta>`, Open Graph, Twitter Cards и др. на стороне сервера.
+Next.js автоматически собирает метаданные из `app/metadata.ts` и соответствующего файла `head.tsx` (или `layout.tsx`/`page.tsx`, если `head.tsx` отсутствует) и генерирует теги `<title>`, `<meta>`, Open Graph, Twitter Cards, JSON-LD и др. на стороне сервера.
 
 ---
 
@@ -48,10 +48,20 @@
 
 ### 2.10. JSON‑LD (schema.org)
 - `<script type="application/ld+json">` для структурированных данных.
+- Добавляется через поле `metadata.other`:
+  ```ts
+  // В файле head.tsx или metadata.ts
+  const mySchema = { "@context": "...", ... };
+  export const metadata = {
+    // ... другие поля
+    other: {
+      "script[type='application/ld+json']": JSON.stringify(mySchema),
+    }
+  };
+  ```
 - Используем:
+  - `WebSite` (на главной)
   - `BreadcrumbList` — хлебные крошки.
-  - `Event` — полная схема мероприятия (название, даты, локация, цены, доступность).
-  - В будущем: `Organization`, `FAQPage`, `VideoObject` и др.
 
 ---
 
@@ -158,5 +168,44 @@
 8. Добавьте в `head.tsx` глобальные `<link rel="manifest" href="/manifest.webmanifest">`, `<meta name="theme-color" content="#f97316">`.
 
 ---
+
+## 7. Схема компонентов и файлов
+
+Ниже краткая схема, какие файлы участвуют в SEO и за что отвечают:
+
+- **`app/metadata.ts`**
+  - Глобальные настройки SEO: `metadataBase`, `title` (default + template), `description`, `keywords`, `authors`, `openGraph` (default), `twitter` (default), `viewport`, `icons`, `robots`, `manifest`, `themeColor`.
+
+- **`app/(public)/head.tsx`**
+  - Главная страница сайта.
+  - Экспортирует `metadata`, переопределяя `title`, `description`, `openGraph`, `twitter`.
+  - Включает JSON‑LD схему `WebSite` через `metadata.other`.
+
+- **`app/(public)/events/head.tsx`**
+  - Статическая страница «Все мероприятия».
+  - Экспортирует `metadata`, переопределяя `title`, `description`, `openGraph`, `twitter`.
+  - Включает JSON‑LD `BreadcrumbList` через `metadata.other`.
+
+- **`app/(public)/media/head.tsx`**
+  - Статическая страница «Медиа».
+  - Экспортирует `metadata`, переопределяя `title`, `description`, `openGraph`, `twitter`.
+  - Включает JSON‑LD `BreadcrumbList` через `metadata.other`.
+
+- **`app/(public)/events/[slug]/head.tsx`**
+  - Динамическая страница конкретного события.
+  - Экспортирует асинхронную функцию `generateMetadata({ params })`, которая фетчит данные события и возвращает `metadata`.
+  - Переопределяет `title`, `description`, `openGraph`, `twitter`, `canonical`.
+  - Включает JSON‑LD схемы `BreadcrumbList` и `Event` через `metadata.other`.
+
+- **`.env.local`**
+  - Переменные окружения для SEO:
+    - `NEXT_PUBLIC_SITE_URL` — базовый URL сайта (используется для `metadataBase` и др.)
+    - `NEXT_PUBLIC_DISABLE_INDEXING` — флаг `noindex`/`index`
+    - `NEXT_PUBLIC_FB_APP_ID`, `NEXT_PUBLIC_VK_APP_ID`, `NEXT_PUBLIC_TELEGRAM_CHANNEL` (используются, если нужны специфичные мета-теги, которых нет в стандартном `Metadata` API)
+
+- **`public/robots.txt`**, **`public/manifest.webmanifest`**, **`public/icons/`**, **`public/og-image-*.jpg`**, **`next-sitemap.config.js`**, **`public/_headers`**, **`.htaccess`**
+  - Вспомогательные файлы: правила для роботов, карта сайта, PWA-манифест, иконки, OG-изображения, Netlify/Apache настройки.
+
+--- 
 
 *Соблюдение всех этих шагов позволит сайту Moscow Mellows занять лидирующие позиции в рунете и заложить прочный фундамент для дальнейшего развития.* 

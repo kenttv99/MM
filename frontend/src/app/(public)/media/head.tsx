@@ -1,5 +1,5 @@
 // JSON-LD схема BreadcrumbList
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 const breadcrumbList = {
   "@context": "https://schema.org",
   "@type": "BreadcrumbList",
@@ -15,19 +15,20 @@ export const metadata = {
   openGraph: {
     title: 'Медиа – Moscow Mellows',
     description: 'Фото, видео и аудио материалы с мероприятий Moscow Mellows.',
-    url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com'}/media`,
+    url: `${siteUrl}/media`,
     siteName: 'Moscow Mellows',
-    images: [{ url: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com'}/og-image-media.jpg`, width: 1200, height: 630 }],
+    images: [{ url: `${siteUrl}/og-image-media.jpg`, width: 1200, height: 630 }],
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'Медиа – Moscow Mellows',
     description: 'Фото, видео и аудио материалы с мероприятий Moscow Mellows.',
-    images: [`${process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com'}/og-image-media.jpg`],
+    images: [`${siteUrl}/og-image-media.jpg`],
+    site: '@MoscowMellows'
   },
   alternates: {
-    canonical: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com'}/media`,
+    canonical: `${siteUrl}/media`,
   },
   // Добавляем JSON-LD BreadcrumbList
   other: {

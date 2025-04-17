@@ -5,35 +5,45 @@ import { EventData } from '@/types/events';
 
 interface GenerateMetadataProps {
   params: { slug: string };
-  searchParams: Record<string, string | string[]>;
+  // searchParams больше не нужен
+  // searchParams: Record<string, string | string[]>;
 }
 
 // Переименовываем и меняем сигнатуру
 export async function generateMetadata(
-  { params, searchParams }: GenerateMetadataProps
+  { params }: GenerateMetadataProps
 ): Promise<Metadata> {
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://example.com';
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
   const slug = params.slug;
-  const rawId = searchParams['id'];
-  const id = typeof rawId === 'string' ? rawId : Array.isArray(rawId) ? rawId[0] : null;
+  // Убираем чтение ID из searchParams, используем slug из пути
+  // const rawId = searchParams['id'];
+  // const id = typeof rawId === 'string' ? rawId : Array.isArray(rawId) ? rawId[0] : null;
 
-  if (!id) {
-    return {
-      title: 'Мероприятие – Moscow Mellows'
-    };
-  }
+  // Убираем проверку на id, так как slug всегда должен быть
+  // if (!id) { ... }
 
-  // TODO: Заменить на актуальный API-эндпоинт
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/public/events/${id}`, { cache: 'no-cache' });
+  // Используем slug в URL запроса к API
+  // Удаляем TODO комментарий, так как эндпоинт верен
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/v1/public/events/${slug}`, { cache: 'no-cache' });
   if (!res.ok) {
-    notFound();
+    // Если API вернул 404, используем notFound() из Next.js
+    if (res.status === 404) {
+      notFound();
+    }
+    // Для других ошибок можно выбросить исключение или вернуть дефолтные метаданные
+    console.error(`API Error fetching event ${slug}: ${res.status}`);
+    // Можно добавить возврат дефолтных метаданных или обработку ошибки
+    // return { title: 'Ошибка загрузки мероприятия' };
+    notFound(); // Пока используем notFound для всех ошибок API
   }
   const event: EventData = await res.json();
 
   const title = `${event.title} – Moscow Mellows`;
   const description = event.description ? event.description.slice(0, 160) : 'Подробности мероприятия на Moscow Mellows.';
-  const url = `${siteUrl}/events/${slug}?id=${id}`;
-  const imageUrl = event.image_url ? event.image_url : `${siteUrl}/og-image-default.jpg`; // Добавляем дефолтное изображение
+  // Используем канонический slug из ответа API для формирования canonical URL
+  const canonicalSlug = event.url_slug || slug; // Используем slug из параметров, если API не вернул
+  const url = `${siteUrl}/events/${canonicalSlug}`;
+  const imageUrl = event.image_url ? event.image_url : `${siteUrl}/og-image-default.jpg`;
 
   // BreadcrumbList JSON-LD
   const breadcrumbList = {

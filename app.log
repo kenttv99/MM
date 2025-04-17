@@ -2298,3 +2298,7 @@ Traceback (most recent call last):
   File "C:\Users\kentt\OneDrive\Desktop\projects\MM\venv\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 123, in await_only
     raise exc.MissingGreenlet(
 sqlalchemy.exc.MissingGreenlet: greenlet_spawn has not been called; can't call await_only() here. Was IO attempted in an unexpected place? (Background on this error at: https://sqlalche.me/e/20/xd2s)
+2025-04-17 02:06:25,634 - root - ERROR - Error in token refresh middleware: 'bytes' object has no attribute 'encode'
+2025-04-17 02:11:43,126 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-17 02:11:43,203 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials
+2025-04-17 02:11:43,264 - root - ERROR - Error in token refresh middleware: 401: Could not validate credentials

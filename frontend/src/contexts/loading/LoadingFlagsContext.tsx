@@ -1,8 +1,8 @@
 "use client";
 import React, { createContext, useContext, useRef, useCallback, useState, useEffect } from 'react';
 import { createLogger } from "@/utils/logger";
-import { LoadingFlagsContextType, LoadingState, LoadingStage } from './types';
-import { useLoadingStage, getStageLevel, useIsMounted } from './LoadingStageContext';
+import { LoadingFlagsContextType, LoadingStage } from './types';
+import { useLoadingStage, getStageLevel } from './LoadingStageContext';
 
 // Create a namespace-specific logger
 const flagsLogger = createLogger('LoadingFlagsContext');
@@ -15,7 +15,7 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { currentStage, setStage } = useLoadingStage();
   const [isStaticLoading, setIsStaticLoadingState] = useState(false);
   const [isDynamicLoading, setIsDynamicLoadingState] = useState(false);
-  const [activeRequestsCount, setActiveRequestsCount] = useState(0);
+  const setActiveRequestsCount = useState(0)[1];
   
   const isMounted = useRef(true);
   useEffect(() => {
@@ -109,6 +109,7 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
       return shouldBeLoading; // Возвращаем новое состояние флага
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStage, setStage]);
   
   // Reset all loading flags
@@ -116,7 +117,6 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (!isMounted.current) return;
     setIsStaticLoadingState(false);
     setIsDynamicLoadingState(false);
-    setActiveRequestsCount(0);
     flagsLogger.info('Resetting all loading flags');
   }, []);
   

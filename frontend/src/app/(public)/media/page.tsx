@@ -7,7 +7,7 @@ import Link from 'next/link';
 // import { useLoading } from "@/contexts/LoadingContextLegacy"; // Старый импорт
 import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext'; // Новый импорт
 
-export default function MediaPage() {
+const MediaPageContent = () => {
   // const { setStaticLoading } = useLoading(); // Старый хук
   const { setStaticLoading } = useLoadingFlags(); // Новый хук
 
@@ -43,4 +43,6 @@ export default function MediaPage() {
       <Footer />
     </>
   );
-}
+};
+
+export default MediaPageContent;

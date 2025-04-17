@@ -25,7 +25,7 @@ interface ValidationErrorDetail {
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { login } = useAdminAuth();
+  const { login, isAuthenticated, adminData, logout } = useAdminAuth();
   const [formValues, setFormValues] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -178,7 +178,7 @@ export default function AdminLoginPage() {
 
   return (
     <>
-      <AdminHeader />
+      <AdminHeader isAuthenticated={isAuthenticated} adminData={adminData} logout={logout} />
       <div className="flex items-center justify-center min-h-screen bg-gray-50 pt-16">
         <div className="bg-white p-8 rounded-2xl shadow-lg border border-gray-100 w-full max-w-md">
           <h1 className="text-2xl font-bold mb-6 text-gray-900 tracking-tight">Вход для администраторов</h1>

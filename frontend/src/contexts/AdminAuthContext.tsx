@@ -87,7 +87,6 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const { setStaticLoading } = useLoadingFlags();
   const isInitialized = useRef(false);
   const isMounted = useRef(false);
-  const lastCheckTimeRef = useRef<number>(0);
   const checkingAuthRef = useRef(false);
 
   // Initialize state with data from localStorage if available and token is valid locally

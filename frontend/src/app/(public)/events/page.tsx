@@ -24,6 +24,7 @@ import { FaTicketAlt } from "react-icons/fa";
 import Footer from "@/components/Footer";
 import { LoadingStage } from '@/contexts/loading/types';
 import { useAuth } from "@/contexts/AuthContext";
+import Header from '@/components/Header';
 
 // Настройка логирования для модуля согласно принципам документации
 configureModuleLogging('EventsPage', {
@@ -466,7 +467,7 @@ const LoadingSpinner = () => (
 // Тип элемента билета, получаемого из API
 type TicketItem = { status: string; event?: { id: number } };
 
-const EventsPage = () => {
+const EventsPageContent = () => {
   // Рефы и состояния компонента
   const isMounted = useIsMounted(); // Хук для отслеживания монтирования
   const [data, setData] = useState<EventsResponse>(null);
@@ -1119,4 +1120,4 @@ const EventsPage = () => {
   );
 };
 
-export default EventsPage;
+export default EventsPageContent;

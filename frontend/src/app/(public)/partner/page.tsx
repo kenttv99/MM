@@ -7,7 +7,7 @@ import Link from 'next/link';
 // import { useLoading } from "@/contexts/loading/LoadingContextLegacy"; // Старый импорт
 import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext'; // Новый импорт
 
-export default function PartnerPage() {
+const PartnerPageContent = () => {
   // const { setStaticLoading } = useLoading(); // Старый хук
   const { setStaticLoading } = useLoadingFlags(); // Новый хук
 
@@ -16,7 +16,7 @@ export default function PartnerPage() {
   }, [setStaticLoading]);
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col bg-gray-50">
       <Header />
       <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 min-h-[calc(100vh-120px)]">
         <div className="max-w-md w-full bg-white rounded-xl shadow-md overflow-hidden p-8 text-center">
@@ -41,6 +41,8 @@ export default function PartnerPage() {
         </div>
       </main>
       <Footer />
-    </>
+    </div>
   );
-}
+};
+
+export default PartnerPageContent;

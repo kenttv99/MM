@@ -1,13 +1,16 @@
 // frontend/src/hooks/useLoadingReset.ts
 import { useEffect } from "react";
-import { useLoading } from "@/contexts/LoadingContextLegacy";
+// Заменяем импорт на новый хук для флагов
+// import { useLoading } from "@/contexts/LoadingContextLegacy"; 
+import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext';
 import { useTimers } from "@/utils/timerManager";
 import { createLogger } from "@/utils/logger";
 
 const logger = createLogger('useLoadingReset');
 
 export function useLoadingReset(resetDelay: number = 2000) {
-  const { isDynamicLoading, setDynamicLoading } = useLoading();
+  // Используем isDynamicLoading и setDynamicLoading из useLoadingFlags
+  const { isDynamicLoading, setDynamicLoading } = useLoadingFlags();
   const { setTimeout } = useTimers();
 
   useEffect(() => {

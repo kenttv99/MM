@@ -408,15 +408,15 @@ export default function Dashboard() {
       console.log("Dashboard: Users Load More Triggered");
       fetchUsers(usersSkip, debouncedUserSearchTerm);
     }
-  }, [usersInView, usersHasMore, usersSkip, debouncedUserSearchTerm, fetchUsers]);
+  }, [usersInView, isUsersLoading, usersHasMore, usersSkip, debouncedUserSearchTerm, fetchUsers]);
 
   // Эффект для загрузки СЛЕДУЮЩЕЙ страницы Мероприятий
   useEffect(() => {
-    if (eventsInView && !isEventsLoading && eventsHasMore && initialEventsLoadComplete.current) { 
+    if (eventsInView && !isEventsLoading && eventsHasMore && initialEventsLoadComplete.current) {
       console.log("Dashboard: Events Load More Triggered");
       fetchEvents(eventsSkip, debouncedEventSearchTerm, eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter);
     }
-  }, [eventsInView, eventsHasMore, eventsSkip, debouncedEventSearchTerm, fetchEvents, 
+  }, [eventsInView, isEventsLoading, eventsHasMore, eventsSkip, debouncedEventSearchTerm, fetchEvents, 
       eventSortBy, eventSortOrder, eventStatusFilter, debouncedEventStartDateFilter, debouncedEventEndDateFilter]);
 
   // Эффект для перезагрузки при изменении поиска (УДАЛЕНО setUsers([]))

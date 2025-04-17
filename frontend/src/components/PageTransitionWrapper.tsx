@@ -3,18 +3,17 @@
 import React from "react";
 // Убираем импорт motion
 // import { motion } from "framer-motion"; 
-import { usePathname } from "next/navigation";
+// import { usePathname } from "next/navigation"; // Удаляем неиспользуемый импорт
 
 interface PageTransitionWrapperProps {
   children: React.ReactNode;
-  disableLoading?: boolean;
+  // disableLoading?: boolean; // Удаляем неиспользуемый параметр
 }
 
 export default function PageTransitionWrapper({ 
-  children, 
-  disableLoading = false,
+  children
 }: PageTransitionWrapperProps) {
-  const pathname = usePathname(); // Оставляем, если вдруг нужен для чего-то еще
+  // const pathname = usePathname(); // Удаляем неиспользуемую переменную
   
   // Просто рендерим children без обертки motion.div
   return (

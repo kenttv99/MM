@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { useLoading, LoadingStage, canChangeStage } from '@/contexts/LoadingContextLegacy';
+import { useLoadingFlags } from '@/contexts/loading/LoadingFlagsContext';
+import { useLoadingStage, canChangeStage } from '@/contexts/loading/LoadingStageContext';
+import { LoadingStage } from '@/contexts/loading/types';
 import { createLogger } from '@/utils/logger';
 
 // Создаем логгер для usePageLoading
@@ -42,11 +44,13 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
   const { 
     setStaticLoading, 
     setDynamicLoading, 
+    resetLoading 
+  } = useLoadingFlags();
+  const { 
     currentStage, 
     setStage, 
-    isAuthChecked,
-    resetLoading 
-  } = useLoading();
+    isAuthChecked 
+  } = useLoadingStage();
   
   // Предотвращаем множественные вызовы
   const isInitializedRef = useRef(false);
@@ -92,7 +96,7 @@ export function usePageLoading(options: UsePageLoadingOptions = {}) {
       currentStage === LoadingStage.STATIC_CONTENT ||
       currentStage === LoadingStage.DYNAMIC_CONTENT
     ) {
-      setStage(LoadingStage.DATA_LOADING);
+      setStage(LoadingStage.COMPLETED);
     }
   }, [setDynamicLoading, setStage, currentStage]);
 

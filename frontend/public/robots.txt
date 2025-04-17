@@ -1,4 +1,9 @@
+# *
 User-agent: *
-Disallow: /admin/
-Disallow: /api/
-Sitemap: https://ваш-домен.ru/sitemap.xml 
+Allow: /
+
+# Host
+Host: https://ваш-домен.ru
+
+# Sitemaps
+Sitemap: https://ваш-домен.ru/sitemap.xml

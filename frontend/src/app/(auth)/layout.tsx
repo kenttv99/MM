@@ -1,5 +1,6 @@
 "use client";
 
+import React, { Suspense } from 'react';
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Header from "@/components/Header";
@@ -27,7 +28,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <Header />
       <ErrorBoundary>
         <main className="min-h-screen pt-16">
-          <Breadcrumbs />
+          <Suspense fallback={null}>
+            <Breadcrumbs />
+          </Suspense>
           <PageTransitionWrapper>{children}</PageTransitionWrapper>
         </main>
       </ErrorBoundary>

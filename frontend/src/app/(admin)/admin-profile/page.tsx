@@ -65,7 +65,7 @@ const ProfileSkeleton = () => (
 );
 
 const AdminProfilePage = () => {
-  const { isAuthenticated, adminData, loading: authLoading, logout } = useAdminAuth();
+  const { isAuthenticated, adminData, isAuthChecked, logout } = useAdminAuth();
   const { currentStage, setStage } = useLoadingStage();
   const { setDynamicLoading } = useLoadingFlags();
   const router = useRouter();
@@ -171,14 +171,14 @@ const AdminProfilePage = () => {
           animation: fadeIn 0.5s ease-in-out;
         }
       `}</style>
-      {authLoading && (
+      {!isAuthChecked && (
         <div className="absolute inset-0 bg-gray-50 flex items-center justify-center z-50">
-          <p className="text-gray-600">Загрузка...</p>
+          <p className="text-gray-600">Проверка авторизации...</p> 
         </div>
       )}
       <main className="container mx-auto px-4 pt-24 pb-12">
-        <div className="max-w-3xl mx-auto fade-in" style={{ visibility: authLoading ? 'hidden' : 'visible' }}>
-          {(!isAuthenticated || !adminData) ? (
+        <div className="max-w-3xl mx-auto fade-in" style={{ visibility: !isAuthChecked ? 'hidden' : 'visible' }}>
+          {isAuthChecked && (!isAuthenticated || !adminData) ? (
             <div className="text-center py-8">
               <p className="text-lg text-gray-600 mb-4">Необходима авторизация администратора</p>
               <button 

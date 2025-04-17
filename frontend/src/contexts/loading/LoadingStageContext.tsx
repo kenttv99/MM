@@ -217,8 +217,6 @@ const LoadingStageContext = createContext<LoadingStageContextType | undefined>(u
 
 // Максимальный размер истории переходов
 const MAX_HISTORY_SIZE = 30;
-// Интервал автоматического прогресса (в миллисекундах)
-const AUTO_PROGRESS_INTERVAL = 5000;
 
 // Provider component
 export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

@@ -81,11 +81,6 @@ const Notifications: React.FC = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isNotificationsOpen, notifications, markNotificationViewed]);
 
-  const toggleNotifications = useCallback(() => {
-    console.log("Toggling notifications, current state:", isNotificationsOpen);
-    setIsNotificationsOpen((prev) => !prev);
-  }, [isNotificationsOpen]);
-
   const unreadCount = notifications.filter((notif) => !notif.isViewed).length;
 
   return (

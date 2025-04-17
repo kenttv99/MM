@@ -106,7 +106,7 @@ export const LoadingErrorProvider: React.FC<{ children: React.ReactNode }> = ({ 
       window.removeEventListener('loading-error', handleLoadingError);
       window.removeEventListener('api-not-found', handleNotFound);
     };
-  }, []);
+  }, [setError]);
   
   // Context value
   const contextValue: LoadingErrorContextType = {

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { AdminAuthProvider } from "@/contexts/AdminAuthContext";
 import PageTransitionWrapper from "@/components/PageTransitionWrapper";
 import ErrorBoundary from "@/components/Errors/ErrorBoundary";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { LoadingProvider } from "@/contexts/loading";
 import { useAdminAuth } from "@/contexts/AdminAuthContext";
 import AdminHeader from "@/components/AdminHeader";
@@ -21,7 +21,6 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
     adminData, 
     logout 
   } = useAdminAuth();
-  const [adminLoaded, setAdminLoaded] = useState(false);
   
   // Эффект для защиты маршрутов (редирект при необходимости)
   useEffect(() => {
@@ -33,11 +32,6 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
         console.log("AdminLayout: Auth check complete, not authenticated. Redirecting...");
         // Используем router из хука
         router.push("/admin-login");
-    }
-    
-    // Устанавливаем adminLoaded, когда проверка завершена (для скрытия скелетона PageTransitionWrapper)
-    if (isAuthChecked) {
-        setAdminLoaded(true);
     }
 
   // Зависимости: статус проверки, аутентификация, путь
@@ -82,7 +76,7 @@ const AdminLayoutContent = ({ children }: { children: React.ReactNode }) => {
           logout={logout}
         />
       )}
-      <PageTransitionWrapper disableLoading={isLoginPage || adminLoaded}>
+      <PageTransitionWrapper>
         <div className={!isLoginPage ? "pt-16 sm:pt-20" : ""}>
           {children}
         </div>

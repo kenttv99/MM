@@ -8,6 +8,7 @@ import { FaUser, FaCalendarAlt, FaVideo, FaArrowRight } from "react-icons/fa";
 import { FeatureCardProps } from "@/types/index";
 import { useLoadingFlags } from "@/contexts/loading";
 import { useAuth } from "@/contexts/AuthContext";
+import Header from '@/components/Header';
 
 // Расширяем тип FeatureCardProps
 interface ExtendedFeatureCardProps extends FeatureCardProps {
@@ -169,7 +170,7 @@ const Typewriter: React.FC<{ text: string; typingSpeed?: number; deletingSpeed?:
   );
 };
 
-const PublicHomePage: React.FC = () => {
+const HomePageContent = () => {
   const { setStaticLoading, isStaticLoading } = useLoadingFlags();
   const { isAuth, isAuthChecked } = useAuth();
   const hasReset = useRef(false);
@@ -272,6 +273,7 @@ const PublicHomePage: React.FC = () => {
 
   return (
     <>
+      <Header />
       <main className="flex-grow flex flex-col justify-center items-center pt-24 pb-16 px-4 sm:px-6 min-h-[calc(100vh-120px)]">
         {isAuthChecked && isContentReady ? (
           <Typewriter text="MOSCOW MELLOWS" typingSpeed={150} deletingSpeed={100} pauseTime={3000} />
@@ -302,6 +304,12 @@ const PublicHomePage: React.FC = () => {
       </main>
       <Footer />
     </>
+  );
+};
+
+const PublicHomePage = () => {
+  return (
+    <HomePageContent />
   );
 };
 

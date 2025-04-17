@@ -565,7 +565,8 @@ export default function EventPage() {
       }
     };
   // Добавляем retryTimestamp в зависимости, чтобы эффект повторно запускался при повторной попытке
-  }, [slug, searchParams, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage, retryTimestamp]);
+  // Также добавляем event, isEventNotFound, currentStage т.к. они используются в логике эффекта
+  }, [slug, searchParams, setStage, setError, logInfo, logWarn, logError, saveEventToLocalStorage, retryTimestamp, event, isEventNotFound, currentStage]);
 
 
   // --- Логика Рендеринга ---

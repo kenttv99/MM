@@ -47,6 +47,7 @@ const ProfileSkeleton: React.FC = () => {
 };
 // --- КОНЕЦ: Локальное определение скелетона --- 
 
+// Возвращаем прямой экспорт основного компонента
 const ProfilePage: React.FC = () => {
   const { currentStage, setStage } = useLoadingStage();
   console.log(`ProfilePage: Render start, stage: ${currentStage}`);

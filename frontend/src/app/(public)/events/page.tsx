@@ -24,7 +24,8 @@ import { FaTicketAlt } from "react-icons/fa";
 import Footer from "@/components/Footer";
 import { LoadingStage } from '@/contexts/loading/types';
 import { useAuth } from "@/contexts/AuthContext";
-import Header from '@/components/Header';
+// import Header from '@/components/Header'; // Header рендерится в layout, импорт не нужен
+import { apiFetch } from "@/utils/api";
 
 // Настройка логирования для модуля согласно принципам документации
 configureModuleLogging('EventsPage', {
@@ -38,13 +39,13 @@ const logger = createLogger('EventsPage');
 
 // API_BASE_URL is not needed as we use Next.js rewrites for all API calls
 
-// Интерфейс для API ответа с событиями
-interface ApiResponse<T> {
+// Используем существующий интерфейс ApiResponse
+interface ApiResponse<T> { // Убедимся, что этот интерфейс определён где-то (например, в types/api.ts)
   status: string;
-  data: T[];
-  page: number;
-  totalPages: number;
-  hasMore: boolean;
+  data: T; // Изменено на T, а не T[]
+  page?: number;
+  totalPages?: number;
+  hasMore?: boolean;
 }
 
 // Тип ответа с событиями
@@ -900,26 +901,35 @@ const EventsPageContent = () => {
       try {
         const token = localStorage.getItem('token');
         if (!token) return;
-        const response = await fetch('/user_edits/my-tickets?status=approved', {
+
+        // Используем ApiResponse<TicketItem[]> чтобы data был TicketItem[]
+        const response = await apiFetch<ApiResponse<TicketItem[]>>('/user_edits/my-tickets', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + token
-          }
+          },
+          params: { status: 'approved' },
+          bypassLoadingStageCheck: true,
+          // deduplicationInterval: 5000 // Удаляем
         });
-        if (response.ok) {
-          const json = await response.json();
-          // Используем тип TicketItem для безопасной обработки данных
-          const ticketsData: TicketItem[] = Array.isArray(json) 
-            ? (json as TicketItem[]) 
-            : (json.data || json.items || json.tickets) as TicketItem[];
-          const eventIds = ticketsData
-            .filter((ticket) => ticket.status === 'approved' && ticket.event?.id != null)
-            .map((ticket) => ticket.event!.id);
-          setReservedEventIds(eventIds);
+
+        // Обработка ответа от apiFetch
+        // Проверяем, что response.data существует и является массивом
+        if (response && response.data && Array.isArray(response.data)) {
+            const ticketsData: TicketItem[] = response.data; // Теперь это TicketItem[]
+            const eventIds = ticketsData
+                .filter((ticket: TicketItem) => ticket.status === 'approved' && ticket.event?.id != null)
+                .map((ticket: TicketItem) => ticket.event!.id);
+            setReservedEventIds(eventIds);
+        } else {
+            logger.warn("Failed to fetch reserved tickets or invalid response format.", response);
+            setReservedEventIds([]);
         }
+
       } catch (error) {
-        console.error('Ошибка при получении броней:', error);
+        logger.error('Ошибка при получении броней через apiFetch:', error);
+        setReservedEventIds([]);
       }
     };
     fetchReservedEventIds();

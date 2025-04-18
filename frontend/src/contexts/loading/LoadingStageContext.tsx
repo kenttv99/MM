@@ -298,19 +298,15 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Устанавливаем флаг завершения проверки аутентификации
       setIsAuthChecked(true);
       
-      // Если аутентификация успешна, переходим к STATIC_CONTENT
-      if (isAuthenticated) {
-        // Используем короткую задержку для предотвращения слишком быстрых переходов
-        if (stageTimeoutRef.current) {
-          clearTimeout(stageTimeoutRef.current);
-        }
-        
-        stageTimeoutRef.current = setTimeout(() => {
-          if (isMounted.current) {
-            setStage(LoadingStage.STATIC_CONTENT);
-          }
-        }, 50);
+      // Всегда переходим к STATIC_CONTENT после проверки аутентификации
+      if (stageTimeoutRef.current) {
+        clearTimeout(stageTimeoutRef.current);
       }
+      stageTimeoutRef.current = setTimeout(() => {
+        if (isMounted.current) {
+          setStage(LoadingStage.STATIC_CONTENT);
+        }
+      }, 50);
     };
     
     // Добавляем глобальный слушатель события

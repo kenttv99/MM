@@ -134,16 +134,19 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               />
               <AnimatePresence>
                 {shouldShowError(field, formErrors[field.name]) && !successMessage && (
-                  <motion.p
-                    initial={{ opacity: 0, y: -10 }}
+                  <motion.div
+                    initial={{ opacity: 0, y: -5 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
+                    exit={{ opacity: 0, y: -5 }}
                     transition={{ duration: 0.2 }}
-                    className="absolute left-0 top-full text-red-500 text-xs mt-0.5 overflow-wrap-break-word max-w-full"
-                    style={{ fontSize: "0.65rem" }}
+                    className="absolute left-0 bottom-[-28px] z-10 bg-red-100 border border-red-300 text-red-700 text-xs py-0.5 px-2 rounded shadow-sm"
+                    style={{ maxWidth: "calc(100% - 10px)" }}
                   >
-                    {formErrors[field.name]}
-                  </motion.p>
+                    <div className="relative">
+                      {formErrors[field.name]}
+                      <div className="absolute w-2 h-2 bg-red-100 border-b border-r border-red-300 transform rotate-45 left-4 top-[-6px]"></div>
+                    </div>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </div>

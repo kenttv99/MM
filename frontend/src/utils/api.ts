@@ -289,6 +289,39 @@ function dispatchStatusChange(stage: LoadingStage, isUnauthorizedResponse = fals
   }));
 }
 
+// Добавляем переменную для отслеживания цикличности
+let cycleDetectionCounter = 0;
+const MAX_CYCLES = 3;
+
+// Модифицируем функцию setStage для выявления зацикливания
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function setLoadingStage(stage: LoadingStage, allowRegression = false) {
+  // Проверяем, не вызывается ли слишком часто одна и та же функция
+  if (stage === currentLoadingStage) {
+    cycleDetectionCounter++;
+    
+    if (cycleDetectionCounter > MAX_CYCLES) {
+      stageLogger.warn('Обнаружена циклическая установка того же состояния загрузки', {
+        stage,
+        allowRegression,
+        cycleCount: cycleDetectionCounter
+      });
+      // Сбрасываем счетчик
+      cycleDetectionCounter = 0;
+      return;
+    }
+  } else {
+    // Сбрасываем счетчик, если меняется значение состояния
+    cycleDetectionCounter = 0;
+  }
+  
+  // Продолжаем обычное выполнение функции
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const prevStage = currentLoadingStage;
+  
+  // ... остальная логика функции setLoadingStage
+}
+
 // Обрабатываем изменение стадии загрузки
 function handleStageChange(event: CustomEvent) {
   if (!event.detail || !event.detail.stage) return;

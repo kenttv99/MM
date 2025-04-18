@@ -42,30 +42,6 @@ services:
     networks:
       - app-network
 
-  init-db:
-    build:
-      context: .
-      dockerfile: backend.Dockerfile
-    container_name: init_db_service
-    command: >
-      bash -c "
-      sleep 5 &&
-      cd backend/database &&
-      python init_user_db.py"
-    volumes:
-      # Монтируем код для доступа к миграциям
-      - ./backend:/app/backend
-    env_file:
-      - .env # Загружаем переменные из .env файла
-    environment:
-      DB_HOST: db
-      DB_PORT: 5432
-      PYTHONPATH: /app
-    depends_on:
-      - db
-    networks:
-      - app-network
-
   redis:
     image: redis:7-alpine
     container_name: redis_cache
@@ -106,7 +82,6 @@ services:
     depends_on:
       - db
       - redis
-      - init-db
     networks:
       - app-network
     restart: unless-stopped
@@ -142,7 +117,6 @@ services:
     depends_on:
       - db
       - redis
-      - init-db
     networks:
       - app-network
     restart: unless-stopped

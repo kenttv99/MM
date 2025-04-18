@@ -310,13 +310,12 @@ const Header: React.FC = () => {
       logInfo('Received auth state change event', event.detail);
       loadingRef.current = event.detail.isAuth;
       checkedRef.current = true;
-      if (event.detail.isAuth) {
-        forceRender(c => c + 1);
-        logInfo('Showing header due to authentication', { 
-          isAuthenticated: event.detail.isAuth,
-          userData: event.detail.userData
-        });
-      }
+      // Force re-render on any auth state change (login or logout)
+      forceRender(c => c + 1);
+      logInfo('Header: Re-render after auth state change', {
+        isAuthenticated: event.detail.isAuth,
+        userData: event.detail.userData
+      });
     };
     window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
     return () => {
@@ -324,35 +323,39 @@ const Header: React.FC = () => {
     };
   }, []);
 
-  // Эффект для отслеживания первого монтирования
+  // Слушаем завершение проверки аутентификации для корректного рендера
   useEffect(() => {
-    if (isInitialMount.current) {
+    const handleAuthCheckComplete = () => {
+      forceRender(c => c + 1);
+      logInfo('Header: Re-render after auth check complete');
+    };
+    window.addEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
+    return () => {
+      window.removeEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
+    };
+  }, []);
+
+  // Эффект для отслеживания первого монтирования после проверки аутентификации
+  useEffect(() => {
+    // Ждем полной проверки аутентификации и только если пользователь авторизован
+    if (isInitialMount.current && isAuthChecked && isAuth) {
       isInitialMount.current = false;
-      logInfo('Header component mounted', { 
+      logInfo('Header component mounted post-auth check', { 
         authLoading, 
         isAuthChecked,
-        currentStage
+        currentStage,
+        isAuth
       });
-      
-      // Проверка данных пользователя и аватарки при монтировании
-      if (userData) {
-        console.log('Header: Проверка данных пользователя при монтировании:', {
-          id: userData.id,
-          email: userData.email,
-          hasAvatar: !!userData.avatar_url,
-          avatarUrl: userData.avatar_url
-        });
-        
-        // Используем DOM API вместо конструктора Image()
-        if (userData.avatar_url) {
-          const testImg = document.createElement('img');
-          testImg.onload = () => console.log('Header: Тест загрузки аватарки успешен:', userData.avatar_url);
-          testImg.onerror = () => console.error('Header: Тест загрузки аватарки провален:', userData.avatar_url);
-          testImg.src = userData.avatar_url;
-        }
+      // Предзагрузка аватарки
+      if (userData?.avatar_url) {
+        console.log('Header: Предзагрузка аватарки:', userData.avatar_url);
+        const img = document.createElement('img');
+        img.onload = () => console.log('Header: Аватарка успешно предзагружена:', userData.avatar_url);
+        img.onerror = () => console.error('Header: Ошибка предзагрузки аватарки:', userData.avatar_url);
+        img.src = userData.avatar_url;
       }
     }
-  }, [authLoading, currentStage, isAuthChecked, userData]);
+  }, [authLoading, currentStage, isAuthChecked, isAuth, userData]);
 
   // Add event listeners for user data changes and avatar updates
   useEffect(() => {
@@ -544,7 +547,7 @@ const Header: React.FC = () => {
 
   const openRegistration = useCallback(() => {
     setIsRegisterModalOpen(true);
-    setIsLoginModalOpen(true);
+    setIsLoginModalOpen(false);
   }, []);
 
   const handleModalClose = useCallback(() => {
@@ -554,9 +557,11 @@ const Header: React.FC = () => {
 
   const toggleToLogin = useCallback(() => {
     setIsRegisterModalOpen(false);
+    setIsLoginModalOpen(true);
   }, []);
 
   const toggleToRegister = useCallback(() => {
+    setIsLoginModalOpen(false);
     setIsRegisterModalOpen(true);
   }, []);
 
@@ -847,7 +852,7 @@ const Header: React.FC = () => {
           onClose={handleModalClose}
           title="Вход"
         >
-          <Login isOpen={isLoginModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
+          <Login isOpen={isLoginModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
         </AuthModal>
       )}
 
@@ -857,7 +862,7 @@ const Header: React.FC = () => {
           onClose={handleModalClose}
           title="Регистрация"
         >
-          <Registration isOpen={isRegisterModalOpen} onClose={handleModalClose} toggleMode={toggleToRegister} />
+          <Registration isOpen={isRegisterModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
         </AuthModal>
       )}
     </header>

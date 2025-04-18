@@ -130,13 +130,23 @@ export const useAuthForm = ({
                 console.log('AuthForm: Dispatching authStateChanged event');
                 (window as Window & { __auth_event_sent__?: boolean }).__auth_event_sent__ = true;
                 
-                window.dispatchEvent(new CustomEvent('authStateChanged', {
-                  detail: {
-                    isAuth: true,
-                    userData,
-                    token: data.access_token
-                  }
-                }));
+                const eventAlreadyDispatched = localStorage.getItem('__auth_event_recently_dispatched');
+                if (!eventAlreadyDispatched) {
+                  localStorage.setItem('__auth_event_recently_dispatched', 'true');
+                  window.dispatchEvent(new CustomEvent('authStateChanged', {
+                    detail: {
+                      isAuth: true,
+                      userData,
+                      token: data.access_token
+                    }
+                  }));
+                  
+                  setTimeout(() => {
+                    localStorage.removeItem('__auth_event_recently_dispatched');
+                  }, 5000);
+                } else {
+                  console.log('AuthForm: Skipped duplicate authStateChanged event dispatch');
+                }
                 
                 setTimeout(() => {
                   console.log('AuthForm: Resetting auth event sent flag');
@@ -168,6 +178,14 @@ export const useAuthForm = ({
           }
         } else if (!isLogin) {
           console.log('AuthForm: Registration successful');
+          
+          if (typeof window !== 'undefined') {
+            console.log('AuthForm: Dispatching auth-check-complete event after registration');
+            window.dispatchEvent(new CustomEvent('auth-check-complete', {
+              detail: { isAuthenticated: true }
+            }));
+          }
+          
           successTimerRef.current = setTimeout(() => {
             console.log('AuthForm: Closing modal after registration success timeout');
             setSuccessMessage("");

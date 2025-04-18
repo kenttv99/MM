@@ -1,5 +1,5 @@
 // Загружаем переменные из .env.local
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-var-requires, @typescript-eslint/no-require-imports
 const dotenvResult = require('dotenv').config({ path: '.env.local' });
 
 if (dotenvResult.error) {
@@ -38,6 +38,7 @@ const adminHostname = adminUrlParts.hostname; // Скорее всего сов�
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  swcMinify: true,
   images: {
     // Домены можно брать из URL
     domains: [backendHostname, adminHostname],
@@ -215,6 +216,18 @@ const nextConfig = {
         ],
       },
     ];
+  },
+  // Оптимизация сборки для предотвращения зацикливания
+  webpack: (config) => {
+    // Настройки для избежания зацикливания при сборке
+    config.watchOptions = {
+      ...config.watchOptions,
+      ignored: /node_modules/,
+      aggregateTimeout: 300,
+      poll: 1000,
+    };
+    
+    return config;
   },
 };
 

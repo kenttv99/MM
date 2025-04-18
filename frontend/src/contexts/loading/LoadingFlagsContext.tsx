@@ -2,7 +2,7 @@
 import React, { createContext, useContext, useRef, useCallback, useState, useEffect } from 'react';
 import { createLogger } from "@/utils/logger";
 import { LoadingFlagsContextType, LoadingStage } from './types';
-import { useLoadingStage, getStageLevel } from './LoadingStageContext';
+import { useLoadingStage } from './LoadingStageContext';
 
 // Create a namespace-specific logger
 const flagsLogger = createLogger('LoadingFlagsContext');
@@ -37,7 +37,9 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
           if (currentStage === LoadingStage.AUTHENTICATION || currentStage === LoadingStage.INITIAL) {
             setStage(LoadingStage.STATIC_CONTENT);
             requestAnimationFrame(() => {
-              if (isMounted.current) setStage(LoadingStage.COMPLETED);
+              if (isMounted.current) {
+                 setStage(LoadingStage.COMPLETED);
+              }
             });
             return false;
           } else if (currentStage === LoadingStage.STATIC_CONTENT) {
@@ -47,7 +49,7 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
             return false;
           }
         } else {
-          if (currentStage !== LoadingStage.AUTHENTICATION && currentStage !== LoadingStage.INITIAL) {
+          if (currentStage !== LoadingStage.AUTHENTICATION && currentStage !== LoadingStage.INITIAL && currentStage !== LoadingStage.COMPLETED) {
              setStage(LoadingStage.COMPLETED);
           }
           return false;
@@ -78,36 +80,23 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const shouldBeLoading = isLoading || newCount > 0;
 
     // Обновляем состояние флага, только если оно изменилось
-    setIsDynamicLoadingState(prevDynamic => {
-      if (prevDynamic === shouldBeLoading) return prevDynamic; // Нет изменений
-
-      flagsLogger.info('Setting dynamic loading', { isLoading: shouldBeLoading, newCount, stage: currentStage });
-
-      // Логика смены стадий при ИЗМЕНЕНИИ флага
-      if (shouldBeLoading && !prevDynamic) { // Динамическая загрузка НАЧАЛАСЬ
-        if (currentStage === LoadingStage.STATIC_CONTENT) {
+    setIsDynamicLoadingState(prev => {
+      if (prev === shouldBeLoading) return prev;
+      flagsLogger.info('Setting dynamic loading', { isLoading, stage: currentStage });
+      if (shouldBeLoading) {
+        // Если устанавливаем динамическую загрузку, переводим стадию, если необходимо
+        if (currentStage < LoadingStage.DYNAMIC_CONTENT && currentStage !== LoadingStage.ERROR) {
           setStage(LoadingStage.DYNAMIC_CONTENT);
         }
-      } else if (!shouldBeLoading && prevDynamic) { // Динамическая загрузка ЗАКОНЧИЛАСЬ (newCount === 0)
-        flagsLogger.info('All dynamic requests finished.');
-        if (currentStage === LoadingStage.DYNAMIC_CONTENT) {
-          setStage(LoadingStage.COMPLETED);
-        }
-        // Дополнительная проверка и установка COMPLETED через таймаут
-        const stageLevel = getStageLevel(currentStage);
-        if (stageLevel >= getStageLevel(LoadingStage.DYNAMIC_CONTENT)) {
-          setTimeout(() => {
-            // Перепроверяем счетчик внутри таймаута перед установкой COMPLETED
-            setActiveRequestsCount(currentCountInTimeout => {
-                if (currentCountInTimeout === 0 && isMounted.current) {
-                    setStage(LoadingStage.COMPLETED);
-                }
-                return currentCountInTimeout; // Возвращаем текущее значение без изменений
-            });
-          }, 500);
-        }
+      } else {
+        // Если сбрасываем динамическую загрузку, проверяем, не пора ли завершить
+        // Это может быть преждевременно, лучше полагаться на detectAndFixLoadingInconsistency
+        // if (currentStage === LoadingStage.DYNAMIC_CONTENT && !isStaticLoading) {
+        //   flagsLogger.info('Dynamic loading ended, setting COMPLETED');
+        //   setStage(LoadingStage.COMPLETED);
+        // }
       }
-      return shouldBeLoading; // Возвращаем новое состояние флага
+      return shouldBeLoading;
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentStage, setStage]);
@@ -117,8 +106,11 @@ export const LoadingFlagsProvider: React.FC<{ children: React.ReactNode }> = ({ 
     if (!isMounted.current) return;
     setIsStaticLoadingState(false);
     setIsDynamicLoadingState(false);
-    flagsLogger.info('Resetting all loading flags');
-  }, []);
+    flagsLogger.info('Resetting loading flags');
+    if (currentStage !== LoadingStage.COMPLETED && currentStage !== LoadingStage.ERROR) {
+      setStage(LoadingStage.COMPLETED);
+    }
+  }, [currentStage, setStage]);
   
   // Context value
   const contextValue: LoadingFlagsContextType = {

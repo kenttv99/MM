@@ -2,7 +2,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import EventRegistration from "@/components/EventRegistration";
 import EventDetails from "@/components/EventDetails";
@@ -85,7 +84,7 @@ const AnimatedGradientBackground = ({ className = "", children }: { className?: 
 // Компонент скелетона для страницы мероприятия
 const EventDetailsSkeleton: React.FC = () => (
   <div className="min-h-screen flex flex-col bg-gray-50">
-    <Header />
+    {/* Header теперь рендерится в layout */}
     <main className="flex-grow">
       {/* Скелетон для обложки мероприятия */}
       <div className="relative h-[400px] w-full px-6 mt-16 mb-8">
@@ -526,7 +525,7 @@ export default function EventPage() {
         if (err instanceof Error && err.name === 'AbortError') {
           logInfo(`Fetch explicitly aborted for eventId: ${currentEventId}`);
         } else if (isMountedRef.current) {
-          logError(`Unexpected error fetching event eventId: ${currentEventId}`, err);
+          logError("Unexpected error fetching event eventId: " + currentEventId, err);
           const errorMessage = err instanceof Error
             ? (err.message.includes("fetch") ? "Ошибка сети при загрузке мероприятия" : err.message)
             : "Неизвестная ошибка при загрузке мероприятия";
@@ -576,7 +575,6 @@ export default function EventPage() {
     logWarn("Rendering error state from context (non-404)");
     return (
       <div className="min-h-screen flex flex-col">
-        <Header />
         <main className="flex-grow flex items-center justify-center">
           {/* Используем стандартный ErrorPlaceholder */}
           <ErrorPlaceholder error={loadingErrorFromContext ? new Error(loadingErrorFromContext) : null} />
@@ -657,7 +655,6 @@ export default function EventPage() {
       logInfo("Rendering event content", { currentStage, eventId: event.id });
       return (
         <div className="min-h-screen flex flex-col">
-          <Header />
           <main className="flex-grow">
             {/* Обложка мероприятия */}
             <motion.section

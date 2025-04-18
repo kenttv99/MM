@@ -45,8 +45,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const handleAuthFailure = useCallback(() => {
     localStorage.removeItem('userData');
     localStorage.removeItem('token');
+    // Очистить кэш аватарок
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('cached_avatar_url');
+      localStorage.removeItem('avatar_cache_buster');
+    }
     tokenRef.current = null;
-    authLogger.info('Authentication failure triggered, clearing tokens.');
+    if (isMounted.current) {
+        setIsAuthenticated(false);
+        setUser(null);
+    }
+    authLogger.warn('Authentication failure triggered, clearing tokens and local state.');
   }, []);
 
   const updateUserData = useCallback((data: UserData, resetLoading = true) => {
@@ -87,77 +96,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let checkSuccessful = false;
 
     try {
+      // Always validate token with server, ignore stale localStorage
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       tokenRef.current = token;
-
       if (!token) {
-        authLogger.info('No token found.');
-        setIsAuthenticated(false);
-        setUser(null);
+        authLogger.info('No token found, clearing auth state');
+        handleAuthFailure();
         checkSuccessful = false;
+        return;
       } else {
-        const storedUserData = typeof window !== 'undefined' ? localStorage.getItem('userData') : null;
-        if (storedUserData) {
-          try {
-            const parsedUserData = JSON.parse(storedUserData) as UserData;
-            authLogger.info('User data found in localStorage.', { userId: parsedUserData.id });
-            setUser(parsedUserData);
-            setIsAuthenticated(true);
-            checkSuccessful = true;
-
-            if (!parsedUserData.avatar_url && parsedUserData.id) {
-              authLogger.info('Missing avatar in localStorage, verifying in background.');
-              fetch('/auth/me', {
-                method: 'GET',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}`
-                }
-              })
-                .then(res => res.ok ? res.json() : Promise.reject(res))
-                .then((freshUserData: UserData) => {
-                  if (freshUserData.avatar_url) {
-                    authLogger.info('Background check found avatar, updating state.');
-                    if (isMounted.current) {
-                      updateUserData(freshUserData, false);
-                    }
-                  }
-                })
-                .catch(err => authLogger.warn('Background avatar check failed.', err));
-            }
-          } catch (e) {
-            authLogger.error('Error parsing stored user data, clearing.', e);
-            localStorage.removeItem('userData');
-            setIsAuthenticated(false);
-            setUser(null);
-            checkSuccessful = false;
-          }
-        } else {
-          authLogger.info('No user data in localStorage, verifying token with server.');
-          const response = await fetch('/auth/me', {
+        try {
+          // Verify token by fetching user data from server
+          const freshUserData = await apiFetch<UserData>('/auth/me', {
             method: 'GET',
-            headers: { 'Authorization': `Bearer ${tokenRef.current}` },
+            headers: { 'Authorization': `Bearer ${token}` },
+            bypassLoadingStageCheck: true
           });
-
-          if (response.ok) {
-            const userData = await response.json();
-            authLogger.info('Server verification successful.', { userId: userData.id });
-            setUser(userData);
+          authLogger.info('Initial auth check successful.', { userId: freshUserData.id });
+          if (isMounted.current) {
+            setUser(freshUserData);
             setIsAuthenticated(true);
-            localStorage.setItem('userData', JSON.stringify(userData));
-            checkSuccessful = true;
-          } else {
-            if (response.status === 401 || response.status === 403) {
-               authLogger.warn('Server verification failed with auth error.', { status: response.status });
-               handleAuthFailure();
-               setIsAuthenticated(false);
-               setUser(null);
-               checkSuccessful = false;
-            } else {
-               authLogger.error('Server verification failed with non-auth error.', { status: response.status });
-               checkSuccessful = isAuthenticated;
-            }
+            localStorage.setItem('userData', JSON.stringify(freshUserData));
           }
+          checkSuccessful = true;
+        } catch (err) {
+          authLogger.warn('Token validation failed, clearing auth state.', err);
+          handleAuthFailure();
         }
       }
     } catch (error) {
@@ -194,19 +158,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleUnauthorized = (event: Event) => {
       const customEvent = event as CustomEvent;
       authLogger.warn('Received auth-unauthorized event, updating auth state', customEvent.detail);
-      
+
       if (isMounted.current) {
-        // Устанавливаем isAuthChecked в true, чтобы прекратить отображение скелетона
         setIsAuthCheckedState(true);
-        
-        // Если это ошибка при попытке входа (не при проверке текущего токена),
-        // не сбрасываем состояние авторизации полностью
+
         if (customEvent.detail?.isLoginAttempt) {
           authLogger.info('Login attempt failed, keeping current auth state');
         } else {
-          setIsAuthenticated(false);
-          setUser(null);
-          handleAuthFailure();
+          authLogger.info('Unauthorized event (not login attempt), calling logout...');
+          logout();
         }
       }
     };
@@ -248,51 +208,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [setStage]);
 
   const logout = useCallback(async () => {
-    authLogger.info('Starting logout process');
-    
-    const batchUpdate = () => {
-      setUser(null);
-      setIsAuthenticated(false);
-      setIsAuthCheckedState(true);
-      tokenRef.current = null;
-    };
+    authLogger.info("Logout initiated.");
+    const token = localStorage.getItem('token');
 
-    try {
-      window.dispatchEvent(new CustomEvent('auth-logout-start'));
-      
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
-      
-      if (token) {
-        try {
-          await apiFetch('/auth/logout', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            bypassLoadingStageCheck: true
-          }).catch(err => {
-            authLogger.warn('Error during API logout, proceeding with client-side logout', err);
-          });
-        } catch (e) {
-          authLogger.warn('Exception during API logout, proceeding with client-side logout', e);
-        }
-      }
-      
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('token');
-        localStorage.removeItem('userData');
-      }
+    handleAuthFailure();
 
-      batchUpdate();
-
-      authLogger.info('Setting stage to AUTHENTICATION after logout (allowing regression)');
-      setStage(LoadingStage.AUTHENTICATION, true);
-
-      window.dispatchEvent(new CustomEvent('auth-logout-complete'));
-      
-    } catch (error) {
-      authLogger.error('Error during logout:', error);
-      batchUpdate();
+    if (isMounted.current) {
+        setIsAuthenticated(false);
+        setUser(null);
+        setIsAuthCheckedState(true);
+        setStage(LoadingStage.AUTHENTICATION, true);
     }
-  }, [setStage]);
+
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('authStateChanged', {
+            detail: { isAuth: false, userData: null, token: null }
+        }));
+        window.dispatchEvent(new CustomEvent('auth-check-complete', {
+            detail: { isAuthenticated: false }
+        }));
+        authLogger.info('Dispatched authStateChanged and auth-check-complete events.');
+    }
+
+    if (token) {
+        try {
+            await apiFetch('/auth/logout', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
+            });
+            authLogger.info("Server logout endpoint called successfully.");
+        } catch (error) {
+            authLogger.warn("Failed to call server logout endpoint (or endpoint doesn't exist):", error);
+        }
+    }
+  }, [handleAuthFailure, setStage]);
 
   useEffect(() => {
     const handleAdminLogout = () => {
@@ -310,34 +259,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   useEffect(() => {
     const handleUnauthorized = (event: CustomEvent) => {
-      authLogger.info('Detected 401 Unauthorized response', event.detail);
-      
-      // Проверяем, является ли запрос попыткой входа
+      authLogger.warn('Detected 401 Unauthorized', event.detail);
       const isLoginAttempt = event.detail?.isLoginAttempt;
-      
       if (isLoginAttempt) {
-        // Если это попытка входа, просто обновляем статус проверки аутентификации
-        // чтобы предотвратить зависание на скелетоне, но не выполняем logout
-        authLogger.info('Failed login attempt, updating auth status to prevent skeleton hang');
+        authLogger.info('Login attempt failed, marking auth check complete');
         if (isMounted.current) {
           setIsAuthCheckedState(true);
         }
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth-check-complete', { detail: { isAuthenticated: false } }));
+        }
         return;
       }
-      
-      if (isAuthenticated) {
-        authLogger.info('User was authenticated, initiating logout due to 401.');
-        logout();
-      } else {
-        authLogger.info('User was not authenticated, ensuring clean state after 401.');
-         if (isMounted.current) {
-            setIsAuthenticated(false);
-            setUser(null);
-            tokenRef.current = null;
-            setIsAuthCheckedState(true);
-            setStage(LoadingStage.AUTHENTICATION, true);
-         }
-      }
+      authLogger.info('Unauthorized response, forcing logout');
+      logout();
     };
 
     window.addEventListener('auth-unauthorized', handleUnauthorized as EventListener);

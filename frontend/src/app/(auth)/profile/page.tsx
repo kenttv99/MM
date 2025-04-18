@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
 import { LoadingStage } from '@/contexts/loading/types';
@@ -15,8 +14,12 @@ import SuccessDisplay from "@/components/common/SuccessDisplay";
 import ChangePasswordForm from "@/components/ChangePasswordForm";
 import { motion } from "framer-motion";
 import { UserData, FormState, ValidationErrors } from "@/types/index";
-import { apiFetch } from "@/utils/api";
+import { apiFetch, ApiError } from "@/utils/api";
 import UserEventTickets, { UserEventTicketsRef } from "@/components/UserEventTickets";
+import { createLogger } from "@/utils/logger";
+
+// Создаем логгер для компонента
+const profileLogger = createLogger('ProfilePage');
 
 // --- НАЧАЛО: Локальное определение скелетона --- 
 const ProfileSkeleton: React.FC = () => {
@@ -50,10 +53,9 @@ const ProfileSkeleton: React.FC = () => {
 // Возвращаем прямой экспорт основного компонента
 const ProfilePage: React.FC = () => {
   const { currentStage, setStage } = useLoadingStage();
-  console.log(`ProfilePage: Render start, stage: ${currentStage}`);
-  const { isAuth, userData, updateUserData, isLoading: authLoading } = useAuth();
+  profileLogger.info(`Render start, stage: ${currentStage}`);
+  const { isAuth, userData, updateUserData, isLoading: authLoading, isAuthChecked } = useAuth();
   const { error: loadingError, setError: setLoadingError } = useLoadingError();
-  const router = useRouter();
   
   const ticketsRef = useRef<UserEventTicketsRef>(null);
   const needsTicketsRefresh = useRef<boolean>(false);
@@ -70,14 +72,18 @@ const ProfilePage: React.FC = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
-  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [updateSuccess, setUpdateSuccess] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [shouldDeleteAvatar, setShouldDeleteAvatar] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasFetched = useRef(false);
   const isSubmitting = useRef(false);
   const [isProfileSectionReady, setIsProfileSectionReady] = useState(false);
-  
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const hasInitialized = useRef(false);
+
   const validateForm = useCallback((state: FormState = formState): boolean => {
     const errors: ValidationErrors = {};
     if (!state.fio) errors.fio = "ФИО обязательно";
@@ -90,61 +96,46 @@ const ProfilePage: React.FC = () => {
     return Object.keys(errors).length === 0;
   }, [formState]);
 
-  useEffect(() => {
-    const initProfile = async () => {
-      if (hasFetched.current || authLoading) return;
-      
-      if (!isAuth || !userData) {
-        console.log('ProfilePage: User not authenticated or no userData, redirecting.');
-        router.push("/");
-        return;
-      }
-      
-      const storedData = localStorage.getItem('userData');
-      let avatarUrl = userData.avatar_url;
-      
-      if (storedData) {
-        try {
-          const parsedData = JSON.parse(storedData);
-          if (parsedData.avatar_url && !avatarUrl) {
-            avatarUrl = parsedData.avatar_url;
-          }
-        } catch (e) {
-          console.error('ProfilePage: Ошибка при разборе данных из localStorage:', e);
+  const initProfile = useCallback(() => {
+    profileLogger.info('Initializing profile form', { stage: currentStage });
+    if (!isAuth || !userData) {
+      profileLogger.warn('Cannot init profile - not authenticated or no user data');
+      return;
+    }
+
+    setProfileError(null);     // Сбрасываем предыдущую ошибку
+
+    const storedData = localStorage.getItem('userData');
+    let avatarUrl = userData.avatar_url;
+    if (storedData) {
+      try {
+        const parsedData = JSON.parse(storedData);
+        if (parsedData.avatar_url && !avatarUrl) {
+          avatarUrl = parsedData.avatar_url;
         }
-      }
-      const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
-      if (cachedAvatarUrl && !avatarUrl) {
-        avatarUrl = cachedAvatarUrl;
-      }
-      
-      const initialData = {
-        fio: userData.fio || "",
-        telegram: userData.telegram || "",
-        whatsapp: userData.whatsapp || "",
-        avatarPreview: avatarUrl || null,
-        email: userData.email || "",
-      };
-      
-      setFormState(initialData);
-      setInitialFormState(initialData);
-      validateForm(initialData);
-      hasFetched.current = true;
-      console.log("ProfilePage: initProfile finished");
-      setIsProfileSectionReady(true);
+      } catch { /* ignore */ }
+    }
+    const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
+    if (cachedAvatarUrl && !avatarUrl) {
+      avatarUrl = cachedAvatarUrl;
+    }
+
+    const initialData = {
+      fio: userData.fio || "",
+      telegram: userData.telegram || "",
+      whatsapp: userData.whatsapp || "",
+      avatarPreview: avatarUrl || null,
+      email: userData.email || "",
     };
-    
-    initProfile();
-    
-    const redirectTimeout = setTimeout(() => {
-      if (authLoading || !isAuth) {
-        console.log('ProfilePage: Failsafe redirect triggered');
-        router.push("/");
-      }
-    }, 500);
-    
-    return () => clearTimeout(redirectTimeout);
-  }, [isAuth, userData, authLoading, router, validateForm]);
+    setFormState(initialData);
+    setInitialFormState(initialData);
+    validateForm(initialData);
+
+    hasFetched.current = true;
+    profileLogger.info("ProfilePage: initProfile finished (form initialized)");
+    setIsProfileSectionReady(true);
+
+  }, [isAuth, userData, validateForm]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -248,162 +239,235 @@ const ProfilePage: React.FC = () => {
     setFetchError(null);
   }, [initialFormState, validateForm]);
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (isSubmitting.current || !validateForm()) return;
-
+  const handleSave = useCallback(async () => {
+    if (isSubmitting.current) return;
     isSubmitting.current = true;
-    setFetchError(null);
+    setUpdateError(null);
     setUpdateSuccess(null);
-    setLoadingError(null);
+    setFetchError(null);
+    setIsUpdating(true);
+    profileLogger.info('Attempting to save profile...');
 
-    setStage(LoadingStage.DYNAMIC_CONTENT); 
+    if (!validateForm()) {
+      isSubmitting.current = false;
+      return;
+    }
 
-    const token = localStorage.getItem('token');
-    if (!token || !userData || !userData.id) {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token || !userData || !userData.id) {
         const errorMsg = "Данные авторизации не найдены.";
         setFetchError(errorMsg);
         setLoadingError(errorMsg);
         setStage(LoadingStage.ERROR);
         isSubmitting.current = false;
         return;
-    }
+      }
 
-    try {
-        const userDataToUpdate = {
-            id: userData.id,
-            fio: formState.fio,
-            telegram: formState.telegram,
-            whatsapp: formState.whatsapp,
-            email: userData.email,
-            remove_avatar: shouldDeleteAvatar
-        };
-        console.log("Отправляемые данные профиля:", userDataToUpdate);
-        const profileResponse = await apiFetch<UserData>("/user_edits/me", {
-            method: "PUT",
-            headers: { 
-                "Content-Type": "application/json",
-                "Authorization": `Bearer ${token}`
-            },
-            data: userDataToUpdate, 
-        });
+      const userDataToUpdate = {
+        id: userData.id,
+        fio: formState.fio,
+        telegram: formState.telegram,
+        whatsapp: formState.whatsapp,
+        email: userData.email,
+        remove_avatar: shouldDeleteAvatar
+      };
+      console.log("Отправляемые данные профиля:", userDataToUpdate);
+      const profileResponse = await apiFetch<UserData>("/user_edits/me", {
+        method: "PUT",
+        headers: { 
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        data: userDataToUpdate, 
+      });
 
-        let updatedUser = profileResponse;
-        if ('error' in updatedUser) {
-             let message = "Ошибка обновления данных профиля";
-             const errorDetails = (updatedUser as unknown as { error?: unknown }).error;
-             if (typeof errorDetails === 'string') {
-                 message = errorDetails;
-             }
-            throw new Error(message);
-        } else if ('aborted' in updatedUser) {
-            throw new Error("Запрос на обновление профиля был прерван.");
+      let updatedUser = profileResponse;
+      if ('error' in updatedUser) {
+        let message = "Ошибка обновления данных профиля";
+        const errorDetails = (updatedUser as unknown as { error?: unknown }).error;
+        if (typeof errorDetails === 'string') {
+          message = errorDetails;
         }
+        throw new Error(message);
+      } else if ('aborted' in updatedUser) {
+        throw new Error("Запрос на обновление профиля был прерван.");
+      }
 
+      if (shouldDeleteAvatar) {
+        console.log("ProfilePage: Avatar deletion requested...");
+        if (updatedUser && 'id' in updatedUser) {
+          updatedUser.avatar_url = undefined;
+        }
+        const avatarCacheBuster = Date.now();
+        localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
+        const storedUserData = localStorage.getItem('userData');
+        if (storedUserData) {
+          try {
+            const parsedUserData = JSON.parse(storedUserData);
+            parsedUserData.avatar_url = null;
+            localStorage.setItem('userData', JSON.stringify(parsedUserData));
+          } catch (e) { console.error("ProfilePage: Error updating userData in localStorage:", e); }
+        }
+        const originalAvatarUrl = localStorage.getItem('original_avatar_url');
+        if (originalAvatarUrl) {
+          const invalidateUrl = `${originalAvatarUrl}?clear=${Date.now()}`;
+          const img = document.createElement('img');
+          img.src = invalidateUrl;
+          setTimeout(() => { img.src = ''; }, 100);
+        }
+        if (typeof window !== 'undefined') {
+          const avatarRemovedEvent = new CustomEvent('userDataChanged', {
+            detail: { userData: updatedUser, avatarRemoved: true }
+          });
+          window.dispatchEvent(avatarRemovedEvent);
+        }
+      }
+
+      if (selectedFile) {
+        try {
+          const formData = new FormData();
+          formData.append("file", selectedFile);
+          const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
+            method: "POST", 
+            data: formData,
+            headers: { "Authorization": `Bearer ${token}` },
+          });
+          if ('error' in avatarResponse) {
+            console.error("Ошибка загрузки аватарки:", avatarResponse);
+            setFetchError("Не удалось загрузить аватар. Данные профиля сохранены."); 
+          } else if (!('aborted' in avatarResponse)) {
+            updatedUser = avatarResponse;
+            if (updatedUser.avatar_url) {
+              const avatarCacheBuster = Date.now();
+              localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
+              if (typeof window !== 'undefined') {
+                const avatarEvent = new CustomEvent('avatar-updated', {
+                  detail: { userData: updatedUser, newAvatarUrl: updatedUser.avatar_url, timestamp: avatarCacheBuster }
+                });
+                window.dispatchEvent(avatarEvent);
+                const userDataEvent = new CustomEvent('userDataChanged', {
+                  detail: { userData: updatedUser, avatarRemoved: false }
+                });
+                window.dispatchEvent(userDataEvent);
+              }
+            }
+          }
+        } catch (avatarError) {
+          console.error("Ошибка при загрузке аватарки:", avatarError);
+          setFetchError("Не удалось загрузить аватар. Данные профиля сохранены."); 
+        }
+      }
+
+      if (updatedUser && 'fio' in updatedUser) { 
         if (shouldDeleteAvatar) {
-             console.log("ProfilePage: Avatar deletion requested...");
-             if (updatedUser && 'id' in updatedUser) {
-                 updatedUser.avatar_url = undefined;
-             }
-            const avatarCacheBuster = Date.now();
-            localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
-            const storedUserData = localStorage.getItem('userData');
-            if (storedUserData) {
-                try {
-                    const parsedUserData = JSON.parse(storedUserData);
-                    parsedUserData.avatar_url = null;
-                    localStorage.setItem('userData', JSON.stringify(parsedUserData));
-                } catch (e) { console.error("ProfilePage: Error updating userData in localStorage:", e); }
-            }
-            const originalAvatarUrl = localStorage.getItem('original_avatar_url');
-            if (originalAvatarUrl) {
-                const invalidateUrl = `${originalAvatarUrl}?clear=${Date.now()}`;
-                const img = document.createElement('img');
-                img.src = invalidateUrl;
-                setTimeout(() => { img.src = ''; }, 100);
-            }
-             if (typeof window !== 'undefined') {
-                const avatarRemovedEvent = new CustomEvent('userDataChanged', {
-                    detail: { userData: updatedUser, avatarRemoved: true }
-                });
-                window.dispatchEvent(avatarRemovedEvent);
-            }
+          updatedUser.avatar_url = undefined;
         }
-
-        if (selectedFile) {
-            try {
-                const formData = new FormData();
-                formData.append("file", selectedFile);
-                const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
-                    method: "POST", 
-                    data: formData,
-                    headers: { "Authorization": `Bearer ${token}` },
-                });
-                if ('error' in avatarResponse) {
-                    console.error("Ошибка загрузки аватарки:", avatarResponse);
-                    setFetchError("Не удалось загрузить аватар. Данные профиля сохранены."); 
-                } else if (!('aborted' in avatarResponse)) {
-                    updatedUser = avatarResponse;
-                    if (updatedUser.avatar_url) {
-                        const avatarCacheBuster = Date.now();
-                        localStorage.setItem('avatar_cache_buster', avatarCacheBuster.toString());
-                         if (typeof window !== 'undefined') {
-                            const avatarEvent = new CustomEvent('avatar-updated', {
-                                detail: { userData: updatedUser, newAvatarUrl: updatedUser.avatar_url, timestamp: avatarCacheBuster }
-                            });
-                            window.dispatchEvent(avatarEvent);
-                            const userDataEvent = new CustomEvent('userDataChanged', {
-                                detail: { userData: updatedUser, avatarRemoved: false }
-                            });
-                            window.dispatchEvent(userDataEvent);
-                        }
-                    }
-                }
-            } catch (avatarError) {
-                console.error("Ошибка при загрузке аватарки:", avatarError);
-                setFetchError("Не удалось загрузить аватар. Данные профиля сохранены."); 
-            }
+        const updatedData = {
+          fio: updatedUser.fio || "",
+          telegram: updatedUser.telegram || "",
+          whatsapp: updatedUser.whatsapp || "",
+          avatarPreview: updatedUser.avatar_url || null,
+          email: updatedUser.email || "",
+        };
+        setFormState(updatedData);
+        setInitialFormState(updatedData);
+        updateUserData(updatedUser, false); 
+        setUpdateSuccess("Профиль успешно обновлен!");
+        setShouldDeleteAvatar(false); 
+        setSelectedFile(null);
+        setIsEditing(false); 
+        if (needsTicketsRefresh.current) {
+          ticketsRef.current?.refreshTickets();
+          needsTicketsRefresh.current = false; 
         }
-
-        if (updatedUser && 'fio' in updatedUser) { 
-             if (shouldDeleteAvatar) {
-                updatedUser.avatar_url = undefined;
-            }
-            const updatedData = {
-                fio: updatedUser.fio || "",
-                telegram: updatedUser.telegram || "",
-                whatsapp: updatedUser.whatsapp || "",
-                avatarPreview: updatedUser.avatar_url || null,
-                email: updatedUser.email || "",
-            };
-            setFormState(updatedData);
-            setInitialFormState(updatedData);
-            updateUserData(updatedUser, false); 
-            setUpdateSuccess("Профиль успешно обновлен!");
-            setShouldDeleteAvatar(false); 
-            setSelectedFile(null);
-            setIsEditing(false); 
-            if (needsTicketsRefresh.current) {
-                ticketsRef.current?.refreshTickets();
-                needsTicketsRefresh.current = false; 
-            }
+        if (currentStage !== LoadingStage.COMPLETED) {
             setStage(LoadingStage.COMPLETED);
-        } else {
-             throw new Error("Не удалось обработать ответ сервера после обновления профиля.");
         }
+      } else {
+        throw new Error("Не удалось обработать ответ сервера после обновления профиля.");
+      }
 
     } catch (err) {
-        console.error("Submit Profile Error:", err);
-        const errorMsg = err instanceof Error ? err.message : "Ошибка обновления профиля";
-        setFetchError(errorMsg);
-        setLoadingError(errorMsg);
+      profileLogger.error('Error updating profile:', { error: err });
+      const errorMsg =
+        err instanceof ApiError
+          ? `API Error ${err.status}: ${JSON.stringify(err.body)}`
+          : err instanceof Error ? err.message : 'Неизвестная ошибка';
+      setUpdateError('Ошибка обновления профиля: ' + errorMsg);
+      setLoadingError('Ошибка обновления профиля: ' + errorMsg);
+      if (currentStage !== LoadingStage.ERROR) {
         setStage(LoadingStage.ERROR);
+      }
     } finally {
-        isSubmitting.current = false;
-        if (updateSuccess) setTimeout(() => setUpdateSuccess(null), 3000);
-        if (fetchError) setTimeout(() => setFetchError(null), 5000);
+      setIsUpdating(false);
+      isSubmitting.current = false;
+      if (updateSuccess) setTimeout(() => setUpdateSuccess(null), 3000);
+      if (fetchError) setTimeout(() => setFetchError(null), 5000);
     }
-  };
+  }, [
+    formState,
+    validateForm,
+    shouldDeleteAvatar,
+    selectedFile,
+    updateUserData,
+    setStage,
+    currentStage,
+    setLoadingError,
+    needsTicketsRefresh,
+    ticketsRef,
+    userData,
+    fetchError,
+    updateSuccess,
+    setUpdateError,
+    setUpdateSuccess,
+    setFetchError,
+    setIsUpdating,
+    setInitialFormState,
+    setIsEditing,
+    setSelectedFile,
+    setShouldDeleteAvatar
+  ]);
+
+  useEffect(() => {
+    if (!userData || isEditing) return;
+
+    profileLogger.info('User data changed externally, refreshing form state');
+
+    const storedData = localStorage.getItem('userData');
+    let avatarUrl = userData.avatar_url;
+    if (storedData) {
+      try {
+        const parsedData = JSON.parse(storedData);
+        if (parsedData.avatar_url && !avatarUrl) avatarUrl = parsedData.avatar_url;
+      } catch { /* ignore */ }
+    }
+    const cachedAvatarUrl = localStorage.getItem('cached_avatar_url');
+    if (cachedAvatarUrl && !avatarUrl) avatarUrl = cachedAvatarUrl;
+
+    const newData = {
+      fio: userData.fio || "",
+      telegram: userData.telegram || "",
+      whatsapp: userData.whatsapp || "",
+      avatarPreview: avatarUrl || null,
+      email: userData.email || "",
+    };
+
+    if (JSON.stringify(newData) !== JSON.stringify(formState)) {
+        setFormState(newData);
+        setInitialFormState(newData);
+        profileLogger.info('Form state updated from external userData change');
+    }
+
+  }, [userData?.fio, userData?.telegram, userData?.whatsapp, userData?.avatar_url, userData?.email, isEditing, formState]);
+
+  useEffect(() => {
+      if (isAuthChecked && isAuth && userData && !hasInitialized.current) {
+          profileLogger.info('Auth checked and user authenticated, initializing profile...');
+          initProfile();
+          hasInitialized.current = true;
+      }
+  }, [isAuthChecked, isAuth, userData, initProfile]);
 
   if (authLoading || (isAuth && currentStage < LoadingStage.DYNAMIC_CONTENT && currentStage !== LoadingStage.ERROR)) {
       return (
@@ -427,7 +491,17 @@ const ProfilePage: React.FC = () => {
 
   console.log("ProfilePage: Render end");
   return (
-    <div className="container mx-auto px-4 py-6 mt-16 min-h-[calc(100vh-4rem)] flex items-center justify-center">
+    <div className="container mx-auto px-4 py-8">
+      {profileError && (
+        <div className="mb-4 p-4 bg-red-100 text-red-700 border border-red-400 rounded">
+          Ошибка загрузки профиля: {profileError}
+        </div>
+      )}
+      {updateError && (
+        <div className="mb-4 p-4 bg-red-100 text-red-700 border border-red-400 rounded">
+          Ошибка обновления профиля: {updateError}
+        </div>
+      )}
       <div className="w-full max-w-2xl">
         <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Ваш профиль</h1>
 
@@ -527,7 +601,7 @@ const ProfilePage: React.FC = () => {
               </div>
             </div>
             {isEditing ? (
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <form onSubmit={handleSave} className="space-y-4">
                 <div>
                   <InputField
                     type="text"
@@ -570,13 +644,23 @@ const ProfilePage: React.FC = () => {
                     <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
                   )}
                 </div>
-                <button
-                  type="submit"
-                  disabled={Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT}
-                  className={`btn btn-primary w-full ${Object.values(validationErrors).some(v => v) || isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT ? "opacity-50 cursor-not-allowed" : ""}`}
-                >
-                   {(isSubmitting.current || currentStage === LoadingStage.DYNAMIC_CONTENT) ? "Сохранение..." : "Сохранить"}
-                </button>
+                <div className="flex justify-end space-x-4 mt-6">
+                  <button
+                    type="button"
+                    onClick={toggleEdit}
+                    disabled={isUpdating}
+                    className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 disabled:opacity-50"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!validateForm() || isUpdating}
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isUpdating ? 'Сохранение...' : 'Сохранить'}
+                  </button>
+                </div>
               </form>
             ) : (
               <div className="space-y-3 text-center">

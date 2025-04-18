@@ -558,7 +558,7 @@ const generateBaseSlugWithDate = (event: EventData): string => {
 export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventTicketsProps>(
   ({ containerRef: externalContainerRef }, ref) => {
   const { isAuth, userData } = useAuth();
-  const { setStage } = useLoadingStage();
+  const { setStage, currentStage } = useLoadingStage();
   const { error: loadingError, setError: setLoadingError } = useLoadingError();
   
   // --- Состояния и рефы компонента ---
@@ -703,7 +703,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       return null;
     }
     setIsFetching(true);
-    setStage(LoadingStage.DYNAMIC_CONTENT);
+    if (currentStage !== LoadingStage.DYNAMIC_CONTENT) {
+      setStage(LoadingStage.DYNAMIC_CONTENT);
+    }
     setLoadingError(null);
     setLocalError(null);
     console.log(`UserEventTickets: Загрузка билетов, страница ${pageToFetch}, userId: ${userData.id}`);
@@ -719,7 +721,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     if (!token) {
       console.error("UserEventTickets: Токен не найден.");
       setLocalError("Ошибка аутентификации.");
-      setStage(LoadingStage.ERROR);
+      if (currentStage !== LoadingStage.ERROR) {
+        setStage(LoadingStage.ERROR);
+      }
       setLoadingError("Ошибка аутентификации.");
       return null;
     }
@@ -790,7 +794,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       }
       
       console.log('UserEventTickets: Ticket loading complete');
-      setStage(LoadingStage.COMPLETED);
+      if (currentStage !== LoadingStage.COMPLETED) {
+        setStage(LoadingStage.COMPLETED);
+      }
       
       // Сбрасываем AbortController ref после завершения или ошибки
       abortControllerRef.current = null;
@@ -807,8 +813,10 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         const errorMsg = err instanceof Error ? err.message : "Не удалось загрузить билеты";
         console.error("UserEventTickets: Исключение при загрузке билетов:", err);
         setLocalError(`Критическая ошибка: ${errorMsg}`);
+        if (currentStage !== LoadingStage.ERROR) {
+          setStage(LoadingStage.ERROR);
+        }
         setLoadingError(errorMsg);
-        setStage(LoadingStage.ERROR);
       }
       // Сбрасываем AbortController ref после завершения или ошибки
       abortControllerRef.current = null;
@@ -818,7 +826,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
       setIsFetching(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [setStage, processTickets, ticketsPerPage, activeFilter, isAuth, userData, setLoadingError, setLocalError, setTickets, setFilteredTickets, setPage, setHasMore, setIsFetching, setIsInitialLoading, globalTicketsCache]);
+  }, [setStage, processTickets, ticketsPerPage, activeFilter, isAuth, userData, setLoadingError, setLocalError, setTickets, setFilteredTickets, setPage, setHasMore, setIsFetching, setIsInitialLoading, globalTicketsCache, currentStage]);
 
   const loadMoreTickets = useCallback(async () => {
     if (isLoadingMore || !hasMore || isFetching) return;
@@ -874,7 +882,9 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
         setHasMore(globalTicketsCache.hasMore);
         setIsInitialLoading(false); // Сразу убираем основной скелетон
         hasInitialData.current = true;
-        setStage(LoadingStage.COMPLETED);
+        if (currentStage !== LoadingStage.COMPLETED) {
+          setStage(LoadingStage.COMPLETED);
+        }
       } else {
         console.log("UserEventTickets: Cache empty or stale, fetching initial tickets.");
         setIsInitialLoading(true); // Показываем основной скелетон
@@ -886,7 +896,7 @@ export const UserEventTickets = React.forwardRef<UserEventTicketsRef, UserEventT
     if (isInitialLoadRef.current) {
       isInitialLoadRef.current = false;
     }
-  }, [isAuth, userData, fetchTickets, setStage, setTickets, setPage, setHasMore, setIsInitialLoading]);
+  }, [isAuth, userData, fetchTickets, setStage, setTickets, setPage, setHasMore, setIsInitialLoading, currentStage]);
 
   // 2. Эффект для перезагрузки при СМЕНЕ ФИЛЬТРОВ (после первого рендера)
   useEffect(() => {

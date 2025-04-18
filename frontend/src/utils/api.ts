@@ -1032,23 +1032,23 @@ export const apiFetch = <T = unknown>(
         
         // Handle 401 Unauthorized error specifically
         if (response.status === 401) {
-          const eventName = isAdminRequest ? 'admin-auth-unauthorized' : 'auth-unauthorized';
-          apiLogger.warn(`Received 401 Unauthorized, dispatching ${eventName}`, {
-            endpoint,
-            method,
-            isAdminRequest
+          apiLogger.warn('Received 401 Unauthorized, dispatching auth-unauthorized', { 
+            endpoint, 
+            method: options.method || 'GET', 
+            isAdminRequest: !!options.isAdminRequest
           });
-
+          
+          // Определяем, является ли запрос попыткой входа
+          const isLoginAttempt = endpoint.includes('/login') && options.method === 'POST';
+          
           if (typeof window !== 'undefined') {
-            // Dispatch specific event based on isAdminRequest
-            window.dispatchEvent(new CustomEvent(eventName, {
-              detail: { status: 401, endpoint, method, isAdminRequest }
+            window.dispatchEvent(new CustomEvent('auth-unauthorized', { 
+              detail: { 
+                endpoint,
+                isLoginAttempt,
+                isAdminRequest: options.isAdminRequest
+              }
             }));
-            // Дополнительно очищаем токен администратора при 401 для админского запроса
-            if (isAdminRequest) {
-                localStorage.removeItem('admin_token');
-                localStorage.removeItem('admin_data');
-            }
           }
         }
         

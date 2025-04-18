@@ -9,7 +9,7 @@ import { useAuthForm } from "@/hooks/useAuthForm";
 import { LoginProps } from "@/types/index";
 import ClientErrorBoundary from "./Errors/ClientErrorBoundary";
 
-const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin = false }) => {
+const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin = false, preventClose }) => {
   const endpoint = isAdminLogin ? "/admin/login" : "/auth/login";
 
   const {
@@ -21,6 +21,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     error,
     successMessage,
     userHint,
+    preventModalClose,
   } = useAuthForm({
     initialValues: { email: "", password: "" },
     endpoint,
@@ -31,12 +32,15 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
     },
   });
 
+  // Используем либо входной флаг preventClose, либо флаг из хука
+  const shouldPreventClose = preventClose || preventModalClose;
+
   if (!isOpen) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <ClientErrorBoundary>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
           <SuccessDisplay message={successMessage} />
           <InputField
             type="email"
@@ -79,12 +83,12 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
               Зарегистрироваться
             </button>
           </div>
-          <div className="flex flex-col sm:flex-row justify-end gap-4">
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-4 mt-4">
             <ModalButton
               variant="secondary"
               onClick={onClose}
-              disabled={isLoading || isSuccess}
-              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+              disabled={isLoading || isSuccess || shouldPreventClose}
+              className="w-full sm:w-auto sm:min-w-[100px] min-h-[40px]"
             >
               Закрыть
             </ModalButton>
@@ -92,7 +96,7 @@ const Login: React.FC<LoginProps> = ({ isOpen, onClose, toggleMode, isAdminLogin
               type="submit"
               variant="primary"
               disabled={isLoading || isSuccess}
-              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+              className="w-full sm:w-auto sm:min-w-[100px] min-h-[40px]"
             >
               {isLoading ? "Вход..." : isSuccess && successMessage ? "Успешно!" : "Войти"}
             </ModalButton>

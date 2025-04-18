@@ -42,6 +42,7 @@ export const useAuthForm = ({
   const [userHint, setUserHint] = useState<string>("");
   const isSubmitting = useRef(false);
   const successTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const preventModalClose = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -71,6 +72,7 @@ export const useAuthForm = ({
 
       if (isSubmitting.current) return;
       isSubmitting.current = true;
+      preventModalClose.current = false;
 
       setError("");
       setSuccessMessage("");
@@ -87,7 +89,7 @@ export const useAuthForm = ({
         const data = await apiFetch<AuthResponse>(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          data: formValues,
+          data: { ...formValues, isLoginAttempt: isLogin },
           bypassLoadingStageCheck: true
         });
 
@@ -161,10 +163,8 @@ export const useAuthForm = ({
             setError("Ошибка обработки входа.");
             setIsSuccess(false);
             setSuccessMessage("");
-            if (onSuccess) {
-              onSuccess();
-              setFormValues(initialValues);
-            }
+            preventModalClose.current = true;
+            console.log('AuthForm: Keeping modal open due to login error');
           }
         } else if (!isLogin) {
           console.log('AuthForm: Registration successful');
@@ -185,15 +185,28 @@ export const useAuthForm = ({
         let userFriendlyError = apiError.message;
         let hint = "";
         
+        preventModalClose.current = true;
+        console.log('AuthForm: Error occurred, preventing modal close');
+        
         if ('status' in apiError && 'error' in apiError) {
-          const status = apiError.status;
-          
-          if (status === 401) {
-            userFriendlyError = "Неверный логин или пароль";
-          } else if (status === 400) {
+          if (apiError.status === 401) {
+            console.log('Login attempt failed with 401, keeping modal open');
+            preventModalClose.current = true;
+            userFriendlyError = "Неверные учетные данные, проверьте email и пароль";
+            hint = "Проверьте правильность ввода email и пароля.";
+            
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('auth-unauthorized', { 
+                detail: { 
+                  endpoint,
+                  isLoginAttempt: isLogin
+                }
+              }));
+            }
+          } else if (apiError.status === 400) {
             userFriendlyError = "Ошибка в данных формы";
             hint = "Проверьте правильность введенных данных";
-          } else if (status >= 500) {
+          } else if (apiError.status >= 500) {
             userFriendlyError = "Ошибка сервера";
             hint = "Пожалуйста, попробуйте позже";
           } else if (typeof apiError.error === 'string') {
@@ -212,6 +225,8 @@ export const useAuthForm = ({
           } else if (apiError.message.includes('Unauthorized') || apiError.message.includes('401')) {
             userFriendlyError = "Неверный логин или пароль";
             hint = "";
+            console.log('AuthForm: Authorization error, keeping modal open');
+            preventModalClose.current = true;
           } else {
             userFriendlyError = "Произошла ошибка";
             hint = "Пожалуйста, попробуйте еще раз";
@@ -240,5 +255,6 @@ export const useAuthForm = ({
     isSuccess,
     handleChange,
     handleSubmit,
+    preventModalClose: preventModalClose.current,
   };
 };

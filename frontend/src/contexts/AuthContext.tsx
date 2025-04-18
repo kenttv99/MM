@@ -190,8 +190,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     performInitialAuthCheck();
 
+    // Добавляем обработчик события auth-unauthorized
+    const handleUnauthorized = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      authLogger.warn('Received auth-unauthorized event, updating auth state', customEvent.detail);
+      
+      if (isMounted.current) {
+        // Устанавливаем isAuthChecked в true, чтобы прекратить отображение скелетона
+        setIsAuthCheckedState(true);
+        
+        // Если это ошибка при попытке входа (не при проверке текущего токена),
+        // не сбрасываем состояние авторизации полностью
+        if (customEvent.detail?.isLoginAttempt) {
+          authLogger.info('Login attempt failed, keeping current auth state');
+        } else {
+          setIsAuthenticated(false);
+          setUser(null);
+          handleAuthFailure();
+        }
+      }
+    };
+
+    window.addEventListener('auth-unauthorized', handleUnauthorized);
+
     return () => {
       isMounted.current = false;
+      window.removeEventListener('auth-unauthorized', handleUnauthorized);
       authLogger.info('AuthProvider unmounted.');
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -287,6 +311,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const handleUnauthorized = (event: CustomEvent) => {
       authLogger.info('Detected 401 Unauthorized response', event.detail);
+      
+      // Проверяем, является ли запрос попыткой входа
+      const isLoginAttempt = event.detail?.isLoginAttempt;
+      
+      if (isLoginAttempt) {
+        // Если это попытка входа, просто обновляем статус проверки аутентификации
+        // чтобы предотвратить зависание на скелетоне, но не выполняем logout
+        authLogger.info('Failed login attempt, updating auth status to prevent skeleton hang');
+        if (isMounted.current) {
+          setIsAuthCheckedState(true);
+        }
+        return;
+      }
+      
       if (isAuthenticated) {
         authLogger.info('User was authenticated, initiating logout due to 401.');
         logout();

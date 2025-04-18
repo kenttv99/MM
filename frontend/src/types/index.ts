@@ -97,6 +97,7 @@ export interface AuthModalProps {
   success?: string;
   children: ReactNode;
   className?: string;
+  preventClose?: boolean;
 }
 
 // From components/common/ErrorDisplay.tsx
@@ -222,4 +223,5 @@ export interface LoginProps {
   onClose: () => void;
   toggleMode?: () => void;
   isAdminLogin?: boolean;
+  preventClose?: boolean;
 }

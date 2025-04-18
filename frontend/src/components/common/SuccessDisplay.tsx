@@ -14,7 +14,7 @@ const SuccessDisplay: React.FC<SuccessDisplayProps> = ({ message, className = ''
           exit={{ opacity: 0, height: 0 }}
           className="overflow-hidden"
         >
-          <div className={`text-green-600 bg-green-50 p-3 rounded-lg border-l-4 border-green-500 text-sm ${className}`}>
+          <div className={`text-green-600 bg-green-50 p-2 rounded-lg border-l-4 border-green-500 text-xs ${className}`}>
             {message}
           </div>
         </motion.div>

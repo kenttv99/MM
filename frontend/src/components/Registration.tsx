@@ -113,13 +113,13 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
   if (!isOpen) return null;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       <ClientErrorBoundary>
-        <form onSubmit={onSubmit} className="space-y-4">
+        <form onSubmit={onSubmit} className="space-y-2">
           <SuccessDisplay message={successMessage} />
 
           {fields.map((field) => (
-            <div key={field.name} className="relative pb-5">
+            <div key={field.name} className="relative mb-4">
               <InputField
                 type={field.type}
                 value={formValues[field.name]}
@@ -139,8 +139,8 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     transition={{ duration: 0.2 }}
-                    className="absolute left-0 top-full text-red-500 text-xs mt-1 overflow-wrap-break-word max-w-full"
-                    style={{ fontSize: "clamp(0.7rem, 1.8vw, 0.8rem)" }}
+                    className="absolute left-0 top-full text-red-500 text-xs mt-0.5 overflow-wrap-break-word max-w-full"
+                    style={{ fontSize: "0.65rem" }}
                   >
                     {formErrors[field.name]}
                   </motion.p>
@@ -149,12 +149,12 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
             </div>
           ))}
           {error && !successMessage && (
-            <div className="p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
+            <div className="p-1.5 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
               <p>{error}</p>
             </div>
           )}
           {userHint && !successMessage && (
-            <div className="p-2 bg-blue-50 border-l-4 border-blue-500 text-blue-700 rounded-md text-xs">
+            <div className="p-1.5 bg-blue-50 border-l-4 border-blue-500 text-blue-700 rounded-md text-xs">
               <p>{userHint}</p>
             </div>
           )}
@@ -169,12 +169,12 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               Войти
             </button>
           </div>
-          <div className="flex flex-col sm:flex-row justify-end gap-4">
+          <div className="flex flex-col sm:flex-row justify-end gap-2 sm:gap-4 mt-2">
             <ModalButton
               variant="secondary"
               onClick={onClose}
               disabled={isLoading || isSuccess}
-              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+              className="w-full sm:w-auto sm:min-w-[100px] min-h-[40px] text-sm"
             >
               Закрыть
             </ModalButton>
@@ -182,7 +182,7 @@ const Registration: React.FC<RegistrationProps> = ({ isOpen, onClose, toggleMode
               type="submit"
               variant="primary"
               disabled={isLoading || isSuccess || !isValid}
-              className="w-full sm:w-auto min-w-[120px] min-h-[44px]"
+              className="w-full sm:w-auto sm:min-w-[100px] min-h-[40px] text-sm"
             >
               {isLoading ? "Регистрация..." : isSuccess && successMessage ? "Успешно!" : "Зарегистрироваться"}
             </ModalButton>

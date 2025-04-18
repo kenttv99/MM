@@ -17,7 +17,7 @@ const InputField: React.FC<InputFieldProps> = ({
   const [isFocused, setIsFocused] = useState(false);
 
   return (
-    <div className="relative mb-5 h-[60px]">
+    <div className="relative mb-2 h-[50px] sm:h-[55px]">
       <div className="absolute inset-0">
         <input
           type={type}
@@ -27,11 +27,11 @@ const InputField: React.FC<InputFieldProps> = ({
           name={name}
           disabled={disabled}
           className={`
-            w-full h-full p-4 pr-12
+            w-full h-full p-3 pr-10
             bg-white text-gray-900 
             placeholder:text-gray-400 
             rounded-lg outline-none
-            border
+            border text-sm
             ${disabled ? 'bg-gray-50 opacity-70 cursor-not-allowed' : ''}
           `}
           style={{
@@ -61,7 +61,7 @@ const InputField: React.FC<InputFieldProps> = ({
             style={{
               color: isFocused ? "#f97316" : (disabled ? "#d1d5db" : "#9ca3af") // orange-500 : gray-400 or gray-300 if disabled
             }}
-            size={18}
+            size={16}
           />
         </div>
       </div>

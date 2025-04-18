@@ -13,7 +13,7 @@ const ModalButton: React.FC<ModalButtonProps> = ({
   children,
   className = "",
 }) => {
-  const baseStyles = "px-4 py-2 rounded-lg font-medium transition-colors duration-300";
+  const baseStyles = "px-3 py-1.5 rounded-lg font-medium transition-colors duration-300 text-sm";
   const variantStyles =
     variant === "primary"
       ? "bg-orange-500 text-white hover:bg-orange-600"
@@ -32,7 +32,15 @@ const ModalButton: React.FC<ModalButtonProps> = ({
   );
 };
 
-const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, title, error, success, children }) => {
+const AuthModal: React.FC<AuthModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  title, 
+  error, 
+  success, 
+  children,
+  preventClose = false
+}) => {
   const modalVariants = {
     hidden: { opacity: 0, scale: 0.95 },
     visible: { opacity: 1, scale: 1, transition: { duration: 0.2 } },
@@ -55,37 +63,49 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, title, error, su
     };
   }, [isOpen]);
 
+  const handleClose = () => {
+    // Если стоит флаг preventClose, не закрываем модальное окно
+    if (preventClose) {
+      console.log('Modal close prevented due to preventClose flag');
+      return;
+    }
+    
+    onClose();
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 sm:p-6"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
         >
           <motion.div
-            className="bg-white rounded-lg p-6 w-full max-w-md relative"
+            className="bg-white rounded-lg p-4 sm:p-6 w-full max-w-md relative max-h-[90vh] overflow-y-auto"
             variants={modalVariants}
             initial="hidden"
             animate="visible"
             exit="exit"
+            onClick={(e) => e.stopPropagation()} // Предотвращаем закрытие при клике на контент
           >
             <button
-              onClick={onClose}
-              className="absolute top-4 right-4 text-gray-500 hover:text-gray-700"
+              onClick={handleClose}
+              className={`absolute top-4 right-4 text-gray-500 hover:text-gray-700 ${preventClose ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={preventClose}
             >
               <FaTimes size={20} />
             </button>
-            <h2 className="text-xl font-semibold mb-4">{title}</h2>
+            <h2 className="text-lg sm:text-xl font-semibold mb-2 sm:mb-4">{title}</h2>
             <ClientErrorBoundary>
               {error && (
-                <div className="mb-4 p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
+                <div className="mb-3 p-1.5 sm:p-2 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-md text-xs">
                   <p className="whitespace-pre-wrap break-words">{error}</p>
                 </div>
               )}
               {success && (
-                <div className="mb-4 p-2 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md text-xs">
+                <div className="mb-3 p-1.5 sm:p-2 bg-green-50 border-l-4 border-green-500 text-green-700 rounded-md text-xs">
                   <p className="whitespace-pre-wrap break-words">{success}</p>
                 </div>
               )}

@@ -87,7 +87,7 @@ const nextConfig = {
     imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
   async rewrites() {
-    // Используем переменные, полученные выше
+    console.log("Configuring rewrites for backend URLs:", backendApiUrl, adminApiUrl);
     return [
       // Перенаправление для изображений аватаров пользователей
       {

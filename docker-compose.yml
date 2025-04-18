@@ -16,6 +16,56 @@ services:
       - app-network
     restart: unless-stopped
 
+  migrations:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    container_name: migration_service
+    command: >
+      bash -c "
+      sleep 5 &&
+      export DATABASE_URL=postgresql://postgres:assasin88@db:5432/moscow_mellows &&
+      cd backend/migrations &&
+      echo 'Переменная DATABASE_URL установлена:' $DATABASE_URL &&
+      alembic upgrade head"
+    volumes:
+      # Монтируем код для доступа к миграциям
+      - ./backend:/app/backend
+    env_file:
+      - .env # Загружаем переменные из .env файла
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      PYTHONPATH: /app
+    depends_on:
+      - db
+    networks:
+      - app-network
+
+  init-db:
+    build:
+      context: .
+      dockerfile: backend.Dockerfile
+    container_name: init_db_service
+    command: >
+      bash -c "
+      sleep 5 &&
+      cd backend/database &&
+      python init_user_db.py"
+    volumes:
+      # Монтируем код для доступа к миграциям
+      - ./backend:/app/backend
+    env_file:
+      - .env # Загружаем переменные из .env файла
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      PYTHONPATH: /app
+    depends_on:
+      - db
+    networks:
+      - app-network
+
   redis:
     image: redis:7-alpine
     container_name: redis_cache
@@ -30,7 +80,10 @@ services:
       context: .
       dockerfile: backend.Dockerfile
     container_name: user_server_app
-    command: uvicorn servers.server_user:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      bash -c "
+      touch .env &&
+      uvicorn servers.server_user:app --host 0.0.0.0 --port 8000"
     volumes:
       # Монтируем код для hot-reload во время разработки
       - ./backend:/app/backend
@@ -49,9 +102,11 @@ services:
       DB_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PYTHONPATH: /app  # Явно устанавливаем PYTHONPATH
     depends_on:
       - db
       - redis
+      - init-db
     networks:
       - app-network
     restart: unless-stopped
@@ -61,7 +116,10 @@ services:
       context: .
       dockerfile: backend.Dockerfile
     container_name: admin_server_app
-    command: uvicorn servers.server_admin:app --host 0.0.0.0 --port 8001 --reload
+    command: >
+      bash -c "
+      touch .env &&
+      uvicorn servers.server_admin:app --host 0.0.0.0 --port 8001"
     volumes:
       # Монтируем код для hot-reload во время разработки
       - ./backend:/app/backend
@@ -80,9 +138,11 @@ services:
       DB_PORT: 5432
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      PYTHONPATH: /app  # Явно устанавливаем PYTHONPATH
     depends_on:
       - db
       - redis
+      - init-db
     networks:
       - app-network
     restart: unless-stopped
@@ -93,29 +153,22 @@ services:
       dockerfile: Dockerfile
     container_name: frontend_app
     volumes:
-      # Монтируем код для hot-reload во время разработки
-      - ./frontend:/app
-      # Исключаем node_modules из монтирования, чтобы использовать те, что в контейнере
-      - /app/node_modules 
-      - /app/.next
+      # В production режиме не нужен hot-reload, поэтому монтируем только .env.local
+      - ./frontend/.env.local:/app/.env.local
     ports:
       - "3000:3000"
-    env_file:
-      - ./frontend/.env.local # Загружаем переменные фронтенда
     environment:
-      # Указываем адреса бэкендов внутри Docker сети
+      # Используем имена сервисов вместо localhost
       NEXT_PUBLIC_API_URL: http://user-server:8000
       NEXT_ADMIN_API_URL: http://admin-server:8001
-      # Важно: Убедитесь, что WATCHPACK_POLLING=true для hot-reload в Docker
-      WATCHPACK_POLLING: 'true'
-      NODE_ENV: development # Устанавливаем development для hot-reload
+      NODE_ENV: production
     depends_on:
       - user-server
       - admin-server
     networks:
       - app-network
-    # Переопределяем команду для запуска в режиме разработки
-    command: npm run dev 
+    # Вернем стандартную команду запуска
+    command: npm start
     restart: unless-stopped
 
 networks:

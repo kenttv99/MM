@@ -8,6 +8,8 @@ WORKDIR /app
 # Устанавливаем переменные окружения для Python
 ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
+# Добавляем текущую директорию в PYTHONPATH
+ENV PYTHONPATH="/app:$PYTHONPATH"
 
 # Устанавливаем зависимости ОС, если они понадобятся (например, для psycopg2)
 # RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,13 +21,15 @@ ENV PYTHONUNBUFFERED 1
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Копируем файл constants.py в корень рабочей директории
+COPY constants.py .
+
 # Копируем директорию backend и файлы серверов
 COPY ./backend ./backend
 COPY ./servers ./servers
 
-# Копируем директорию с медиафайлами (если она должна быть внутри образа)
-# Если медиафайлы должны быть вне образа (рекомендуется), используйте volumes в docker-compose
-# COPY ./private_media ./private_media
+# Создаем директорию для медиафайлов, если её нет
+RUN mkdir -p ./private_media
 
 # Открываем порты, которые используют серверы (по умолчанию 8000 и 8001)
 # Эти порты будут доступны внутри Docker сети. Маппинг на хост будет в docker-compose.

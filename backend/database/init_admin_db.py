@@ -6,7 +6,6 @@ from passlib.context import CryptContext
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import select, func
-from dotenv import load_dotenv
 
 # Добавляем корневую директорию проекта в sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,20 +13,9 @@ backend_dir = os.path.dirname(current_dir)
 root_dir = os.path.dirname(backend_dir)
 sys.path.insert(0, root_dir)
 
-# Загружаем переменные окружения из .env
-dotenv_path = os.path.join(root_dir, '.env')
-if os.path.exists(dotenv_path):
-    load_dotenv(dotenv_path=dotenv_path)
-    print(".env файл загружен.")
-else:
-    print("ВНИМАНИЕ: .env файл не найден!")
-    sys.exit(1)
-
-# Импортируем модели и настройки БД ПОСЛЕ добавления пути и загрузки .env
-# Это гарантирует, что user_db сможет прочитать переменные окружения
+# Импортируем модели и настройки БД
 try:
     from backend.database.user_db import engine, AsyncSessionLocal, Admin, Base
-    from backend.config.logging_config import logger # Используем общий логгер
 except ImportError as e:
      print(f"Ошибка импорта: {e}. Убедитесь, что структура проекта верна и зависимости установлены.")
      sys.exit(1)
@@ -46,14 +34,20 @@ if not all(ADMIN_EMAILS) or not ADMIN_PASSWORD:
     missing_emails = [f"ADMIN_EMAIL_{i+1}" for i, email in enumerate(ADMIN_EMAILS) if not email]
     if not ADMIN_PASSWORD:
         missing_emails.append("ADMIN_PASSWORD")
-    logger.error(f"Ошибка: Не найдены переменные окружения для администраторов: {', '.join(missing_emails)}")
-    sys.exit(1)
+    print(f"Ошибка: Не найдены переменные окружения для администраторов: {', '.join(missing_emails)}")
+    print("Устанавливаем значения по умолчанию...")
+    # Значения по умолчанию, если переменные окружения не найдены
+    ADMIN_EMAILS = ["admin@example.com"]
+    ADMIN_PASSWORD = "MoscowMellows108108108"
 
 async def initialize_admins():
-    logger.info("Начало инициализации администраторов...")
+    print("Начало инициализации администраторов...")
     async with AsyncSessionLocal() as session:
         async with session.begin():
             for email in ADMIN_EMAILS:
+                if not email:
+                    continue
+                
                 # Проверяем, существует ли администратор
                 result = await session.execute(select(Admin).filter(Admin.email == email))
                 existing_admin = result.scalars().first()
@@ -77,21 +71,21 @@ async def initialize_admins():
                         updated_at=now.replace(tzinfo=None)
                     )
                     session.add(new_admin)
-                    logger.info(f"Добавлен новый администратор: {email}")
+                    print(f"Добавлен новый администратор: {email}")
                 else:
-                    logger.info(f"Администратор {email} уже существует.")
+                    print(f"Администратор {email} уже существует.")
 
         # Коммит транзакции происходит автоматически при выходе из `async with session.begin():`
-        logger.info("Транзакция успешно завершена.")
+        print("Транзакция успешно завершена.")
 
     # Закрываем соединение движка после завершения работы
     await engine.dispose()
-    logger.info("Соединение с БД закрыто.")
+    print("Соединение с БД закрыто.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(initialize_admins())
-        logger.info("Инициализация администраторов успешно завершена.")
+        print("Инициализация администраторов успешно завершена.")
     except Exception as e:
-        logger.error(f"Ошибка во время инициализации администраторов: {e}")
+        print(f"Ошибка во время инициализации администраторов: {e}")
         sys.exit(1)

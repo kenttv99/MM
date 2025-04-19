@@ -7,9 +7,6 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { FaTimes, FaCalendar, FaClock, FaTicketAlt, FaMapMarkerAlt, FaUsers } from "react-icons/fa";
 
-// Определяем базовый URL админского бэкенда (порт 8001)
-const BACKEND_URL = process.env.NEXT_PUBLIC_ADMIN_BACKEND_URL || 'http://localhost:8001';
-
 // Интерфейс для данных формы, которые нужны для превью
 // (Может отличаться от EventData, т.к. содержит File и числовые строки)
 export interface EventFormDataForPreview {
@@ -82,6 +79,17 @@ const AnimatedGradientBackground = ({ className = "", children }: { className?: 
   </div>
 );
 
+// Универсальная функция для преобразования абсолютного URL к относительному
+function toRelativeImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url; // если уже относительный путь
+  }
+}
+
 const PreviewEvent: React.FC<PreviewEventProps> = ({ isOpen, onClose, eventData }) => {
   const [objectUrl, setObjectUrl] = useState<string | null>(null);
 
@@ -105,17 +113,8 @@ const PreviewEvent: React.FC<PreviewEventProps> = ({ isOpen, onClose, eventData 
   const displayImageUrl = useMemo(() => {
     if (objectUrl) return objectUrl; // Приоритет у нового файла
     if (eventData?.image_url && !eventData?.remove_image) {
-      // Если это относительный путь, добавляем хост админки
-      if (eventData.image_url.startsWith('/')) {
-        return `${BACKEND_URL}${eventData.image_url}`;
-      }
-      // Если это уже полный URL, используем его
-      if (eventData.image_url.startsWith('http')) {
-          return eventData.image_url;
-      }
-      // Неожиданный формат image_url
-      console.warn("Unexpected image_url format in PreviewEvent:", eventData.image_url);
-      return null;
+      // Для next/image всегда возвращаем относительный путь
+      return toRelativeImageUrl(eventData.image_url);
     }
     return null; // Нет изображения
   }, [objectUrl, eventData?.image_url, eventData?.remove_image]);

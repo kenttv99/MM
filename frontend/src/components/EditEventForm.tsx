@@ -17,15 +17,12 @@ import Switch from "@/components/common/Switch";
 import { createPortal } from "react-dom";
 import PreviewEvent, { EventFormDataForPreview } from '@/components/PreviewEvent';
 
-// Определяем базовый URL админского бэкенда (порт 8001)
-const ADMIN_BACKEND_URL = process.env.NEXT_PUBLIC_ADMIN_BACKEND_URL || 'http://localhost:8001';
-
 interface EditEventFormProps {
   isNewEvent: boolean;
   formData: EventFormData;
   error: string | null;
   success: string | null;
-  imagePreview: string | null; // Может быть data: URL или относительный /images/...
+  imagePreview: string | null;
   handleChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void;
   handleFileChange: (file: File | null, isRemoved?: boolean) => void;
   handleSubmit: (e: React.FormEvent<HTMLFormElement>) => Promise<void>;
@@ -50,6 +47,17 @@ const validateTokenLocally = (token: string): boolean => {
     return false;
   }
 };
+
+// Универсальная функция для преобразования абсолютного URL к относительному
+function toRelativeImageUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url; // если уже относительный путь
+  }
+}
 
 const EditEventForm: React.FC<EditEventFormProps> = ({
   isNewEvent,
@@ -621,17 +629,11 @@ const EditEventForm: React.FC<EditEventFormProps> = ({
   // --- Обновляем логику для imagePreview --- 
   const displayImagePreviewUrl = useMemo(() => {
     if (!imagePreview) return null;
-    // Если это Data URL (blob) или уже полный URL, используем как есть
-    if (imagePreview.startsWith('data:') || imagePreview.startsWith('http')) {
+    if (imagePreview.startsWith('data:')) {
       return imagePreview;
     }
-    // Если это относительный путь с бэкенда, добавляем хост админки
-    if (imagePreview.startsWith('/')) { // Проверяем, что это путь
-      return `${ADMIN_BACKEND_URL}${imagePreview}`;
-    }
-    // В остальных случаях (неожиданный формат) возвращаем null
-    console.warn("Unexpected imagePreview format:", imagePreview);
-    return null;
+    // Всегда возвращаем относительный путь для next/image
+    return toRelativeImageUrl(imagePreview);
   }, [imagePreview]);
 
   if (isLoading || isPageLoading) {

@@ -36,7 +36,7 @@ export const LoadingContextProvider: React.FC<{ children: React.ReactNode }> = (
 // Inner provider with actual implementation
 const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Get data from all sub-contexts
-  const { currentStage, setStage, isAuthChecked, setIsAuthChecked } = useLoadingStage();
+  const { currentStage, setStage } = useLoadingStage();
   const { isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading } = useLoadingFlags();
   const { progress, setProgress } = useLoadingProgress();
   const { error, setError, clearError } = useLoadingError();
@@ -173,8 +173,6 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     setError,
     
     // Additional functionality
-    isAuthChecked,
-    setIsAuthChecked,
     detectAndFixLoadingInconsistency,
     recoverFromError
   };

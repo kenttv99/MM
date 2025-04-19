@@ -68,6 +68,12 @@ export const useEventForm = ({ initialValues, onSuccess, onError }: UseEventForm
     };
   }, []);
 
+  // Синхронизация formData и imagePreview с initialValues при их изменении
+  useEffect(() => {
+    setFormData(initialValues);
+    setImagePreview(initialValues.image_url || null);
+  }, [initialValues]);
+
   const setFieldValue = useCallback((name: keyof EventFormData, value: unknown) => {
     setFormData(prev => ({ ...prev, [name]: value }));
   }, []);

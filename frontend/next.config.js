@@ -41,7 +41,7 @@ const nextConfig = {
   swcMinify: true,
   images: {
     // Домены можно брать из URL
-    domains: [backendHostname, adminHostname],
+    domains: [backendHostname, adminHostname, 'localhost', '127.0.0.1'],
     remotePatterns: [
       // Паттерны для основного бэкенда
       {

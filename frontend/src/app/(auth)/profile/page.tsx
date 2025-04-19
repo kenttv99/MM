@@ -84,16 +84,14 @@ const ProfilePage: React.FC = () => {
   const [profileError, setProfileError] = useState<string | null>(null);
   const hasInitialized = useRef(false);
 
-  const validateForm = useCallback((state: FormState = formState): boolean => {
+  const validateForm = useCallback((state: FormState): ValidationErrors => {
     const errors: ValidationErrors = {};
     if (!state.fio) errors.fio = "ФИО обязательно";
     if (!state.telegram) errors.telegram = "Telegram обязателен";
     else if (!state.telegram.startsWith("@")) errors.telegram = "Должен начинаться с @";
     if (!state.whatsapp) errors.whatsapp = "WhatsApp обязателен";
     else if (!/^\d+$/.test(state.whatsapp)) errors.whatsapp = "Только цифры";
-    
-    setValidationErrors(errors);
-    return Object.keys(errors).length === 0;
+    return errors;
   }, []);
 
   const initProfile = useCallback(() => {
@@ -169,23 +167,13 @@ const ProfilePage: React.FC = () => {
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     let newValue = value;
-    const newErrors = { ...validationErrors };
     if (name === "telegram") {
-        newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
-        newErrors.telegram = !newValue ? "Telegram обязателен" : !newValue.startsWith("@") ? "Должен начинаться с @" : undefined;
+      newValue = value.startsWith("@") ? value : value ? `@${value}` : "";
     } else if (name === "whatsapp") {
-        newValue = value.replace(/\D/g, ""); 
-        newErrors.whatsapp = !newValue ? "WhatsApp обязателен" : !/^\d+$/.test(newValue) ? "Только цифры" : undefined;
-    } else if (name === "fio") {
-        newErrors.fio = !value ? "ФИО обязательно" : undefined;
+      newValue = value.replace(/\D/g, "");
     }
-    setFormState((prev) => {
-        const updatedState = { ...prev, [name]: newValue };
-        validateForm(updatedState); 
-        return updatedState;
-    });
-    setValidationErrors(newErrors);
-  }, [validationErrors, validateForm]);
+    setFormState((prev) => ({ ...prev, [name]: newValue }));
+  }, []);
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -239,7 +227,8 @@ const ProfilePage: React.FC = () => {
     setFetchError(null);
   }, [initialFormState, validateForm]);
 
-  const handleSave = useCallback(async () => {
+  const handleSave = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault();
     if (isSubmitting.current) return;
     isSubmitting.current = true;
     setUpdateError(null);
@@ -248,7 +237,10 @@ const ProfilePage: React.FC = () => {
     setIsUpdating(true);
     profileLogger.info('Attempting to save profile...');
 
-    if (!validateForm()) {
+    const errors = validateForm(formState);
+    setValidationErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setIsUpdating(false);
       isSubmitting.current = false;
       return;
     }
@@ -261,6 +253,7 @@ const ProfilePage: React.FC = () => {
         setLoadingError(errorMsg);
         setStage(LoadingStage.ERROR);
         isSubmitting.current = false;
+        setIsUpdating(false);
         return;
       }
 
@@ -326,12 +319,14 @@ const ProfilePage: React.FC = () => {
 
       if (selectedFile) {
         try {
+          setStage(LoadingStage.COMPLETED);
           const formData = new FormData();
           formData.append("file", selectedFile);
           const avatarResponse = await apiFetch<UserData>("/user_edits/upload-avatar", { 
             method: "POST", 
             data: formData,
             headers: { "Authorization": `Bearer ${token}` },
+            bypassLoadingStageCheck: true,
           });
           if ('error' in avatarResponse) {
             console.error("Ошибка загрузки аватарки:", avatarResponse);
@@ -663,23 +658,13 @@ const ProfilePage: React.FC = () => {
                     <p className="text-red-500 text-xs mt-1">{validationErrors.whatsapp}</p>
                   )}
                 </div>
-                <div className="flex justify-end space-x-4 mt-6">
-                  <button
-                    type="button"
-                    onClick={toggleEdit}
-                    disabled={isUpdating}
-                    className="px-4 py-2 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 disabled:opacity-50"
-                  >
-                    Отмена
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={Object.keys(validationErrors).length > 0 || isUpdating}
-                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isUpdating ? 'Сохранение...' : 'Сохранить'}
-                  </button>
-                </div>
+                <button
+                  type="submit"
+                  disabled={Object.values(validationErrors).some(v => v) || isUpdating}
+                  className={`btn btn-primary w-full ${Object.values(validationErrors).some(v => v) || isUpdating ? "opacity-50 cursor-not-allowed" : ""}`}
+                >
+                  {isUpdating ? "Сохранение..." : "Сохранить"}
+                </button>
               </form>
             ) : (
               <div className="space-y-3 text-center">

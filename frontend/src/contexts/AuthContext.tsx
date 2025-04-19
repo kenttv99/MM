@@ -3,8 +3,6 @@
 
 import { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { apiFetch } from "@/utils/api";
-import { useLoadingStage } from '@/contexts/loading/LoadingStageContext';
-import { LoadingStage } from '@/contexts/loading/types';
 import { createLogger } from "@/utils/logger";
 
 // Create a namespace-specific logger
@@ -25,7 +23,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthChecked: boolean;
   checkAuth: () => Promise<boolean>;
-  updateUserData: (data: UserData, resetLoading?: boolean) => void;
+  updateUserData: (data: UserData) => void;
   handleLoginSuccess: (token: string, user: UserData) => void;
   logout: () => void;
 }
@@ -36,7 +34,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserData | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isAuthChecked, setIsAuthCheckedState] = useState(false);
-  const { setStage } = useLoadingStage();
   const isMounted = useRef(true);
   const lastCheckTime = useRef<number>(0);
   const CHECK_INTERVAL = 5000;
@@ -58,7 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     authLogger.warn('Authentication failure triggered, clearing tokens and local state.');
   }, []);
 
-  const updateUserData = useCallback((data: UserData, resetLoading = true) => {
+  const updateUserData = useCallback((data: UserData) => {
     if (!isMounted.current) return;
     
     authLogger.info('Обновление данных пользователя:', { 
@@ -70,17 +67,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const wasAvatarRemoved = user && user.avatar_url && !data.avatar_url;
     if (wasAvatarRemoved) {
       authLogger.info('Avatar was removed, updating localStorage and creating cache busters');
-      
       localStorage.setItem('avatar_cache_buster', Date.now().toString());
     }
-    
     setUser(data);
-    if (resetLoading) {
-      setIsAuthenticated(false);
-    }
-
     localStorage.setItem('userData', JSON.stringify(data));
-    
     const event = new CustomEvent('userDataChanged', {
       detail: {
         userData: data,
@@ -94,19 +84,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const performInitialAuthCheck = useCallback(async () => {
     authLogger.info('Starting initial authentication check logic');
     let checkSuccessful = false;
-
+    let token = null;
     try {
-      // Always validate token with server, ignore stale localStorage
-      const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+      token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       tokenRef.current = token;
       if (!token) {
         authLogger.info('No token found, clearing auth state');
         handleAuthFailure();
         checkSuccessful = false;
-        return;
       } else {
         try {
-          // Verify token by fetching user data from server
           const freshUserData = await apiFetch<UserData>('/auth/me', {
             method: 'GET',
             headers: { 'Authorization': `Bearer ${token}` },
@@ -132,11 +119,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       checkSuccessful = false;
     } finally {
       if (isMounted.current) {
+         // Явно сбрасываем userData и isAuthenticated, если токен не найден или невалиден
+         if (!token || !checkSuccessful) {
+           setUser(null);
+           setIsAuthenticated(false);
+         }
          setIsAuthCheckedState(true);
          authLogger.info('Initial auth check finished.', { checkSuccessful });
          authLogger.info('Transitioning to STATIC_CONTENT stage after initial check.');
-         setStage(LoadingStage.STATIC_CONTENT, false);
-
          if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('auth-check-complete', {
               detail: { isAuthenticated: checkSuccessful }
@@ -144,7 +134,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
          }
       }
     }
-  }, [setStage, handleAuthFailure, updateUserData, isAuthenticated]);
+  }, [handleAuthFailure, updateUserData, isAuthenticated]);
 
   // Отключаем правило ESLint для этого useEffect, так как он должен выполняться только при монтировании
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -202,10 +192,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     authLogger.info('Transitioning to STATIC_CONTENT stage after login success');
-    setStage(LoadingStage.STATIC_CONTENT, false);
 
     return true;
-  }, [setStage]);
+  }, []);
 
   const logout = useCallback(async () => {
     authLogger.info("Logout initiated.");
@@ -217,7 +206,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsAuthenticated(false);
         setUser(null);
         setIsAuthCheckedState(true);
-        setStage(LoadingStage.AUTHENTICATION, true);
     }
 
     if (typeof window !== 'undefined') {
@@ -241,7 +229,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             authLogger.warn("Failed to call server logout endpoint (or endpoint doesn't exist):", error);
         }
     }
-  }, [handleAuthFailure, setStage]);
+  }, [handleAuthFailure]);
 
   useEffect(() => {
     const handleAdminLogout = () => {
@@ -279,7 +267,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       window.removeEventListener('auth-unauthorized', handleUnauthorized as EventListener);
     };
-  }, [isAuthenticated, logout, setStage]);
+  }, [isAuthenticated, logout]);
 
   const checkAuth = useCallback(async (): Promise<boolean> => {
     if (!isMounted.current) return false;

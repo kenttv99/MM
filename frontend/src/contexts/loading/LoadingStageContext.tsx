@@ -224,7 +224,6 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [stageHistory, setStageHistory] = useState<StageHistoryEntry[]>([
     { stage: LoadingStage.INITIAL, timestamp: Date.now() }
   ]);
-  const [isAuthChecked, setIsAuthChecked] = useState<boolean>(false);
   const stageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isMounted = useIsMounted();
   
@@ -248,77 +247,84 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // Метод установки новой стадии загрузки с валидацией перехода
   const setStage = useCallback((stage: LoadingStage, isUnauthorizedResponse: boolean = false) => {
     if (!isMounted.current) return;
-    
-    setCurrentStageState(prevStage => {
-      // Проверяем возможность перехода из текущей стадии в новую
-      const result = canChangeStage(
-        prevStage, 
-        stage, 
-        stageHistory,
-        isUnauthorizedResponse
-      );
-      
-      if (!result.allowed) {
-        stageLogger.warn(`Stage transition not allowed: ${prevStage} -> ${stage}`, { 
-          reason: result.reason,
-          history: stageHistory.slice(-5)
-        });
-        return prevStage;
-      }
-      
-      // Логируем переход стадии
-      stageLogger.info(`Changing loading stage: ${prevStage} -> ${stage}`);
-      
-      // Обновляем историю переходов, сохраняя последние MAX_HISTORY_SIZE записей
-      setStageHistory(prev => {
-        const newHistory = [
-          ...prev,
-          { stage, timestamp: Date.now() }
-        ];
-        return newHistory.slice(-MAX_HISTORY_SIZE);
+
+    // Валидация перехода
+    const { allowed, reason } = canChangeStage(currentStage, stage, stageHistory, isUnauthorizedResponse);
+
+    if (allowed) {
+      stageLogger.info('Changing loading stage', { 
+        from: currentStage, 
+        to: stage,
+        reason
       });
       
-      // Отправляем событие изменения стадии
+      setCurrentStageState(stage);
+      
+      // Обновление истории стадий
+      setStageHistory(prevHistory => {
+        const newHistory = [
+          ...prevHistory,
+          { stage, timestamp: Date.now() }
+        ];
+        // Ограничиваем размер истории
+        return newHistory.length > MAX_HISTORY_SIZE ? newHistory.slice(-MAX_HISTORY_SIZE) : newHistory;
+      });
+      
+      // Отправка события об изменении стадии
       dispatchStageChangeEvent(stage);
       
-      return stage;
-    });
-  }, [stageHistory, isMounted]);
+    } else {
+      stageLogger.warn('Stage change prevented', { 
+        from: currentStage, 
+        to: stage, 
+        reason 
+      });
+    }
+  }, [currentStage, stageHistory, isMounted]); // Обновляем зависимости useCallback
+
+  // Эффект для автоматического перехода из INITIAL в AUTHENTICATION
+  useEffect(() => {
+    if (currentStage === LoadingStage.INITIAL) {
+      const initialTimer = setTimeout(() => {
+        // Проверяем еще раз, не изменилась ли стадия
+        if (isMounted.current && currentStage === LoadingStage.INITIAL) {
+          stageLogger.info('Automatically transitioning from INITIAL to AUTHENTICATION');
+          setStage(LoadingStage.AUTHENTICATION);
+        }
+      }, 50); // Небольшая задержка
+      
+      return () => clearTimeout(initialTimer);
+    }
+  }, [currentStage, setStage, isMounted]); // Теперь зависимости корректны
+  
+  // --- Исправление гонки событий ---
+  // Если стадия initial и авторизация уже завершена, вручную переводим stage (только один раз после монтирования)
+  useEffect(() => {
+    if (currentStage === LoadingStage.INITIAL && typeof window !== 'undefined') {
+      const userData = localStorage.getItem('userData');
+      const token = localStorage.getItem('token');
+      if (userData && token) {
+        setTimeout(() => {
+          setStage(LoadingStage.STATIC_CONTENT);
+        }, 100);
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
   // Обработчик завершения проверки аутентификации
   useEffect(() => {
-    // Обработчик события завершения проверки аутентификации
     const handleAuthCheckComplete = (event: CustomEvent) => {
       const { isAuthenticated } = event.detail || {};
-      
       if (!isMounted.current) return;
-      
       stageLogger.info('Auth check completed', { isAuthenticated });
       
-      // Устанавливаем флаг завершения проверки аутентификации
-      setIsAuthChecked(true);
-      
-      // Всегда переходим к STATIC_CONTENT после проверки аутентификации
-      if (stageTimeoutRef.current) {
-        clearTimeout(stageTimeoutRef.current);
-      }
-      stageTimeoutRef.current = setTimeout(() => {
-        if (isMounted.current) {
-          setStage(LoadingStage.STATIC_CONTENT);
-        }
-      }, 50);
+      // Устанавливаем стадию немедленно
+      setStage(LoadingStage.STATIC_CONTENT);
     };
-    
-    // Добавляем глобальный слушатель события
     window.addEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
-    
     return () => {
       window.removeEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
-      
-      if (stageTimeoutRef.current) {
-        clearTimeout(stageTimeoutRef.current);
-        stageTimeoutRef.current = null;
-      }
     };
   }, [isMounted, setStage]);
   
@@ -347,9 +353,7 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
     currentStage,
     setStage,
     stageHistory,
-    isAuthChecked,
-    setIsAuthChecked
-  }), [currentStage, setStage, stageHistory, isAuthChecked]);
+  }), [currentStage, setStage, stageHistory]);
   
   return (
     <LoadingStageContext.Provider value={contextValue}>
@@ -364,5 +368,5 @@ export function useLoadingStage() {
   if (!context) {
     throw new Error("useLoadingStage must be used within a LoadingStageProvider");
   }
-  return context;
+  return context as Omit<LoadingStageContextType, 'isAuthChecked' | 'setIsAuthChecked'>;
 } 

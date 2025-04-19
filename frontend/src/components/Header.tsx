@@ -9,7 +9,6 @@ import Login from "./Login";
 import Registration from "./Registration";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLoadingStage } from "@/contexts/loading";
-import { LoadingStage } from "@/contexts/loading/types";
 import Image from "next/image";
 import AuthModal from "./common/AuthModal";
 import { NavItem } from "@/types/index";
@@ -31,12 +30,6 @@ const CURRENT_LOG_LEVEL = process.env.NODE_ENV === 'production'
   : LOG_LEVEL.INFO;
 
 // Вспомогательные функции для логирования с разными уровнями
-const logDebug = (message: string, data?: unknown) => {
-  if (CURRENT_LOG_LEVEL >= LOG_LEVEL.DEBUG) {
-    console.log(`Header: ${message}`, data);
-  }
-};
-
 const logInfo = (message: string, data?: unknown) => {
   if (CURRENT_LOG_LEVEL >= LOG_LEVEL.INFO) {
     console.log(`Header: ${message}`, data);
@@ -263,21 +256,16 @@ const AvatarDisplay = ({ avatarUrl, fio, email }: { avatarUrl?: string; fio?: st
 };
 
 const Header: React.FC = () => {
-  const { isAuth, userData, logout, isLoading: authLoading, isAuthChecked, updateUserData } = useAuth();
+  const { isAuth, userData, logout, isAuthChecked } = useAuth();
   const { currentStage } = useLoadingStage();
   const router = useRouter();
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
-  const [, forceRender] = useState(0);
   const lastScrollY = useRef<number>(0);
   const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
   const isInitialMount = useRef<boolean>(true);
-  const loadingRef = useRef<boolean>(authLoading);
-  const checkedRef = useRef<boolean>(isAuthChecked);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-  const logoutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Заменяем useEffect на useLayoutEffect для управления классом и padding
@@ -304,204 +292,26 @@ const Header: React.FC = () => {
     };
   }, [isMobileMenuOpen]);
 
-  // Слушаем события изменения состояния аутентификации
+  // Отслеживание монтирования и первичной загрузки
   useEffect(() => {
-    const handleAuthStateChange = (event: CustomEvent) => {
-      logInfo('Received auth state change event', event.detail);
-      loadingRef.current = event.detail.isAuth;
-      checkedRef.current = true;
-      // Force re-render on any auth state change (login or logout)
-      forceRender(c => c + 1);
-      logInfo('Header: Re-render after auth state change', {
-        isAuthenticated: event.detail.isAuth,
-        userData: event.detail.userData
-      });
-    };
-    window.addEventListener('authStateChanged', handleAuthStateChange as EventListener);
-    return () => {
-      window.removeEventListener('authStateChanged', handleAuthStateChange as EventListener);
-    };
-  }, []);
-
-  // Слушаем завершение проверки аутентификации для корректного рендера
-  useEffect(() => {
-    const handleAuthCheckComplete = () => {
-      forceRender(c => c + 1);
-      logInfo('Header: Re-render after auth check complete');
-    };
-    window.addEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
-    return () => {
-      window.removeEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
-    };
-  }, []);
-
-  // Эффект для отслеживания первого монтирования после проверки аутентификации
-  useEffect(() => {
-    // Ждем полной проверки аутентификации и только если пользователь авторизован
-    if (isInitialMount.current && isAuthChecked && isAuth) {
+    if (isInitialMount.current && isAuthChecked) {
       isInitialMount.current = false;
       logInfo('Header component mounted post-auth check', { 
-        authLoading, 
         isAuthChecked,
         currentStage,
         isAuth
       });
-      // Предзагрузка аватарки
-      if (userData?.avatar_url) {
+      // Предзагрузка аватара, если пользователь авторизован
+      if (isAuth && userData?.avatar_url) {
         console.log('Header: Предзагрузка аватарки:', userData.avatar_url);
         const img = document.createElement('img');
+        const timestamp = localStorage.getItem('avatar_cache_buster');
         img.onload = () => console.log('Header: Аватарка успешно предзагружена:', userData.avatar_url);
         img.onerror = () => console.error('Header: Ошибка предзагрузки аватарки:', userData.avatar_url);
-        img.src = userData.avatar_url;
+        img.src = `${userData.avatar_url}${userData.avatar_url.includes('?') ? '&' : '?'}t=${timestamp || 'stable'}`;
       }
     }
-  }, [authLoading, currentStage, isAuthChecked, isAuth, userData]);
-
-  // Add event listeners for user data changes and avatar updates
-  useEffect(() => {
-    // Handle user data change events (particularly avatar updates)
-    const handleUserDataChange = (event: CustomEvent) => {
-      const { userData: updatedUserData, avatarRemoved } = event.detail;
-      if (updatedUserData) {
-        logInfo('Header: Received userDataChanged event, updating user data', {
-          hasAvatar: !!updatedUserData.avatar_url,
-          userId: updatedUserData.id,
-          fio: updatedUserData.fio,
-          avatarRemoved
-        });
-        
-        // Cache the avatar URL in localStorage if available
-        if (updatedUserData.avatar_url && typeof window !== 'undefined') {
-          localStorage.setItem('cached_avatar_url', updatedUserData.avatar_url);
-        }
-        
-        // Force immediate UI update
-        const forceUIUpdate = () => {
-          // Force update of user data in this component by using the Auth context
-          // НЕПРАВИЛЬНО: Вызов updateUserData здесь создает цикл!
-          // if (updateUserData && typeof updateUserData === 'function') {
-          //   const freshUserData = {...updatedUserData};
-          //   updateUserData(freshUserData, false);
-          // }
-          
-          // Also trigger a React state update to force re-render
-          // Этого должно быть достаточно для обновления UI с новыми данными из контекста
-          forceRender(c => c + 1);
-        };
-        
-        // If avatar was removed, make sure to clear any cached versions
-        if (avatarRemoved) {
-          logInfo('Header: Avatar removed, clearing cache');
-          
-          // Clear cached avatar URL from localStorage
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem('cached_avatar_url');
-          }
-          
-          // Force immediate UI update
-          forceUIUpdate();
-          
-          // Force reload any avatar components
-          const avatarElements = document.querySelectorAll('img[alt="User Avatar"]');
-          avatarElements.forEach(img => {
-            // Update src to empty to prevent showing
-            (img as HTMLImageElement).src = '';
-          });
-        }
-        // Force reload the avatar image to clear browser cache
-        else if (updatedUserData.avatar_url) {
-          logInfo('Header: New avatar detected, updating display');
-          
-          // Get cache buster from localStorage if available or generate new one
-          const timestamp = typeof window !== 'undefined' ? 
-            localStorage.getItem('avatar_cache_buster') || Date.now().toString() :
-            Date.now().toString();
-            
-          // Store it for future use
-          if (typeof window !== 'undefined') {
-            localStorage.setItem('avatar_cache_buster', timestamp);
-          }
-            
-          // Force immediate UI update
-          forceUIUpdate();
-          
-          // Pre-load the new avatar with a slight delay to ensure DOM is ready
-          setTimeout(() => {
-            const cachedBusterUrl = updatedUserData.avatar_url.includes('?') 
-              ? `${updatedUserData.avatar_url}&t=${timestamp}` 
-              : `${updatedUserData.avatar_url}?t=${timestamp}`;
-              
-            const testImg = document.createElement('img');
-            testImg.onload = () => {
-              console.log('Header: Updated avatar loaded successfully:', cachedBusterUrl);
-              // Force another update after successful load
-              forceRender(c => c + 1);
-            };
-            testImg.onerror = () => console.error('Header: Failed to load updated avatar:', cachedBusterUrl);
-            testImg.src = cachedBusterUrl;
-          }, 50);
-        } else {
-          // No avatar changes, just update normally
-          forceRender(c => c + 1);
-        }
-      }
-    };
-
-    // Handle specific avatar update events from Profile page
-    const handleAvatarUpdate = (event: CustomEvent) => {
-      const { userData: updatedUserData, newAvatarUrl, timestamp } = event.detail;
-      
-      if (updatedUserData && newAvatarUrl) {
-        logInfo('Header: Received avatar-updated event', {
-          newAvatarUrl,
-          timestamp
-        });
-        
-        // Use a stable timestamp
-        const effectiveTimestamp = timestamp || Date.now().toString();
-        
-        // Cache the new avatar URL in localStorage
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('cached_avatar_url', newAvatarUrl);
-          localStorage.setItem('avatar_cache_buster', effectiveTimestamp);
-        }
-        
-        // Immediately update user data with the new avatar
-        // НЕПРАВИЛЬНО: Вызов updateUserData здесь создает цикл!
-        // if (updateUserData && typeof updateUserData === 'function') {
-        //   const freshUserData = {...updatedUserData};
-        //   updateUserData(freshUserData, false);
-        // }
-
-        // Force a re-render of the entire header
-        // Этого должно быть достаточно для обновления UI с новыми данными из контекста
-        forceRender(c => c + 1);
-          
-        // Preload the image with a slight delay
-        setTimeout(() => {
-          const cachedBusterUrl = newAvatarUrl.includes('?') 
-            ? `${newAvatarUrl}&t=${effectiveTimestamp}` 
-            : `${newAvatarUrl}?t=${effectiveTimestamp}`;
-            
-          const img = document.createElement('img');
-          img.src = cachedBusterUrl;
-          img.onload = () => {
-            logInfo('Header: New avatar preloaded successfully');
-            // Force another update after successful load
-            forceRender(c => c + 1);
-          };
-        }, 50);
-      }
-    };
-
-    window.addEventListener('userDataChanged', handleUserDataChange as EventListener);
-    window.addEventListener('avatar-updated', handleAvatarUpdate as EventListener);
-    
-    return () => {
-      window.removeEventListener('userDataChanged', handleUserDataChange as EventListener);
-      window.removeEventListener('avatar-updated', handleAvatarUpdate as EventListener);
-    };
-  }, [updateUserData]);
+  }, [isAuthChecked, isAuth, currentStage, userData]);
 
   // Эффект для отслеживания прокрутки
   useEffect(() => {
@@ -569,15 +379,11 @@ const Header: React.FC = () => {
     logInfo('Header: Logout clicked');
     try {
       // Set logging out state and hide header immediately
-      setIsLoggingOut(true);
       setIsMobileMenuOpen(false);
       setIsLoginModalOpen(false);
       setIsRegisterModalOpen(false);
       
       // Clear any existing timeouts
-      if (logoutTimeoutRef.current) {
-        clearTimeout(logoutTimeoutRef.current);
-      }
       if (transitionTimeoutRef.current) {
         clearTimeout(transitionTimeoutRef.current);
       }
@@ -587,7 +393,7 @@ const Header: React.FC = () => {
       
       // Set a safety timeout to ensure redirection happens even if the event doesn't fire
       if (isOnProfilePage) {
-        logoutTimeoutRef.current = setTimeout(() => {
+        transitionTimeoutRef.current = setTimeout(() => {
           logInfo('Header: Safety timeout triggered for profile page redirect');
           // If we have Next.js router, use it, otherwise use window.location
           if (router) {
@@ -606,15 +412,7 @@ const Header: React.FC = () => {
       const handleLogoutComplete = () => {
         logInfo('Header: Logout complete event received');
         
-        // Clear the safety timeout since the event fired
-        if (logoutTimeoutRef.current) {
-          clearTimeout(logoutTimeoutRef.current);
-          logoutTimeoutRef.current = null;
-        }
-        
         // Immediately show the unauthenticated header without delay
-        setIsLoggingOut(false);
-        
         logInfo('Header: Showing unauthenticated header after logout');
         
         // Redirect to home page if user was on profile page
@@ -652,12 +450,11 @@ const Header: React.FC = () => {
       
     } catch (error) {
       logError('Header: Logout failed', error);
-      setIsLoggingOut(false);
       
       // Clear any pending timeouts on error
-      if (logoutTimeoutRef.current) {
-        clearTimeout(logoutTimeoutRef.current);
-        logoutTimeoutRef.current = null;
+      if (transitionTimeoutRef.current) {
+        clearTimeout(transitionTimeoutRef.current);
+        transitionTimeoutRef.current = null;
       }
     }
   }, [logout, router]);
@@ -665,9 +462,6 @@ const Header: React.FC = () => {
   // Cleanup event listeners
   useEffect(() => {
     const cleanup = () => {
-      if (logoutTimeoutRef.current) {
-        clearTimeout(logoutTimeoutRef.current);
-      }
       if (transitionTimeoutRef.current) {
         clearTimeout(transitionTimeoutRef.current);
       }
@@ -686,98 +480,94 @@ const Header: React.FC = () => {
     { label: "Выход", onClick: handleLogout },
   ];
 
-  // Упрощенная логика рендеринга
-  if (isLoggingOut) { // Если идет выход, показываем скелетон
-    return <HeaderSkeleton />;
-  }
+  // Определяем isLoading ТОЛЬКО на основе isAuthChecked
+  const isLoading = !isAuthChecked;
 
-  // Определяем, нужно ли показывать скелетон
-  const shouldShowSkeleton = !isAuthChecked || currentStage < LoadingStage.STATIC_CONTENT;
-  logDebug("Render check", { shouldShowSkeleton, isAuthChecked, currentStage });
-
-  if (shouldShowSkeleton) {
+  // Лог перед рендером скелетона (оставляем currentStage для отладки)
+  if (isLoading) {
+    logInfo("RENDERING SKELETON", { isLoading, isAuthChecked, currentStage });
     return <HeaderSkeleton />;
   }
 
   // Основной рендер хедера
   return (
-    <header
-      className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${
-        isScrolled ? "bg-white/95 shadow-lg py-2 sm:py-3" : "bg-white/90 py-3 sm:py-4"
-      }`}
-    >
-      <div className="w-full flex items-center">
-        <div className="w-full flex items-center justify-between px-8 sm:px-10">
-          <Link href="/" className="transition-transform duration-300 hover:scale-105 z-40">
-            <Logo />
-          </Link>
+    <>
+      <header
+        className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ${isScrolled ? "bg-white/95 shadow-lg py-2 sm:py-3" : "bg-white/90 py-3 sm:py-4"}`}
+      >
+        <div className="w-full flex items-center">
+          <div className="w-full flex items-center justify-between px-8 sm:px-10">
+            <Link href="/" className="transition-transform duration-300 hover:scale-105 z-40">
+              <Logo />
+            </Link>
 
-          <div className="hidden md:flex items-center gap-3">
-            {isAuth && <Notifications />}
-            {isAuth && userData ? (
-              <>
-                <Link href="/profile" className="text-orange-500 hover:text-orange-600">
-                  <AvatarDisplay
-                    avatarUrl={userData?.avatar_url}
-                    fio={userData?.fio}
-                    email={userData?.email || ""}
-                  />
-                </Link>
-                <button
-                  onClick={handleLogout}
-                  className="text-orange-500 hover:text-orange-600 p-2 min-w-[44px] min-h-[44px]"
-                  title="Выход"
-                >
-                  <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
-                    <path
-                      fillRule="evenodd"
-                      d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z"
-                      clipRule="evenodd"
+            <div className="hidden md:flex items-center gap-3">
+              {isAuth && <Notifications />}
+              {isAuth && userData ? (
+                <>
+                  <Link href="/profile" className="text-orange-500 hover:text-orange-600">
+                    <AvatarDisplay
+                      avatarUrl={userData.avatar_url}
+                      fio={userData.fio}
+                      email={userData.email || ""}
                     />
-                  </svg>
-                </button>
-              </>
-            ) : (
-              <div className="flex items-center gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={openRegistration}
-                  className="px-4 py-1.5 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 text-sm sm:text-base min-w-[100px] min-h-[30px]"
-                >
-                  Регистрация
-                </motion.button>
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={openLogin}
-                  className="px-4 py-1.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm sm:text-base min-w-[100px] min-h-[30px]"
-                >
-                  Войти
-                </motion.button>
-              </div>
-            )}
-          </div>
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="text-orange-500 hover:text-orange-600 p-2 min-w-[44px] min-h-[44px]"
+                    title="Выход"
+                  >
+                    <svg className="h-6 w-6" viewBox="0 0 20 20" fill="currentColor">
+                      <path
+                        fillRule="evenodd"
+                        d="M5 4a1 1 0 00-1 1v10a1 1 0 001 1h6a1 1 0 110 2H5a3 3 0 01-3-3V5a3 3 0 013-3h6a1 1 0 010 2H5zM14.293 6.293a1 1 0 011.414 0l3 3a1 1 0 010 1.414l-3 3a1 1 0 01-1.414-1.414L15.586 11H9a1 1 0 110-2h6.586l-1.293-1.293a1 1 0 010-1.414z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={openRegistration}
+                    className="px-4 py-1.5 border border-orange-500 text-orange-500 rounded-lg hover:bg-orange-50 text-sm sm:text-base min-w-[100px] min-h-[30px]"
+                  >
+                    Регистрация
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={openLogin}
+                    className="px-4 py-1.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 text-sm sm:text-base min-w-[100px] min-h-[30px]"
+                  >
+                    Войти
+                  </motion.button>
+                </div>
+              )}
+            </div>
 
-          {/* Кнопка-бургер для мобильных (меньше md) */}
-          <div className="md:hidden flex items-center">
-            <button
-              onClick={toggleMobileMenu}
-              className="text-gray-700 hover:text-orange-500 p-2 min-w-[44px] min-h-[44px]"
-              aria-label="Открыть меню"
-            >
-              <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
-              </svg>
-            </button>
+            {/* Кнопка-бургер для мобильных */}
+            <div className="md:hidden flex items-center">
+              <button
+                onClick={toggleMobileMenu}
+                className="text-gray-700 hover:text-orange-500 p-2 min-w-[44px] min-h-[44px]"
+                aria-label="Открыть меню"
+              >
+                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16m-7 6h7" />
+                </svg>
+              </button>
+            </div>
+            
           </div>
-
         </div>
-      </div>
+      </header>
 
       {/* Мобильное меню */}
       {isMobileMenuOpen && (
-        <motion.div
+         <motion.div
           initial={{ x: "100%", opacity: 0 }}
           animate={{ x: 0, opacity: 1 }}
           exit={{ x: "100%", opacity: 0 }}
@@ -834,18 +624,19 @@ const Header: React.FC = () => {
           {isAuth && userData && (
             <div className="p-6 border-t border-gray-200 bg-white flex items-center justify-center gap-4">
               <AvatarDisplay
-                avatarUrl={userData?.avatar_url}
-                fio={userData?.fio}
-                email={userData?.email || ""}
+                avatarUrl={userData.avatar_url}
+                fio={userData.fio}
+                email={userData.email || ""}
               />
               <span className="text-gray-600 text-sm truncate max-w-[150px]">
-                {userData?.fio || userData?.email}
+                {userData.fio || userData.email}
               </span>
             </div>
           )}
         </motion.div>
       )}
 
+      {/* Модальные окна */}
       {isLoginModalOpen && (
         <AuthModal
           isOpen={isLoginModalOpen}
@@ -865,7 +656,7 @@ const Header: React.FC = () => {
           <Registration isOpen={isRegisterModalOpen} onClose={handleModalClose} toggleMode={toggleToLogin} />
         </AuthModal>
       )}
-    </header>
+    </>
   );
 };
 

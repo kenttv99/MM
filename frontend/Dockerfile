@@ -4,7 +4,7 @@ FROM node:18-alpine
 WORKDIR /app
 
 # Устанавливаем переменные окружения
-ENV NODE_ENV=production
+ENV NODE_ENV=development
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DOCKER_CONTAINER=true
 # Отключаем watch-режим для предотвращения циклов
@@ -15,7 +15,7 @@ ENV CHOKIDAR_USEPOLLING=false
 COPY package.json package-lock.json* ./
 
 # Устанавливаем зависимости
-RUN npm ci --production
+RUN npm ci
 
 # Копируем весь код
 COPY . .
@@ -24,10 +24,11 @@ COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 
 # Собираем приложение с оптимизациями для предотвращения зацикливания
-RUN DISABLE_ESLINT_PLUGIN=true npm run build
+# RUN DISABLE_ESLINT_PLUGIN=true npm run build
+RUN DISABLE_ESLINT_PLUGIN=true
 
 # Открываем порт для Next.js
 EXPOSE 3000
 
 # Запускаем приложение
-CMD ["npm", "start"] 
+CMD ["npm", "run", "dev"] 

@@ -94,7 +94,7 @@ const ProfilePage: React.FC = () => {
     
     setValidationErrors(errors);
     return Object.keys(errors).length === 0;
-  }, [formState]);
+  }, []);
 
   const initProfile = useCallback(() => {
     profileLogger.info('Initializing profile form', { stage: currentStage });
@@ -372,7 +372,7 @@ const ProfilePage: React.FC = () => {
         };
         setFormState(updatedData);
         setInitialFormState(updatedData);
-        updateUserData(updatedUser, false); 
+        updateUserData(updatedUser); 
         setUpdateSuccess("Профиль успешно обновлен!");
         setShouldDeleteAvatar(false); 
         setSelectedFile(null);
@@ -434,8 +434,8 @@ const ProfilePage: React.FC = () => {
 
     profileLogger.info('User data changed externally, refreshing form state');
 
-    const storedData = localStorage.getItem('userData');
     let avatarUrl = userData.avatar_url;
+    const storedData = localStorage.getItem('userData');
     if (storedData) {
       try {
         const parsedData = JSON.parse(storedData);
@@ -453,21 +453,40 @@ const ProfilePage: React.FC = () => {
       email: userData.email || "",
     };
 
-    if (JSON.stringify(newData) !== JSON.stringify(formState)) {
-        setFormState(newData);
-        setInitialFormState(newData);
-        profileLogger.info('Form state updated from external userData change');
-    }
-
-  }, [userData?.fio, userData?.telegram, userData?.whatsapp, userData?.avatar_url, userData?.email, isEditing, formState]);
+    setFormState(newData);
+    setInitialFormState(newData);
+    profileLogger.info('Form state updated from external userData change or exit from edit mode');
+  }, [userData, isEditing]);
 
   useEffect(() => {
-      if (isAuthChecked && isAuth && userData && !hasInitialized.current) {
-          profileLogger.info('Auth checked and user authenticated, initializing profile...');
-          initProfile();
-          hasInitialized.current = true;
+    if (isAuthChecked && isAuth && userData && !hasInitialized.current) {
+      profileLogger.info('Auth checked and user authenticated, initializing profile...');
+      try {
+        initProfile();
+        hasInitialized.current = true;
+        if (currentStage < LoadingStage.DYNAMIC_CONTENT) {
+          setStage(LoadingStage.DYNAMIC_CONTENT);
+        }
+      } catch {
+        setProfileError('Ошибка инициализации профиля');
+        setStage(LoadingStage.ERROR);
       }
-  }, [isAuthChecked, isAuth, userData, initProfile]);
+    } else if (isAuthChecked && (!isAuth || !userData)) {
+      setProfileError('Ошибка авторизации или загрузки данных пользователя.');
+      setStage(LoadingStage.ERROR);
+    }
+  }, [isAuthChecked, isAuth, userData, initProfile, setStage, currentStage]);
+
+  if (!isAuthChecked) {
+    return (
+      <div className="flex justify-center items-center min-h-screen">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent"></div>
+      </div>
+    );
+  }
+  if (profileError) {
+    return <ErrorDisplay error={profileError} />;
+  }
 
   if (authLoading || (isAuth && currentStage < LoadingStage.DYNAMIC_CONTENT && currentStage !== LoadingStage.ERROR)) {
       return (
@@ -502,7 +521,7 @@ const ProfilePage: React.FC = () => {
           Ошибка обновления профиля: {updateError}
         </div>
       )}
-      <div className="w-full max-w-2xl">
+      <div className="w-full max-w-2xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-800 mb-6 text-center">Ваш профиль</h1>
 
         {/* --- НАЧАЛО УСЛОВНОГО РЕНДЕРИНГА --- */}
@@ -655,7 +674,7 @@ const ProfilePage: React.FC = () => {
                   </button>
                   <button
                     type="submit"
-                    disabled={!validateForm() || isUpdating}
+                    disabled={Object.keys(validationErrors).length > 0 || isUpdating}
                     className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     {isUpdating ? 'Сохранение...' : 'Сохранить'}

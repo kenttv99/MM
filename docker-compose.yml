@@ -127,22 +127,21 @@ services:
       dockerfile: Dockerfile
     container_name: frontend_app
     volumes:
-      # В production режиме не нужен hot-reload, поэтому монтируем только .env.local
+      - ./frontend:/app
       - ./frontend/.env.local:/app/.env.local
+      - /app/node_modules
     ports:
       - "3000:3000"
     environment:
-      # Используем имена сервисов вместо localhost
       NEXT_PUBLIC_API_URL: http://user-server:8000
       NEXT_ADMIN_API_URL: http://admin-server:8001
-      NODE_ENV: production
+      NODE_ENV: development
+    command: npm run dev
     depends_on:
       - user-server
       - admin-server
     networks:
       - app-network
-    # Вернем стандартную команду запуска
-    command: npm start
     restart: unless-stopped
 
 networks:

@@ -40,51 +40,13 @@ const InnerProvider: React.FC<{ children: React.ReactNode }> = ({ children }) =>
   const { isStaticLoading, isDynamicLoading, setStaticLoading, setDynamicLoading, resetLoading } = useLoadingFlags();
   const { progress, setProgress } = useLoadingProgress();
   const { error, setError, clearError } = useLoadingError();
-  const stageTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Реф для тайм-аута стадий
-  const cyclesCounter = useRef<Record<string, number>>({});
-  const MAX_CYCLES = 3; // Максимальное количество допустимых циклов
-  const lastChangeTimeRef = useRef<number>(Date.now());
-  const STUCK_THRESHOLD = 10000; // 10 секунд
+  const stageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Function to detect and fix loading inconsistencies
   const detectAndFixLoadingInconsistency = useCallback((): boolean => {
     // Активные запросы из глобального состояния
     const activeRequests = typeof window !== 'undefined' ? window.__activeRequestCount || 0 : 0;
     let inconsistencyDetected = false;
-    
-    // Проверка зацикливания стадий INITIAL и AUTHENTICATION
-    const now = Date.now();
-    const timeSinceLastChange = now - lastChangeTimeRef.current;
-    
-    if (
-      (currentStage === LoadingStage.INITIAL || currentStage === LoadingStage.AUTHENTICATION) && 
-      timeSinceLastChange > STUCK_THRESHOLD
-    ) {
-      // Детектируем возможный цикл
-      const cycleKey = `${currentStage}_stuck`;
-      cyclesCounter.current[cycleKey] = (cyclesCounter.current[cycleKey] || 0) + 1;
-      
-      // Если обнаружили превышение порога циклов - переходим к STATIC_CONTENT
-      if (cyclesCounter.current[cycleKey] >= MAX_CYCLES) {
-        loadingLogger.warn('Обнаружено зацикливание при загрузке, принудительный переход к STATIC_CONTENT', {
-          currentStage,
-          cycleCount: cyclesCounter.current[cycleKey],
-          timeSinceLastChange
-        });
-        
-        // Принудительно устанавливаем STATIC_CONTENT и сбрасываем флаги
-        setStage(LoadingStage.STATIC_CONTENT, true);
-        resetLoading();
-        
-        // Сбрасываем счетчик
-        cyclesCounter.current = {};
-        
-        return true;
-      }
-    } else {
-      // Если мы не в проблемных стадиях, сбрасываем счетчики
-      cyclesCounter.current = {};
-    }
     
     // Несогласованность 1: Флаги загрузки активны, но нет активных запросов
     if ((isStaticLoading || isDynamicLoading) && activeRequests === 0 && 

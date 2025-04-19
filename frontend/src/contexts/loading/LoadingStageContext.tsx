@@ -297,29 +297,12 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   }, [currentStage, setStage, isMounted]); // Теперь зависимости корректны
   
-  // --- Исправление гонки событий ---
-  // Если стадия initial и авторизация уже завершена, вручную переводим stage (только один раз после монтирования)
-  useEffect(() => {
-    if (currentStage === LoadingStage.INITIAL && typeof window !== 'undefined') {
-      const userData = localStorage.getItem('userData');
-      const token = localStorage.getItem('token');
-      if (userData && token) {
-        setTimeout(() => {
-          setStage(LoadingStage.STATIC_CONTENT);
-        }, 100);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  
   // Обработчик завершения проверки аутентификации
   useEffect(() => {
     const handleAuthCheckComplete = (event: CustomEvent) => {
       const { isAuthenticated } = event.detail || {};
       if (!isMounted.current) return;
       stageLogger.info('Auth check completed', { isAuthenticated });
-      
-      // Устанавливаем стадию немедленно
       setStage(LoadingStage.STATIC_CONTENT);
     };
     window.addEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
@@ -327,6 +310,17 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
       window.removeEventListener('auth-check-complete', handleAuthCheckComplete as EventListener);
     };
   }, [isMounted, setStage]);
+  
+  // Новый обработчик: переход к DYNAMIC_CONTENT после полной инициализации профиля
+  useEffect(() => {
+    const handleProfileLoaded = () => {
+      if (currentStage < LoadingStage.DYNAMIC_CONTENT) {
+        setStage(LoadingStage.DYNAMIC_CONTENT);
+      }
+    };
+    window.addEventListener('profile-loaded', handleProfileLoaded);
+    return () => window.removeEventListener('profile-loaded', handleProfileLoaded);
+  }, [currentStage, setStage]);
   
   // Обработчик ошибок загрузки
   useEffect(() => {
@@ -353,7 +347,17 @@ export const LoadingStageProvider: React.FC<{ children: React.ReactNode }> = ({ 
     currentStage,
     setStage,
     stageHistory,
+    // Для совместимости с типом, не используются в новой архитектуре
+    isAuthChecked: false,
+    setIsAuthChecked: () => {},
   }), [currentStage, setStage, stageHistory]);
+  
+  useEffect(() => {
+    console.warn('LOADING_STAGE_PROVIDER: mounted');
+    return () => {
+      console.warn('LOADING_STAGE_PROVIDER: unmounted');
+    };
+  }, []);
   
   return (
     <LoadingStageContext.Provider value={contextValue}>

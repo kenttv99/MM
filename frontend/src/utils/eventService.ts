@@ -1,15 +1,10 @@
 // frontend/src/utils/eventService.ts
 import {
   // EventResponse, // Удаляем неиспользуемый импорт
-  EventData
+  EventData,
+  EventDateFilter
 } from '@/types/events';
 import { createLogger } from '@/utils/logger';
-
-// Определяем интерфейс EventFilter
-export interface EventFilter {
-  startDate?: string;
-  endDate?: string;
-}
 
 // Интерфейс для ответа с событиями
 export interface EventsResponse {
@@ -35,7 +30,7 @@ const logger = createLogger('eventService');
  */
 export async function fetchEvents(
   page: number = 1,
-  filters?: EventFilter,
+  filters?: EventDateFilter,
   signal?: AbortSignal
 ): Promise<EventsResponse> {
   // Создаем ID для отслеживания запроса в логах

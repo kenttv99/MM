@@ -1,0 +1,34 @@
+Header: RENDERING SKELETON {isLoading: true, isAuthChecked: false, currentStage: 'initial'}
+Header.tsx:35 Header: RENDERING SKELETON {isLoading: true, isAuthChecked: false, currentStage: 'initial'}
+logger.ts:200 ProfilePage: Render start, stage: initial 
+logger.ts:200 ProfilePage: Render start, stage: initial 
+logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
+logger.ts:200 AuthContext: Starting initial authentication check logic 
+logger.ts:200 AuthContext: AuthProvider unmounted. 
+logger.ts:200 AuthContext: AuthProvider mounted, starting initial auth check. 
+logger.ts:200 AuthContext: Starting initial authentication check logic 
+logger.ts:200 AuthContext: Initial auth check successful. {userId: 1}
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: true}
+logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
+logger.ts:200 ProfilePage: Render start, stage: initial 
+logger.ts:200 ProfilePage: Render start, stage: initial 
+Header.tsx:73 AvatarDisplay: Using avatarUrl prop /images/users_avatars/9051fc96-c644-4b27-a01b-79f3306bd8a6.jpg
+Header.tsx:126 AvatarDisplay: Preloading avatar {url: '/images/users_avatars/9051fc96-c644-4b27-a01b-79f3306bd8a6.jpg', cacheBuster: 'stable'}
+Header.tsx:35 Header: Header component mounted post-auth check {isAuthChecked: true, currentStage: 'initial', isAuth: true}
+Header.tsx:306 Header: Предзагрузка аватарки: /images/users_avatars/9051fc96-c644-4b27-a01b-79f3306bd8a6.jpg
+logger.ts:200 ProfilePage: User data changed externally, refreshing form state 
+logger.ts:200 ProfilePage: Form state updated from external userData change or exit from edit mode 
+logger.ts:200 ProfilePage: Auth checked and user authenticated, initializing profile... 
+logger.ts:200 ProfilePage: Initializing profile form {stage: 'initial'}
+logger.ts:200 ProfilePage: ProfilePage: initProfile finished (form initialized) 
+Header.tsx:73 AvatarDisplay: Using avatarUrl prop /images/users_avatars/9051fc96-c644-4b27-a01b-79f3306bd8a6.jpg
+Header.tsx:309 Header: Аватарка успешно предзагружена: /images/users_avatars/9051fc96-c644-4b27-a01b-79f3306bd8a6.jpg
+logger.ts:200 ProfilePage: Render start, stage: initial 
+logger.ts:200 ProfilePage: Render start, stage: initial 
+Header.tsx:132 AvatarDisplay: Avatar preloaded successfully: /images/users_avatars/9051fc96-c644-4b27-a01b-79f3306bd8a6.jpg
+logger.ts:200 AuthContext: Initial auth check successful. {userId: 1}
+logger.ts:200 AuthContext: Initial auth check finished. {checkSuccessful: true}
+logger.ts:200 AuthContext: Transitioning to STATIC_CONTENT stage after initial check. 
+logger.ts:200 ProfilePage: Render start, stage: initial 
+logger.ts:200 ProfilePage: User data changed externally, refreshing form state 
+logger.ts:200 ProfilePage: Form state updated from external userData change or exit from edit mode 

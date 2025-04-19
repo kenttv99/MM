@@ -8,7 +8,7 @@ import React, { useState, useRef, useCallback, useMemo, useEffect } from "react"
 import Image from "next/image";
 import Link from "next/link";
 import FormattedDescription from "@/components/FormattedDescription";
-import { EventData } from "@/types/events";
+import { EventData, EventDateFilter } from "@/types/events";
 import { useInView } from "react-intersection-observer";
 import { createLogger, LogLevel, configureModuleLogging } from '@/utils/logger';
 // Импортируем необходимые хуки из соответствующих контекстов
@@ -39,17 +39,8 @@ const logger = createLogger('EventsPage');
 
 // API_BASE_URL is not needed as we use Next.js rewrites for all API calls
 
-// Используем существующий интерфейс ApiResponse
-interface ApiResponse<T> { // Убедимся, что этот интерфейс определён где-то (например, в types/api.ts)
-  status: string;
-  data: T; // Изменено на T, а не T[]
-  page?: number;
-  totalPages?: number;
-  hasMore?: boolean;
-}
-
 // Тип ответа с событиями
-type EventsResponse = {
+type EventsPageState = {
   data: EventData[];
   page: number;
   totalPages: number;
@@ -59,12 +50,6 @@ type EventsResponse = {
 // Параметры для fetchEvents
 interface FetchOptions {
   forceTrigger?: boolean;
-}
-
-// Интерфейс для состояния фильтров
-interface DateFilters {
-  startDate: string;
-  endDate: string;
 }
 
 // Компонент фильтра по датам
@@ -468,16 +453,25 @@ const LoadingSpinner = () => (
 // Тип элемента билета, получаемого из API
 type TicketItem = { status: string; event?: { id: number } };
 
+// Определим более точный тип для ответа API бронирования
+type ReservedTicketsApiResponse = {
+  tickets: TicketItem[];
+  total_count: number;
+  page: number;
+  per_page: number;
+  has_more: boolean;
+};
+
 const EventsPageContent = () => {
   // Рефы и состояния компонента
   const isMounted = useIsMounted(); // Хук для отслеживания монтирования
-  const [data, setData] = useState<EventsResponse>(null);
+  const [data, setData] = useState<EventsPageState>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isFetching, setIsFetching] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [tempFilters, setTempFilters] = useState<DateFilters>({ startDate: "", endDate: "" });
-  const [activeFilters, setActiveFilters] = useState<DateFilters>({ startDate: "", endDate: "" });
+  const [tempFilters, setTempFilters] = useState<EventDateFilter>({ startDate: "", endDate: "" });
+  const [activeFilters, setActiveFilters] = useState<EventDateFilter>({ startDate: "", endDate: "" });
   const [showInitialSkeleton, setShowInitialSkeleton] = useState(true); // Показываем скелетон при первой загрузке
   const [mountId, setMountId] = useState(0); // Используется для принудительного перезапуска useEffect
 
@@ -564,7 +558,7 @@ const EventsPageContent = () => {
   }, [activeFilters]);
 
   // Вспомогательная функция для запуска fetchEvents с заданными фильтрами
-  const fetchEventsWithFilters = useCallback(async (filters: DateFilters, forcePage?: number) => {
+  const fetchEventsWithFilters = useCallback(async (filters: EventDateFilter, forcePage?: number) => {
     // Используем forcePage если он предоставлен, иначе берем текущее состояние page
     const targetPage = forcePage !== undefined ? forcePage : page;
     
@@ -590,9 +584,9 @@ const EventsPageContent = () => {
     try {
       const hasActiveStartDate = filters.startDate && filters.startDate.trim() !== '';
       const hasActiveEndDate = filters.endDate && filters.endDate.trim() !== '';
-      const serviceFilters = {
-        startDate: hasActiveStartDate ? formatDateForAPI(filters.startDate) : '',
-        endDate: hasActiveEndDate ? formatDateForAPI(filters.endDate) : ''
+      const serviceFilters: EventDateFilter = {
+        startDate: hasActiveStartDate ? formatDateForAPI(filters.startDate!) : '',
+        endDate: hasActiveEndDate ? formatDateForAPI(filters.endDate!) : ''
       };
       
       // Устанавливаем флаг попытки загрузки ТОЛЬКО перед фактическим вызовом API
@@ -641,7 +635,7 @@ const EventsPageContent = () => {
                 return {
                   ...parsedData,
                   data: [...existingData, ...uniqueNewData]
-                };
+                } as EventsPageState;
               });
 
             setHasMore(parsedData.hasMore);
@@ -701,7 +695,7 @@ const EventsPageContent = () => {
       // Скрываем начальный скелетон при критической ошибке
       setShowInitialSkeleton(false);
     }
-  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]); // Добавляем page в зависимости, т.к. используем его как fallback
+  }, [page, setStage, setDynamicLoading, loadingErrorFromContext, setError, isMounted]);
 
   // Функция для сброса фильтров
   const handleResetFilters = useCallback(() => {
@@ -734,7 +728,7 @@ const EventsPageContent = () => {
     // Запускаем запрос СРАЗУ после всех подготовительных действий, принудительно для page 1
     if (isMounted.current) {
       logger.info('Directly initiating fetch after filter reset for page 1');
-      fetchEventsWithFilters({ startDate: "", endDate: "" }, 1); // Передаем 1
+      fetchEventsWithFilters({ startDate: "", endDate: "" }, 1); // Передаем пустой EventDateFilter
     }
   }, [activeFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
 
@@ -770,7 +764,7 @@ const EventsPageContent = () => {
     // Запускаем запрос СРАЗУ после всех подготовительных действий, принудительно для page 1
     if (isMounted.current) {
       logger.info('Directly initiating fetch after filter change for page 1');
-      fetchEventsWithFilters(tempFilters, 1); // Передаем 1
+      fetchEventsWithFilters(tempFilters, 1); // Передаем EventDateFilter
     }
   }, [tempFilters, setStage, setDynamicLoading, fetchEventsWithFilters, isMounted]);
 
@@ -834,7 +828,7 @@ const EventsPageContent = () => {
         if (isMounted.current && !isFetching) {
           logger.info('[Initial Load Effect] Initial fetch timer fired');
           // Принудительно запрашиваем первую страницу при начальной загрузке
-          fetchEventsWithFilters({ startDate: "", endDate: "" }, 1); // Передаем 1
+          fetchEventsWithFilters({ startDate: "", endDate: "" }, 1); // Передаем пустой EventDateFilter
         }
       }, 50);
       return () => clearTimeout(initialFetchTimer);
@@ -902,37 +896,54 @@ const EventsPageContent = () => {
         const token = localStorage.getItem('token');
         if (!token) return;
 
-        // Используем ApiResponse<TicketItem[]> чтобы data был TicketItem[]
-        const response = await apiFetch<ApiResponse<TicketItem[]>>('/user_edits/my-tickets', {
+        // Используем новый тип ReservedTicketsApiResponse
+        const response = await apiFetch<ReservedTicketsApiResponse>('/user_edits/my-tickets', {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + token
+            'Authorization': 'Bearer ' + token,
+            'Cache-Control': 'no-cache', // Гарантируем свежие данные
           },
-          params: { status: 'approved' },
+          params: { status: 'approved' }, // Запрашиваем только подтвержденные
           bypassLoadingStageCheck: true,
-          // deduplicationInterval: 5000 // Удаляем
         });
 
-        // Обработка ответа от apiFetch
-        // Проверяем, что response.data существует и является массивом
-        if (response && response.data && Array.isArray(response.data)) {
-            const ticketsData: TicketItem[] = response.data; // Теперь это TicketItem[]
+        // ---> ИЗМЕНЕНИЕ ЗДЕСЬ: Извлекаем билеты из поля response.tickets <---
+        if (response && response.tickets && Array.isArray(response.tickets)) {
+            const ticketsData: TicketItem[] = response.tickets;
             const eventIds = ticketsData
+                // Дополнительно проверяем статус билета, т.к. API может вернуть разные
                 .filter((ticket: TicketItem) => ticket.status === 'approved' && ticket.event?.id != null)
                 .map((ticket: TicketItem) => ticket.event!.id);
             setReservedEventIds(eventIds);
         } else {
-            logger.warn("Failed to fetch reserved tickets or invalid response format.", response);
+            // Логируем весь ответ для диагностики
+            logger.warn("Failed to fetch reserved tickets or invalid response format.", { response });
             setReservedEventIds([]);
         }
+        // ---> КОНЕЦ ИЗМЕНЕНИЯ <---\
 
       } catch (error) {
-        logger.error('Ошибка при получении броней через apiFetch:', error);
-        setReservedEventIds([]);
+        // Используем instanceof для проверки типа ошибки
+        if (error instanceof Error && error.name === 'AbortError') {
+          logger.info("Reserved tickets fetch aborted.");
+        } else {
+          logger.error('Error fetching reserved tickets via apiFetch:', error);
+        }
+        setReservedEventIds([]); // Сбрасываем в случае любой ошибки
       }
     };
     fetchReservedEventIds();
+
+    const handleTicketUpdate = () => {
+      logger.info("Received ticket-update event, refetching reserved tickets.");
+      fetchReservedEventIds();
+    };
+    window.addEventListener('ticket-update', handleTicketUpdate);
+    return () => {
+        logger.debug("Removing ticket update event listener"); // Добавим лог для отладки
+        window.removeEventListener('ticket-update', handleTicketUpdate);
+    }
   }, [isAuth, isAuthChecked]);
 
   // Рендер состояния ошибки
@@ -942,12 +953,13 @@ const EventsPageContent = () => {
         <div className="p-8 text-center">
           <h2 className="text-xl font-semibold text-red-600 mb-4">Произошла ошибка при загрузке мероприятий</h2>
           <p className="text-gray-700 mb-4">{loadingErrorFromContext || "Не удалось загрузить данные. Попробуйте позже."}</p>
-          <button 
+          <button
             onClick={() => {
               setError(null);
               setPage(1);
               hasInitialData.current = false;
               hasAttemptedInitialFetch.current = false;
+              // Перезапускаем загрузку с первой страницы и сброшенными фильтрами
               fetchEventsWithFilters({ startDate: "", endDate: "" }, 1);
             }}
             className="px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"

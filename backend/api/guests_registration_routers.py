@@ -14,24 +14,6 @@ from typing import Callable, List
 router = APIRouter()
 bearer_scheme = HTTPBearer()
 
-async def get_next_ticket_number(db: AsyncSession, event_id: int) -> str:
-    """
-    Generate a ticket number in the format n-n where:
-    - First n is the event ID
-    - Second n is a unique sequential number for this event (no length restriction)
-    """
-    # Get the count of existing registrations for this event
-    result = await db.execute(
-        select(func.count(Registration.id)).where(Registration.event_id == event_id)
-    )
-    count = result.scalar() or 0
-    
-    # Generate the next ticket number (event_id-count+1)
-    # No length restriction for the sequential number
-    ticket_number = f"{event_id}-{count + 1}"
-    
-    return ticket_number
-
 @router.post("/register", response_model=RegistrationResponse)
 async def register_for_event(
     data: RegistrationRequest,
@@ -49,7 +31,7 @@ async def register_for_event(
         select(Registration).where(
             Registration.user_id == user_id,
             Registration.event_id == event_id,
-            Registration.status != Status.cancelled.name  # Используем .name
+            Registration.status != Status.cancelled.name
         )
     )
     
@@ -87,7 +69,7 @@ async def register_for_event(
         raise HTTPException(status_code=400, detail="Билеты на это мероприятие распроданы")
     
     # Создаем номер билета
-    ticket_number = await get_next_ticket_number(db, event_id)
+    ticket_number = f"{event_id}-{user_id}"
     
     # Если есть отмененная регистрация, обновляем ее, иначе создаем новую
     if cancelled_reg:
@@ -109,19 +91,36 @@ async def register_for_event(
             payment_status=ticket.free_registration,
             status=Status.approved.name,
             amount_paid=0 if ticket.free_registration else ticket.price,
-            cancellation_count=0  # Явно указываем счетчик отмен
+            cancellation_count=0
         )
         db.add(registration)
     
-    # Увеличиваем количество проданных билетов
-    ticket.sold_quantity += 1
-    await log_user_activity(db, current_user.id, request, action="register_event")
+    # Обновляем счетчик проданных билетов только если регистрация действительно новая или реактивированная
+    if registration.status == Status.approved.name: # Проверяем финальный статус
+        ticket.sold_quantity += 1
     
+    # Проверяем, не закончились ли билеты после этой регистрации
     if ticket.available_quantity <= ticket.sold_quantity:
         event.status = EventStatus.registration_closed
     
+    # Логируем действие пользователя
+    await log_user_activity(db, current_user.id, request, action="register_for_event")
+    
     await db.commit()
-    return RegistrationResponse(message="Successfully registered")
+    await db.refresh(registration) # Обновляем объект регистрации после коммита
+    # Убедимся, что ticket тоже обновлен, если его статус менялся
+    if event.status == EventStatus.registration_closed:
+        await db.refresh(event)
+    await db.refresh(ticket)
+    
+    return RegistrationResponse(
+        id=registration.id,
+        event_id=registration.event_id,
+        user_id=registration.user_id,
+        ticket_type=ticket.name, # Используем имя типа билета
+        status=registration.status,
+        ticket_number=ticket_number # Возвращаем актуальный номер билета
+    )
 
 @router.post("/cancel", response_model=RegistrationResponse)
 async def cancel_registration(

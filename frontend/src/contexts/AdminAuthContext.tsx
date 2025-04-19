@@ -83,7 +83,7 @@ const validateTokenLocally = (token: string | null): boolean => {
 
 export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
-  const { setStage } = useLoadingStage();
+  const { setStage, currentStage } = useLoadingStage();
   const { setStaticLoading } = useLoadingFlags();
   const isInitialized = useRef(false);
   const isMounted = useRef(false);
@@ -214,10 +214,15 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       
       adminAuthLogger.info("AdminAuthContext: Starting authentication initialization");
       
-      // --- Устанавливаем флаг и стадию начала аутентификации --- 
-      setStaticLoading(true); // Используем флаг статической загрузки
-      setStage(LoadingStage.AUTHENTICATION);
-      // ----------------------------------------------------------
+      // --- Устанавливаем флаг и стадию начала аутентификации ТОЛЬКО если мы в начале ---
+      setStaticLoading(true); // Флаг ставим всегда при начале проверки
+      if (currentStage === LoadingStage.INITIAL) {
+        adminAuthLogger.info(`AdminAuthContext: Current stage is INITIAL, setting stage to AUTHENTICATION.`);
+        setStage(LoadingStage.AUTHENTICATION);
+      } else {
+         adminAuthLogger.info(`AdminAuthContext: Current stage is ${currentStage}, skipping setStage(AUTHENTICATION).`);
+      }
+      // -----------------------------------------------------------------------------
 
       let checkSuccessful = false;
       try { 
@@ -261,7 +266,7 @@ export const AdminAuthProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       isMounted.current = false;
       // Не сбрасываем isInitialized.current, чтобы эффект не запускался повторно при HMR
     };
-  }, [checkAuth, setStage, setStaticLoading]);
+  }, [checkAuth, setStage, setStaticLoading, currentStage]);
 
   // Контекстное значение
   const contextValue = {

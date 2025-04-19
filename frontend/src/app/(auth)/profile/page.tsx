@@ -459,26 +459,27 @@ const ProfilePage: React.FC = () => {
       try {
         initProfile();
         hasInitialized.current = true;
-        if (currentStage < LoadingStage.DYNAMIC_CONTENT) {
-          setStage(LoadingStage.DYNAMIC_CONTENT);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('profile-loaded'));
         }
       } catch {
         setProfileError('Ошибка инициализации профиля');
-        setStage(LoadingStage.ERROR);
+        setLoadingError('Ошибка инициализации профиля');
       }
     } else if (isAuthChecked && (!isAuth || !userData)) {
       setProfileError('Ошибка авторизации или загрузки данных пользователя.');
-      setStage(LoadingStage.ERROR);
+      setLoadingError('Ошибка авторизации или загрузки данных пользователя.');
     }
-  }, [isAuthChecked, isAuth, userData, initProfile, setStage, currentStage]);
+  }, [isAuthChecked, isAuth, userData, initProfile, setLoadingError]);
 
-  if (!isAuthChecked) {
+  if (!isAuthChecked || currentStage < LoadingStage.DYNAMIC_CONTENT) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="h-12 w-12 animate-spin rounded-full border-4 border-solid border-orange-500 border-r-transparent"></div>
       </div>
     );
   }
+
   if (profileError) {
     return <ErrorDisplay error={profileError} />;
   }

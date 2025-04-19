@@ -73,3 +73,9 @@ export enum TicketTypeEnum {
   vip = "vip",
   org = "org",
 }
+
+// Интерфейс для фильтрации событий по дате
+export interface EventDateFilter {
+  startDate?: string;
+  endDate?: string;
+}
